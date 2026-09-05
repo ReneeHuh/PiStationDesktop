@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+# Windows command-line scripts retain native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+
+# Binary application and terminal assets.
+*.bmp binary
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.png binary
+*.webp binary
+*.wasm binary
+*.woff2 binary

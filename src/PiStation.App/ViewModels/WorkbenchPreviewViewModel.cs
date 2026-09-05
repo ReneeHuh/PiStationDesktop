@@ -1,0 +1,874 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.UI.Xaml;
+using PiStation.Protocol.Models;
+
+namespace PiStation.App.ViewModels;
+
+public enum PreviewFailureKind
+{
+    None,
+    InvalidAddress,
+    Navigation,
+    BrowserProcess,
+    Initialization,
+}
+
+public enum PreviewViewportPreset
+{
+    Responsive,
+    Desktop,
+    Tablet,
+    Phone,
+}
+
+public sealed class WorkbenchPreviewViewModel : ObservableObject
+{
+    public const int MaximumTabs = 12;
+
+    private string _blankAddressText = string.Empty;
+    private string _discoveryStatus = "Select a workspace to discover local servers";
+    private bool _hasProject;
+    private bool _isDiscovering;
+    private WorkbenchPreviewTabViewModel? _activeTab;
+
+    public ObservableCollection<DiscoveredPreviewServer> DiscoveredServers { get; } = [];
+
+    public ObservableCollection<WorkbenchPreviewTabViewModel> Tabs { get; } = [];
+
+    public WorkbenchPreviewTabViewModel? ActiveTab
+    {
+        get => _activeTab;
+        internal set
+        {
+            if (ReferenceEquals(_activeTab, value))
+            {
+                return;
+            }
+
+            if (_activeTab is not null)
+            {
+                _activeTab.PropertyChanged -= OnActiveTabPropertyChanged;
+                _activeTab.IsActive = false;
+            }
+
+            if (!SetProperty(ref _activeTab, value))
+            {
+                return;
+            }
+
+            if (_activeTab is not null)
+            {
+                _activeTab.IsActive = true;
+                _activeTab.PropertyChanged += OnActiveTabPropertyChanged;
+                _blankAddressText = _activeTab.AddressText;
+            }
+
+            RaiseActiveTabProperties();
+        }
+    }
+
+    public string AddressText
+    {
+        get => ActiveTab?.AddressText ?? _blankAddressText;
+        internal set
+        {
+            var normalized = value ?? string.Empty;
+            if (ActiveTab is { } tab)
+            {
+                tab.AddressText = normalized;
+            }
+            else if (!string.Equals(_blankAddressText, normalized, StringComparison.Ordinal))
+            {
+                _blankAddressText = normalized;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string CurrentUrl => ActiveTab?.CurrentUrl ?? string.Empty;
+
+    public string DocumentTitle => ActiveTab?.DocumentTitle ?? "Preview";
+
+    public string DiscoveryStatus
+    {
+        get => _discoveryStatus;
+        private set
+        {
+            if (SetProperty(ref _discoveryStatus, value))
+            {
+                OnPropertyChanged(nameof(DiscoveryStatusVisibility));
+            }
+        }
+    }
+
+    public Visibility DiscoveryStatusVisibility => string.IsNullOrWhiteSpace(DiscoveryStatus)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public bool HasProject
+    {
+        get => _hasProject;
+        private set
+        {
+            if (SetProperty(ref _hasProject, value))
+            {
+                OnPropertyChanged(nameof(CanDiscover));
+                OnPropertyChanged(nameof(CanNavigate));
+                OnPropertyChanged(nameof(TabStripVisibility));
+            }
+        }
+    }
+
+    public bool IsDiscovering
+    {
+        get => _isDiscovering;
+        internal set
+        {
+            if (SetProperty(ref _isDiscovering, value))
+            {
+                OnPropertyChanged(nameof(CanDiscover));
+                OnPropertyChanged(nameof(DiscoveryProgressVisibility));
+            }
+        }
+    }
+
+    public Visibility DiscoveryProgressVisibility => IsDiscovering
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public bool IsLoading => ActiveTab?.IsLoading == true;
+
+    public Visibility LoadingProgressVisibility => IsLoading
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public bool CanGoBack => ActiveTab?.CanGoBack == true;
+
+    public bool CanGoForward => ActiveTab?.CanGoForward == true;
+
+    public bool CanDiscover => HasProject && !IsDiscovering;
+
+    public bool CanNavigate => HasProject;
+
+    public bool CanReloadOrStop => !string.IsNullOrWhiteSpace(CurrentUrl);
+
+    public bool CanOpenExternal => TryNormalizeAddress(CurrentUrl, out _, out _);
+
+    public bool CanCapture => ActiveTab is { CanCapture: true, IsPickingElement: false };
+
+    public bool CanAnnotate => ActiveTab is { CanCapture: true };
+
+    public bool CanAddTab => HasProject && Tabs.Count < MaximumTabs;
+
+    public bool CanCloseTab => ActiveTab is not null;
+
+    public string ReloadStopGlyph => IsLoading ? "\uE71A" : "\uE72C";
+
+    public string ReloadStopLabel => IsLoading ? "Stop loading preview" : "Reload preview";
+
+    public string AnnotationLabel => ActiveTab?.IsPickingElement == true
+        ? "Cancel element annotation"
+        : "Annotate preview element";
+
+    public string CaptureStatus => ActiveTab?.CaptureStatus ?? string.Empty;
+
+    public string? LastCapturePath => ActiveTab?.LastCapturePath;
+
+    public bool CanRevealCapture => !string.IsNullOrWhiteSpace(LastCapturePath);
+
+    public Visibility CaptureStatusVisibility => string.IsNullOrWhiteSpace(CaptureStatus)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public int ViewportPresetIndex => ActiveTab?.ViewportPresetIndex ?? 0;
+
+    public string ViewportDescription => ActiveTab?.ViewportDescription ?? "Responsive";
+
+    public Visibility ViewportControlsVisibility => ActiveTab is null
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public Visibility TabStripVisibility => HasProject ? Visibility.Visible : Visibility.Collapsed;
+
+    public PreviewFailureKind FailureKind => ActiveTab?.FailureKind ?? PreviewFailureKind.None;
+
+    public string FailureMessage => ActiveTab?.FailureMessage ?? string.Empty;
+
+    public Visibility FailureVisibility => FailureKind == PreviewFailureKind.None
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public Visibility EmptyStateVisibility => string.IsNullOrWhiteSpace(CurrentUrl)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility BrowserVisibility => string.IsNullOrWhiteSpace(CurrentUrl)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    internal void Reset(
+        bool hasProject,
+        PreviewWorkspacePreference? savedWorkspace = null,
+        string? legacySavedUrl = null)
+    {
+        ActiveTab = null;
+        Tabs.Clear();
+        HasProject = hasProject;
+        IsDiscovering = false;
+        DiscoveredServers.Clear();
+        _blankAddressText = string.Empty;
+
+        if (hasProject && savedWorkspace is not null)
+        {
+            foreach (var preference in savedWorkspace.Tabs.Take(MaximumTabs))
+            {
+                var tab = WorkbenchPreviewTabViewModel.FromPreference(preference);
+                if (tab is not null)
+                {
+                    Tabs.Add(tab);
+                }
+            }
+
+            ActiveTab = Tabs.FirstOrDefault(tab =>
+                string.Equals(tab.TabId, savedWorkspace.ActiveTabId, StringComparison.Ordinal)) ??
+                Tabs.LastOrDefault();
+        }
+
+        if (hasProject && Tabs.Count == 0 && TryNormalizeAddress(legacySavedUrl, out var legacyUri, out _))
+        {
+            var migrated = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"));
+            migrated.Restore(legacyUri.AbsoluteUri, legacyUri.Host, PreviewViewportPreset.Responsive, 0, 0);
+            Tabs.Add(migrated);
+            ActiveTab = migrated;
+        }
+
+        DiscoveryStatus = hasProject
+            ? Tabs.Count > 0
+                ? "Restored preview tabs for this thread"
+                : "Looking for local development servers…"
+            : "Select a workspace to discover local servers";
+        RaiseTabCollectionProperties();
+    }
+
+    internal WorkbenchPreviewTabViewModel AddTab(string? initialUrl = null)
+    {
+        if (Tabs.Count >= MaximumTabs)
+        {
+            ActiveTab = Tabs.LastOrDefault();
+            return ActiveTab ?? throw new InvalidOperationException("The preview tab limit was reached.");
+        }
+
+        var tab = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"));
+        if (TryNormalizeAddress(initialUrl, out var uri, out _))
+        {
+            tab.Restore(uri.AbsoluteUri, uri.Host, PreviewViewportPreset.Responsive, 0, 0);
+        }
+
+        Tabs.Add(tab);
+        ActiveTab = tab;
+        RaiseTabCollectionProperties();
+        return tab;
+    }
+
+    internal void CloseTab(WorkbenchPreviewTabViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        var index = Tabs.IndexOf(tab);
+        if (index < 0)
+        {
+            return;
+        }
+
+        Tabs.RemoveAt(index);
+        if (ReferenceEquals(ActiveTab, tab))
+        {
+            ActiveTab = Tabs.Count == 0
+                ? null
+                : Tabs[Math.Min(index, Tabs.Count - 1)];
+        }
+
+        RaiseTabCollectionProperties();
+    }
+
+    internal PreviewWorkspacePreference CreatePreference() => new(
+        ActiveTab?.TabId,
+        Tabs.Select(static tab => tab.CreatePreference()).ToArray());
+
+    internal void BeginDiscovery()
+    {
+        IsDiscovering = true;
+        DiscoveryStatus = "Looking for local development servers…";
+    }
+
+    internal void ApplyDiscovery(DiscoverProjectPreviewServersResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        DiscoveredServers.Clear();
+        foreach (var server in result.Servers)
+        {
+            DiscoveredServers.Add(server);
+        }
+
+        IsDiscovering = false;
+        DiscoveryStatus = result.Servers.Count == 0
+            ? "No local web servers found. Start your development server, then refresh."
+            : result.IsTruncated
+                ? $"Showing the first {result.Servers.Count} local servers"
+                : $"{result.Servers.Count} local server" + (result.Servers.Count == 1 ? string.Empty : "s") + " found";
+    }
+
+    internal void FailDiscovery(string message)
+    {
+        IsDiscovering = false;
+        DiscoveryStatus = $"Server discovery unavailable: {message}";
+    }
+
+    internal bool PrepareNavigation(string? address, out WorkbenchPreviewTabViewModel? tab, out Uri? uri)
+    {
+        if (!TryNormalizeAddress(address, out var normalized, out var error))
+        {
+            tab = ActiveTab;
+            uri = null;
+            if (tab is null)
+            {
+                _blankAddressText = address ?? string.Empty;
+                OnPropertyChanged(nameof(AddressText));
+            }
+            else
+            {
+                tab.ReportFailure(PreviewFailureKind.InvalidAddress, error);
+            }
+
+            RaiseActiveTabProperties();
+            return false;
+        }
+
+        tab = ActiveTab ?? AddTab();
+        tab.PrepareNavigation(normalized);
+        uri = normalized;
+        return true;
+    }
+
+    internal void ReportNavigationStarted(string? tabId, Uri uri) =>
+        FindTab(tabId)?.ReportNavigationStarted(uri);
+
+    internal void ReportBrowserState(
+        string? tabId,
+        string? source,
+        string? title,
+        bool canGoBack,
+        bool canGoForward) =>
+        FindTab(tabId)?.ReportBrowserState(source, title, canGoBack, canGoForward);
+
+    internal void ReportNavigationCompleted(string? tabId, bool succeeded, string? message) =>
+        FindTab(tabId)?.ReportNavigationCompleted(succeeded, message);
+
+    internal void ReportBrowserFailure(string? tabId, PreviewFailureKind kind, string message) =>
+        FindTab(tabId)?.ReportFailure(kind, message);
+
+    internal void ReturnToServers()
+    {
+        ActiveTab?.ReturnToServers();
+        DiscoveryStatus = "Looking for local development servers…";
+    }
+
+    internal void RestoreAddressDraft()
+    {
+        if (ActiveTab is { } tab)
+        {
+            tab.RestoreAddressDraft();
+        }
+        else
+        {
+            _blankAddressText = string.Empty;
+            OnPropertyChanged(nameof(AddressText));
+        }
+    }
+
+    internal void ApplyViewportPreset(int index) => ActiveTab?.ApplyViewportPreset(index);
+
+    internal void RotateViewport() => ActiveTab?.RotateViewport();
+
+    internal void UpdateResponsiveViewport(double width, double height)
+    {
+        foreach (var tab in Tabs)
+        {
+            tab.UpdateResponsiveViewport(width, height);
+        }
+    }
+
+    internal void BeginElementPick()
+    {
+        if (ActiveTab is { } tab)
+        {
+            tab.IsPickingElement = true;
+            tab.CaptureStatus = "Select an element in the preview, or press Escape to cancel";
+        }
+    }
+
+    internal void CompleteElementPick(string status)
+    {
+        if (ActiveTab is { } tab)
+        {
+            tab.IsPickingElement = false;
+            tab.CaptureStatus = status;
+        }
+    }
+
+    internal void SetCaptureStatus(string? tabId, string status, string? capturePath = null)
+    {
+        if (FindTab(tabId) is { } tab)
+        {
+            tab.CaptureStatus = status;
+            if (!string.IsNullOrWhiteSpace(capturePath))
+            {
+                tab.LastCapturePath = capturePath;
+            }
+        }
+    }
+
+    internal WorkbenchPreviewTabViewModel? FindTab(string? tabId) =>
+        string.IsNullOrWhiteSpace(tabId)
+            ? null
+            : Tabs.FirstOrDefault(tab => string.Equals(tab.TabId, tabId, StringComparison.Ordinal));
+
+    public static bool TryNormalizeAddress(string? value, out Uri uri, out string error)
+    {
+        uri = null!;
+        var candidate = value?.Trim() ?? string.Empty;
+        if (candidate.Length == 0)
+        {
+            error = "Enter an HTTP or HTTPS address.";
+            return false;
+        }
+
+        if (candidate.Length > PreviewDiscoveryDefaults.MaximumUrlLength)
+        {
+            error = $"The address exceeds {PreviewDiscoveryDefaults.MaximumUrlLength} characters.";
+            return false;
+        }
+
+        if (!candidate.Contains("://", StringComparison.Ordinal))
+        {
+            candidate = $"http://{candidate}";
+        }
+
+        if (!Uri.TryCreate(candidate, UriKind.Absolute, out var parsed) ||
+            !(string.Equals(parsed.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(parsed.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) ||
+            string.IsNullOrWhiteSpace(parsed.Host) ||
+            !string.IsNullOrEmpty(parsed.UserInfo) ||
+            parsed.AbsoluteUri.Length > PreviewDiscoveryDefaults.MaximumUrlLength)
+        {
+            error = "Only HTTP and HTTPS addresses without embedded credentials can be previewed.";
+            return false;
+        }
+
+        uri = parsed;
+        error = string.Empty;
+        return true;
+    }
+
+    private void OnActiveTabPropertyChanged(object? sender, PropertyChangedEventArgs e) =>
+        RaiseActiveTabProperties();
+
+    private void RaiseTabCollectionProperties()
+    {
+        OnPropertyChanged(nameof(Tabs));
+        OnPropertyChanged(nameof(CanAddTab));
+        OnPropertyChanged(nameof(CanCloseTab));
+        OnPropertyChanged(nameof(TabStripVisibility));
+        RaiseActiveTabProperties();
+    }
+
+    private void RaiseActiveTabProperties()
+    {
+        OnPropertyChanged(nameof(AddressText));
+        OnPropertyChanged(nameof(CurrentUrl));
+        OnPropertyChanged(nameof(DocumentTitle));
+        OnPropertyChanged(nameof(IsLoading));
+        OnPropertyChanged(nameof(LoadingProgressVisibility));
+        OnPropertyChanged(nameof(CanGoBack));
+        OnPropertyChanged(nameof(CanGoForward));
+        OnPropertyChanged(nameof(CanReloadOrStop));
+        OnPropertyChanged(nameof(CanOpenExternal));
+        OnPropertyChanged(nameof(CanCapture));
+        OnPropertyChanged(nameof(CanAnnotate));
+        OnPropertyChanged(nameof(CanCloseTab));
+        OnPropertyChanged(nameof(ReloadStopGlyph));
+        OnPropertyChanged(nameof(ReloadStopLabel));
+        OnPropertyChanged(nameof(AnnotationLabel));
+        OnPropertyChanged(nameof(CaptureStatus));
+        OnPropertyChanged(nameof(CaptureStatusVisibility));
+        OnPropertyChanged(nameof(LastCapturePath));
+        OnPropertyChanged(nameof(CanRevealCapture));
+        OnPropertyChanged(nameof(ViewportPresetIndex));
+        OnPropertyChanged(nameof(ViewportDescription));
+        OnPropertyChanged(nameof(ViewportControlsVisibility));
+        OnPropertyChanged(nameof(FailureKind));
+        OnPropertyChanged(nameof(FailureMessage));
+        OnPropertyChanged(nameof(FailureVisibility));
+        OnPropertyChanged(nameof(EmptyStateVisibility));
+        OnPropertyChanged(nameof(BrowserVisibility));
+    }
+}
+
+public sealed class WorkbenchPreviewTabViewModel : ObservableObject
+{
+    private string _addressText = string.Empty;
+    private bool _canGoBack;
+    private bool _canGoForward;
+    private string _captureStatus = string.Empty;
+    private string _currentUrl = string.Empty;
+    private string _documentTitle = "New preview";
+    private PreviewFailureKind _failureKind;
+    private string _failureMessage = string.Empty;
+    private bool _isActive;
+    private bool _isLoading;
+    private bool _isPickingElement;
+    private string? _lastCapturePath;
+    private PreviewViewportPreset _viewportPreset;
+    private int _viewportWidth;
+    private int _viewportHeight;
+    private double _responsiveWidth = 240;
+    private double _responsiveHeight = 240;
+
+    public WorkbenchPreviewTabViewModel(string tabId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tabId);
+        TabId = tabId;
+    }
+
+    public string TabId { get; }
+
+    public string AddressText
+    {
+        get => _addressText;
+        internal set => SetProperty(ref _addressText, value ?? string.Empty);
+    }
+
+    public string CurrentUrl
+    {
+        get => _currentUrl;
+        private set
+        {
+            if (SetProperty(ref _currentUrl, value))
+            {
+                OnPropertyChanged(nameof(CanCapture));
+                OnPropertyChanged(nameof(SurfaceVisibility));
+            }
+        }
+    }
+
+    public string DocumentTitle
+    {
+        get => _documentTitle;
+        private set
+        {
+            if (SetProperty(ref _documentTitle, value))
+            {
+                OnPropertyChanged(nameof(TabTitle));
+            }
+        }
+    }
+
+    public string TabTitle => IsLoading ? $"{DocumentTitle} …" : DocumentTitle;
+
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (SetProperty(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(TabTitle));
+                OnPropertyChanged(nameof(CanCapture));
+            }
+        }
+    }
+
+    public bool CanGoBack
+    {
+        get => _canGoBack;
+        private set => SetProperty(ref _canGoBack, value);
+    }
+
+    public bool CanGoForward
+    {
+        get => _canGoForward;
+        private set => SetProperty(ref _canGoForward, value);
+    }
+
+    public bool CanCapture => !string.IsNullOrWhiteSpace(CurrentUrl) && !IsLoading;
+
+    public bool IsPickingElement
+    {
+        get => _isPickingElement;
+        internal set => SetProperty(ref _isPickingElement, value);
+    }
+
+    public string CaptureStatus
+    {
+        get => _captureStatus;
+        internal set => SetProperty(ref _captureStatus, value ?? string.Empty);
+    }
+
+    public string? LastCapturePath
+    {
+        get => _lastCapturePath;
+        internal set => SetProperty(ref _lastCapturePath, value);
+    }
+
+    public PreviewFailureKind FailureKind
+    {
+        get => _failureKind;
+        private set => SetProperty(ref _failureKind, value);
+    }
+
+    public string FailureMessage
+    {
+        get => _failureMessage;
+        private set => SetProperty(ref _failureMessage, value ?? string.Empty);
+    }
+
+    public bool IsActive
+    {
+        get => _isActive;
+        internal set
+        {
+            if (SetProperty(ref _isActive, value))
+            {
+                OnPropertyChanged(nameof(SurfaceVisibility));
+            }
+        }
+    }
+
+    public Visibility SurfaceVisibility => IsActive && !string.IsNullOrWhiteSpace(CurrentUrl)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public int ViewportPresetIndex => (int)_viewportPreset;
+
+    public double SurfaceWidth => _viewportPreset == PreviewViewportPreset.Responsive
+        ? _responsiveWidth
+        : _viewportWidth;
+
+    public double SurfaceHeight => _viewportPreset == PreviewViewportPreset.Responsive
+        ? _responsiveHeight
+        : _viewportHeight;
+
+    public string ViewportDescription => _viewportPreset == PreviewViewportPreset.Responsive
+        ? $"Responsive • {Math.Round(_responsiveWidth)} × {Math.Round(_responsiveHeight)}"
+        : $"{_viewportPreset} • {_viewportWidth} × {_viewportHeight}";
+
+    internal static WorkbenchPreviewTabViewModel? FromPreference(PreviewTabPreference preference)
+    {
+        if (preference is null || string.IsNullOrWhiteSpace(preference.TabId))
+        {
+            return null;
+        }
+
+        var tab = new WorkbenchPreviewTabViewModel(preference.TabId.Trim());
+        tab.Restore(
+            preference.Url,
+            preference.Title,
+            Enum.IsDefined(preference.ViewportPreset)
+                ? preference.ViewportPreset
+                : PreviewViewportPreset.Responsive,
+            preference.ViewportWidth,
+            preference.ViewportHeight);
+        return tab;
+    }
+
+    internal PreviewTabPreference CreatePreference() => new(
+        TabId,
+        CurrentUrl,
+        DocumentTitle,
+        _viewportPreset,
+        _viewportWidth,
+        _viewportHeight);
+
+    internal void Restore(
+        string? url,
+        string? title,
+        PreviewViewportPreset preset,
+        int width,
+        int height)
+    {
+        if (WorkbenchPreviewViewModel.TryNormalizeAddress(url, out var uri, out _))
+        {
+            CurrentUrl = uri.AbsoluteUri;
+            AddressText = uri.AbsoluteUri;
+            DocumentTitle = string.IsNullOrWhiteSpace(title) ? uri.Host : title.Trim();
+        }
+        else
+        {
+            CurrentUrl = string.Empty;
+            AddressText = string.Empty;
+            DocumentTitle = "New preview";
+        }
+
+        ApplyViewport(preset, width, height);
+        FailureKind = PreviewFailureKind.None;
+        FailureMessage = string.Empty;
+        IsLoading = false;
+    }
+
+    internal void PrepareNavigation(Uri uri)
+    {
+        CurrentUrl = uri.AbsoluteUri;
+        AddressText = uri.AbsoluteUri;
+        DocumentTitle = uri.Host;
+        FailureKind = PreviewFailureKind.None;
+        FailureMessage = string.Empty;
+        CaptureStatus = string.Empty;
+        LastCapturePath = null;
+        IsLoading = true;
+    }
+
+    internal void ReportNavigationStarted(Uri uri)
+    {
+        CurrentUrl = uri.AbsoluteUri;
+        AddressText = uri.AbsoluteUri;
+        FailureKind = PreviewFailureKind.None;
+        FailureMessage = string.Empty;
+        IsLoading = true;
+    }
+
+    internal void ReportBrowserState(string? source, string? title, bool canGoBack, bool canGoForward)
+    {
+        if (WorkbenchPreviewViewModel.TryNormalizeAddress(source, out var uri, out _))
+        {
+            CurrentUrl = uri.AbsoluteUri;
+            AddressText = uri.AbsoluteUri;
+        }
+
+        DocumentTitle = string.IsNullOrWhiteSpace(title)
+            ? WorkbenchPreviewViewModel.TryNormalizeAddress(CurrentUrl, out var current, out _)
+                ? current.Host
+                : "New preview"
+            : title.Trim();
+        CanGoBack = canGoBack;
+        CanGoForward = canGoForward;
+    }
+
+    internal void ReportNavigationCompleted(bool succeeded, string? message)
+    {
+        IsLoading = false;
+        if (succeeded)
+        {
+            FailureKind = PreviewFailureKind.None;
+            FailureMessage = string.Empty;
+            return;
+        }
+
+        FailureKind = PreviewFailureKind.Navigation;
+        FailureMessage = string.IsNullOrWhiteSpace(message)
+            ? "The page could not be loaded. Check that the server is running, then reload."
+            : message;
+    }
+
+    internal void ReportFailure(PreviewFailureKind kind, string message)
+    {
+        IsLoading = false;
+        FailureKind = kind;
+        FailureMessage = message;
+    }
+
+    internal void ReturnToServers()
+    {
+        CurrentUrl = string.Empty;
+        AddressText = string.Empty;
+        DocumentTitle = "New preview";
+        FailureKind = PreviewFailureKind.None;
+        FailureMessage = string.Empty;
+        CaptureStatus = string.Empty;
+        IsLoading = false;
+        CanGoBack = false;
+        CanGoForward = false;
+    }
+
+    internal void RestoreAddressDraft() => AddressText = CurrentUrl;
+
+    internal void ApplyViewportPreset(int index)
+    {
+        var preset = Enum.IsDefined(typeof(PreviewViewportPreset), index)
+            ? (PreviewViewportPreset)index
+            : PreviewViewportPreset.Responsive;
+        ApplyViewport(preset, 0, 0);
+    }
+
+    internal void RotateViewport()
+    {
+        if (_viewportPreset == PreviewViewportPreset.Responsive)
+        {
+            return;
+        }
+
+        (_viewportWidth, _viewportHeight) = (_viewportHeight, _viewportWidth);
+        RaiseViewportProperties();
+    }
+
+    internal void UpdateResponsiveViewport(double width, double height)
+    {
+        var normalizedWidth = Math.Max(240, Math.Floor(width));
+        var normalizedHeight = Math.Max(240, Math.Floor(height));
+        if (Math.Abs(_responsiveWidth - normalizedWidth) < 0.5 &&
+            Math.Abs(_responsiveHeight - normalizedHeight) < 0.5)
+        {
+            return;
+        }
+
+        _responsiveWidth = normalizedWidth;
+        _responsiveHeight = normalizedHeight;
+        if (_viewportPreset == PreviewViewportPreset.Responsive)
+        {
+            RaiseViewportProperties();
+        }
+    }
+
+    private void ApplyViewport(PreviewViewportPreset preset, int width, int height)
+    {
+        _viewportPreset = preset;
+        (_viewportWidth, _viewportHeight) = preset switch
+        {
+            PreviewViewportPreset.Desktop => NormalizeFixedSize(width, height, 1440, 900),
+            PreviewViewportPreset.Tablet => NormalizeFixedSize(width, height, 768, 1024),
+            PreviewViewportPreset.Phone => NormalizeFixedSize(width, height, 390, 844),
+            _ => (0, 0),
+        };
+        RaiseViewportProperties();
+    }
+
+    private static (int Width, int Height) NormalizeFixedSize(
+        int width,
+        int height,
+        int defaultWidth,
+        int defaultHeight) =>
+        width is >= 240 and <= 3840 && height is >= 240 and <= 3840 && width * (long)height <= 3840L * 2160L
+            ? (width, height)
+            : (defaultWidth, defaultHeight);
+
+    private void RaiseViewportProperties()
+    {
+        OnPropertyChanged(nameof(ViewportPresetIndex));
+        OnPropertyChanged(nameof(SurfaceWidth));
+        OnPropertyChanged(nameof(SurfaceHeight));
+        OnPropertyChanged(nameof(ViewportDescription));
+    }
+}
+
+public sealed record PreviewElementAnnotation(
+    string PageUrl,
+    string PageTitle,
+    string ElementLabel,
+    string Selector,
+    string Text,
+    string OuterHtml,
+    double X,
+    double Y,
+    double Width,
+    double Height,
+    byte[] Screenshot);

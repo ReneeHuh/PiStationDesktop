@@ -78,6 +78,7 @@ publish/
 *.publish.xml
 *.pubxml
 *.pubxml.user
+!src/PiStation.App/Properties/PublishProfiles/win-x64.pubxml
 *.publishproj
 *.azurePubxml
 *.publishsettings

@@ -1,0 +1,58 @@
+name: PiStationDesktop PR
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pistationdesktop-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-ui:
+    name: Build, code tests, and packaged UI journeys
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Setup WinApp CLI
+        uses: microsoft/setup-WinAppCli@v0.1
+        with:
+          version: v0.6.1
+
+      - name: Install pinned Pester
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+
+      - name: Verify UI test tool versions
+        run: pwsh ./tests/PiStation.UiTests/Bootstrap-UiTestTools.ps1
+
+      - name: Run pull-request gate
+        run: pwsh ./Invoke-PullRequestTests.ps1
+
+      - name: Upload test results and UI diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pistationdesktop-test-results-${{ github.run_attempt }}
+          path: |
+            TestResults/**
+            tests/PiStation.UiTests/artifacts/**
+          if-no-files-found: warn
+          retention-days: 14

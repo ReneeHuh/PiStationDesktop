@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PiStation.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "PiStation.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

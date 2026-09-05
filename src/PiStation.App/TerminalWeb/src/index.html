@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PiStation terminal</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --terminal-scrollbar: rgba(128, 128, 128, 0.45);
+        --terminal-scrollbar-hover: rgba(150, 150, 150, 0.72);
+      }
+      * { box-sizing: border-box; }
+      html, body, #terminal { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { background: rgb(24, 24, 27); }
+      #terminal { position: relative; }
+      .terminal-canvas { display: block; width: 100%; height: 100%; cursor: text; }
+      .terminal-scrollbar {
+        position: absolute;
+        top: 4px;
+        right: 1px;
+        bottom: 4px;
+        z-index: 1;
+        width: 8px;
+        cursor: default;
+        touch-action: none;
+      }
+      .terminal-scrollbar-thumb {
+        position: absolute;
+        left: 1px;
+        right: 1px;
+        top: 0;
+        border-radius: 3px;
+        background: var(--terminal-scrollbar);
+        transition: background-color 120ms ease-out;
+      }
+      .terminal-scrollbar:hover .terminal-scrollbar-thumb,
+      .terminal-scrollbar:focus-visible .terminal-scrollbar-thumb {
+        background: var(--terminal-scrollbar-hover);
+      }
+      .visually-hidden {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: pre !important;
+        border: 0 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="terminal" aria-label="Terminal output"></main>
+    <pre id="terminal-accessible-output" class="visually-hidden" role="log" aria-live="polite" aria-label="Terminal output text"></pre>
+    <script src="terminal.js"></script>
+  </body>
+</html>

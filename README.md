@@ -1,1 +1,403 @@
-# PiStationDesktop
+# Pi Station Desktop
+
+Pi Station Desktop is a packaged, x64 WinUI 3 client for Pi. This folder is the application
+solution; the parent workspace holds planning documents and reference source checkouts.
+
+The implemented foundation includes the project boundaries, UI Automation contract, Pi RPC
+runtime, a versioned application protocol, SQLite host metadata, authoritative ordered thread
+projections, replay-safe command receipts, an authenticated loopback host, reconnectable client
+runtime, approvals and structured questions, durable composer drafts, and host-owned draft
+attachments carried into Pi turns. An authenticated, host-owned workspace filename search returns
+only project-relative paths as the backend for composer file mentions. The WinUI workflow keeps
+transport failures, Pi crashes, and uncertain commands as separate recovery states.
+
+Protocol v9 introduced the authoritative thread-lifecycle backend: revisioned titles, archived and
+pinned state, receipt-backed rename/archive/unarchive/pin/unpin commands, active-by-default lists,
+and bounded title search. SQLite migrations preserve existing thread and Pi-session identities;
+ClientRuntime exposes typed lifecycle/search operations, maintains a revision-safe metadata cache,
+and refreshes tracked projects after reconnect. The WinUI app now has a T3-inspired, dark-first
+semantic design-token layer with light and high-contrast variants plus reusable compact styles for
+surfaces, controls, sidebar/transcript rows, status indicators, and the composer. Its integrated
+T3-inspired frame replaces the generic `NavigationView` with a compact custom title bar, extracted
+workspace shell, collapsible 260/52px project rail, centered 720px reading column, unified
+project/thread hierarchy, and bottom settings/connection state. The custom title bar hosts the
+single-line `ChatHeader` with project/thread context and live turn status, removing a duplicate
+workspace bar. The extracted `ConversationTimeline` reads as a continuous document:
+assistant messages are unboxed, user turns use restrained right-aligned bubbles, reasoning and
+tools use compact disclosures, interactions remain semantically bounded, and metrics sit in quiet
+footers. The extracted `ComposerSurface` combines the bounded expanding editor, file mentions,
+horizontal attachment chips, compact model/reasoning selectors, accessible icon-led attachment and
+Send actions, visible Stop state, and quiet configuration/draft status in one rounded shell aligned
+with the transcript. A resizable workbench now docks beside the conversation on desktop widths and
+overlays only the conversation on compact windows. Its Changes tab now shows the active Git branch,
+upstream divergence, staged/working-tree/untracked file states, line totals, init/pull/branch/commit/
+push workflows, managed worktree controls, refresh, and bounded diffs.
+Its Files tab exposes the active thread workspace as a directory tree, supports ranked path and
+case/whole-word/regex content search, opens multiple editable file tabs, reveals content-search
+lines, saves through revision-conflict checks, renders Markdown and bounded image previews, creates
+composer mentions by drag-and-drop, and launches files in an available external editor. Binary
+content, oversized files, missing files, and paths outside the workspace are handled explicitly.
+Its Terminal tab now manages host-owned PowerShell and Command
+Prompt sessions with resumable output, session switching, start/stop/restart/close actions, local
+clear, command and focused-viewport keyboard input, native copy/paste/select-all/clear context actions,
+responsive size updates, and recursive split-right/split-down layouts for up to four independently
+focused sessions. The complete pane tree, split orientations and ratios, active pane, and pane sessions
+persist per project; every divider supports pointer, keyboard, and UI Automation resizing, and
+terminal-native shortcuts create, cycle focus between, and close panes. Its viewport uses
+the T3-derived Ghostty WebAssembly canvas renderer in a locked-down WebView2 surface. Its Preview
+tab discovers browser-ready loopback development servers and opens HTTP/HTTPS addresses in a
+separately locked-down WebView2 surface with address, back/forward, reload/stop, external-open,
+loading, and recoverable failure controls. Preview sessions are scoped per project/thread and retain multiple
+live WebView2 tabs with independent history plus responsive, desktop, tablet, and phone viewports.
+Human-triggered screenshot and element-annotation actions save PNG artifacts, append bounded DOM
+context to the composer, and upload annotation screenshots through the existing attachment path.
+Web messaging is enabled only for a one-use picker token; permissions, downloads, host objects, and
+agent automation remain disabled. Future agent browser control requires a separately advertised
+capability and an explicit user permission grant. Agents remains an honest unavailable state. The
+selected workbench tab persists locally. The header's Add action
+menu creates real threads, Open launches the selected local folder, and the workspace status rail
+shows local-project identity with a live Git summary. Sidebar collapse, workbench
+visibility, selected tab, and preferred width survive relaunch. The sidebar includes visible stable
+project paths, thread lifecycle state and relative time, debounced title search, active and archived shelves, inline rename, pin/unpin and
+archive/restore actions, keyboard and screen-reader status, and conflict-safe refresh. Assistant
+messages use native
+CommonMark rendering with formatted prose, safe links, inert raw HTML, selectable text, and
+syntax-highlighted code blocks with language labels and accessible copy actions. Protocol v10
+introduced bounded tool arguments in the ordered projection. Native WinUI expanders keep active
+reasoning and failed/running tools open, collapse completed work, and group adjacent tool calls per
+turn into one compact activity surface with accessible state, arguments, and output. Packaged-app
+journeys verify these UI slices and persistence. `ShellViewModel` now acts as the cross-feature
+coordinator while focused workspace, thread, composer, Pi-configuration, connection/recovery, and
+file-mention ViewModels own their observable presentation state; `ShellPage` binds to those child
+models directly.
+
+Settings is now a first-class sidebar destination with workspace-layout summary/reset, local
+environment details, and About information. Transport, Pi-crash, uncertain-command, and runtime
+notices share one recovery stack immediately above the composer. The visible transport test button
+has moved into a diagnostics section created only for Debug FakePi UI-test runs, and the normal
+driver contract verifies it cannot appear in ordinary launches. Intentional no-project, no-thread,
+and empty-thread states guide the user instead of leaving the conversation blank; native project,
+approval, question, and lifecycle interactions use the shared compact control treatment.
+The shell now has explicit Narrow, Compact, Standard, and Wide layouts with synchronized page,
+header, composer, and workbench behavior. A persisted Dark/Light/System appearance preference
+applies immediately; System follows Windows high contrast. Dialogs restore focus to their invoking
+sidebar control, while a DPI-aware compatibility journey verifies responsive bounds, minimum and
+maximized windows, composer growth, and 100/150/200 percent typography profiles.
+
+Protocol v11 adds the compact turn-completion footer. It shows host-measured elapsed time, aggregates
+Pi-reported input/output/cache/reasoning token usage for the user turn, and compares the latest
+trustworthy response usage with the active model's reported context window. Missing values are not
+estimated, and persisted Pi timestamps and usage restore the metadata when a session is hydrated.
+
+Protocol v12 adds authenticated, project-confined file previews. The host accepts only relative
+paths inside the selected project, rejects traversal and reparse-point escapes, caps returned bytes,
+and identifies binary and truncated results without exposing absolute paths to the UI.
+
+Protocol v13 adds authenticated, read-only Git status and diff contracts. Git runs without a shell,
+pager, prompts, external diff drivers, or text-conversion hooks; command time and output are bounded,
+and repository paths are normalized to the selected project before reaching the client.
+
+Protocol v14 adds authenticated, host-owned terminal sessions. The host bounds sessions per project,
+input length, and retained output; clients can reconnect from sequence cursors and safely resume a
+session snapshot plus subsequent output/state events. The Windows host uses ConPTY and applies real
+column/row resizes. The default viewport adapts T3 Code's Ghostty VT WebAssembly engine and Canvas2D
+surface, including scrollback, selection, Unicode width, keyboard/IME input, mouse reporting, OSC
+links, alternate screens, and SGR styling. WinUI owns lifecycle, theme, accessibility projection,
+the authenticated SignalR stream, and exact grid resizes across a small JSON bridge. Ghostty is the
+only client-side terminal engine. The native Ctrl+F overlay searches Ghostty-rendered scrollback,
+highlights all visible matches, supports previous/next navigation plus case and whole-word filters,
+and exposes the same action through the terminal context menu. Settings offers a validated terminal
+font-family and size selector; changes remeasure open Ghostty surfaces immediately, persist across
+relaunch, and fall back to the default monospace stack when a requested font is unavailable or
+proportional. Nested pane layouts support up to the host's four-session-per-project limit and collapse
+cleanly as panes or their backing sessions are closed.
+
+Protocol v15 adds authenticated local preview-server discovery. The host validates the selected
+project, collects bounded loopback TCP candidates, and performs cancellation-aware, concurrent
+HTTP/HTTPS header probes. Only HTML/XHTML endpoints and loopback-safe redirects are returned; the
+host never proxies page content or receives browser navigation. WinUI owns the embedded browser,
+permits only credential-free HTTP/HTTPS addresses, denies web permissions and downloads, blocks
+privileged host integration, and ignores stale discovery results after project switches.
+
+Protocol v16 adds T3-style per-turn checkpoints to the main coding loop. Immediately before a turn,
+the host snapshots the selected project with an isolated temporary Git index; after Pi settles, it
+writes the result to a hidden `refs/pistation/checkpoints/...` commit without moving `HEAD`, changing
+the user's index, or adding history to the current branch. Each completed turn shows an inline file
+summary with additions/deletions and opens either that turn's patch, a single-file patch, or the full
+thread patch in the Changes workbench. Revert is always explicitly confirmed. Its policy is coupled:
+the workspace is restored to the selected pre-turn snapshot and Pi is rewound to the matching session
+entry (or a fresh session before turn one); only after both operations succeed are newer checkpoint
+metadata and conversation projection removed. A temporary recovery ref restores the workspace if Pi
+rejects or fails the rewind. Revert deliberately discards newer messages, turn diffs, and uncommitted
+workspace edits, and the confirmation states that it cannot be undone. Non-Git projects continue to
+run Pi normally without checkpoint cards.
+
+Protocol v17 completes the writable Git/worktree loop. The authenticated host now owns repository
+initialization, paged local/remote branch discovery, branch creation and safe switching, fetch plus
+fast-forward-only pull, selected/all-file commits, first-push upstream setup, push, and combined
+commit/push. Mutations use persisted idempotent receipts, expected HEAD/branch/status guards,
+repository-wide operation locks, bounded non-interactive Git processes, conflict/authentication/
+dirty/diverged error states, and active-turn exclusion. New threads can use the project checkout or
+a durable managed worktree created from a named local ref or a freshly fetched `origin` ref. Pi,
+files, diffs, checkpoints, and terminals all resolve through that thread workspace. Removal verifies
+thread ownership and requires the exact server path before force-discarding dirty files. Checked-in
+`t3.json` files can set the default thread mode and worktree setup script; scripts require persisted
+project trust, run in a visible thread terminal with `T3CODE_PROJECT_ROOT` and
+`T3CODE_WORKTREE_PATH`, and persist pending/running/succeeded/failed state. The Changes workbench
+exposes these Git actions, branch choices, per-file and aggregate additions/deletions, and confirmed
+managed-worktree removal.
+
+Protocol v18 completes the T3-style file workspace. Flattened, bounded host listings become a native
+directory tree; separate path and content searches stay scoped to the selected thread worktree.
+Text documents carry SHA-256 revisions, so atomic saves reject stale tabs instead of overwriting Pi
+or an external editor. Thread-scoped tabs preserve dirty buffers while navigating, Markdown can
+switch between source and rendered views, supported images use a separate bounded binary contract,
+content results reveal their source line, file drags insert composer mentions, and Open in Editor
+passes the contained absolute target only to a host-owned launcher.
+
+Protocol v19 adds the shared command system. Stable command IDs now drive the command palette and
+application shortcuts instead of duplicating handlers across views. The palette ranks local commands
+and performs bounded host search across projects, local/remote branches, thread titles, and persisted
+user/assistant messages; selecting a result restores its project/thread context and reveals messages.
+Settings persists per-command shortcut overrides, validates key syntax, evaluates `!`, `&&`, `||`,
+and parenthesized context conditions, and rejects bindings whose contexts can overlap. File save,
+workbench navigation, thread navigation, Git actions, terminal pane operations, and preview actions
+all participate in the same registry; focused text-entry behavior remains local to its editor.
+
+The per-thread Pi configuration layer introduced in protocol v8 reads model
+and thinking-level capabilities from Pi RPC, validates receipt-backed updates, persists desired
+settings with optimistic revisions in SQLite, and reapplies them when the thread runtime restarts.
+ClientRuntime caches each thread's revisioned capability snapshot, refreshes tracked snapshots after
+reconnect, and distinguishes configuration conflicts, unsupported values, disconnected clients, and
+uncertain dispatch. WinUI renders only the reported model and reasoning options, persists selections
+per thread, and automatically selects reasoning `Off` for models that cannot reason. Runtime/
+permission controls remain hidden until Pi advertises concrete options.
+
+## Prerequisites
+
+- Windows 11 x64 with Developer Mode enabled
+- .NET SDK `10.0.400`
+- WinApp CLI `0.6.1`
+- Git available on `PATH` for the Changes workbench and per-turn checkpoints
+- Microsoft Edge WebView2 Runtime for the Terminal and Preview workbenches
+- Pi `0.84.4` or later, plus the compatible Node version declared by its package, for the optional
+  real-Pi smoke test
+
+## Build and test
+
+```powershell
+cd PiStationDesktop
+dotnet restore PiStationDesktop.slnx
+dotnet build PiStationDesktop.slnx --no-restore
+dotnet test PiStationDesktop.slnx --no-build
+```
+
+The pull-request entry point runs restore, a zero-warning build, the pinned T3/PiStation visual
+contract, all code tests with TRX output, the driver contract, and eleven packaged-app journeys
+covering draft persistence, vertical turns, crash recovery, approvals/questions, Pi configuration,
+thread lifecycle, input/accessibility, recovery hardening, and the workbench:
+
+```powershell
+pwsh .\Invoke-PullRequestTests.ps1
+```
+
+## Launch
+
+```powershell
+winapp run .\src\PiStation.App\PiStation.App.csproj --configuration Debug --arch x64
+```
+
+## Verify the UI Automation contract
+
+The driver check builds and launches the packaged app, verifies the baseline Automation IDs and
+empty states, exercises the first-class Settings shell, proves test diagnostics are absent, opens
+the app-owned Add Project dialog, verifies its controls, and writes diagnostic artifacts.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-DriverContract.ps1
+```
+
+The script stops only the exact process ID returned by `winapp run`.
+
+## Verify the visual contract
+
+The static visual gate pins the T3 reference screenshot and commit by SHA-256, records the three
+review sizes and shell geometry, maps twenty-four named PiStation states to packaged-journey artifacts, checks
+semantic resources across dark, light, and high-contrast themes, and rejects repeated hard-coded
+colors in view XAML. The normal driver additionally fails if a test-only fault control is exposed.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Test-VisualContract.ps1
+```
+
+## Run the draft and file-mention journey
+
+This packaged-app journey verifies the debounced project-file picker, inserts a relative `@` file
+mention, preserves distinct drafts while switching threads, and restores the active draft after an
+application relaunch. It retains artifacts beneath
+`tests\PiStation.UiTests\artifacts\draft-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-DraftSlice.ps1
+```
+
+## Run the approval and question journey
+
+This deterministic journey renders FakePi approval and structured-question requests inline,
+submits one response for each request, disables the resolved controls, and verifies that FakePi
+received the selected responses. It retains artifacts beneath
+`tests\PiStation.UiTests\artifacts\interaction-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-InteractionSlice.ps1
+```
+
+## Run the deterministic desktop vertical slice
+
+The black-box journey launches the packaged app with FakePi, adds an isolated fixture project,
+creates threads, observes incremental tool and assistant output, verifies collapsible reasoning,
+grouped tool arguments/output, and streamed native Markdown with highlighted code, accessible copy
+feedback, and inert raw HTML. It then reopens a thread,
+relaunches the process, and verifies session hydration. It writes a JSONL app log, UI tree,
+screenshots, and a write manifest beneath `tests\PiStation.UiTests\artifacts\runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-VerticalSlice.ps1
+```
+
+## Run the crash-recovery journey
+
+This deterministic journey makes FakePi crash after accepting a prompt, verifies that the app shows
+the Pi-specific recovery state instead of a transport error, restarts the same thread runtime, and
+then completes a second prompt. Success and failure artifacts are retained beneath
+`tests\PiStation.UiTests\artifacts\recovery-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-RecoverySlice.ps1
+```
+
+## Run the connection and thread hardening journey
+
+This packaged-app journey runs two active FakePi threads without cross-talk, stops each turn,
+disconnects and reconnects the real SignalR client while Pi continues, recovers through a bounded
+journal snapshot, and interrupts an in-flight dispatch to verify that the UI presents its uncertain
+receipt without resending the prompt. The transport-fault control and reduced journal limit are
+available only to Debug FakePi UI-test launches.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-HardeningSlice.ps1
+```
+
+## Run the input and accessibility journey
+
+This packaged-app journey verifies the app-owned project dialog's keyboard focus order and cancel
+path, Enter-to-send and Shift+Enter multiline input, exact Unicode/quoted/long prompt dispatch,
+disabled mutation controls while busy or disconnected, long-transcript scrolling, thread-action
+flyout identities, Escape behavior, and accessible names/control types. It retains artifacts beneath
+`tests\PiStation.UiTests\artifacts\input-accessibility-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-InputAccessibilitySlice.ps1
+```
+
+## Run the workbench journey
+
+This packaged-app journey verifies Git branch/status/diff rendering; project-file discovery,
+filtering, selection, and text previews; a real host-owned terminal command lifecycle; embedded
+Preview navigation and the remaining honest Agents state; terminal scrollback search, result navigation, and case filtering;
+split-right/split-down terminal panes with isolated output and focus-driven session targeting; live
+pointer/UI Automation divider resizing, per-project split persistence, stale-session fallback, and
+terminal shortcut resolution; live terminal-font changes, fallback-safe sizing, and persistence; real header thread creation;
+accessible width changes;
+docked and compact-overlay geometry; sidebar containment; and persistence
+of the collapsed sidebar, open panel, selected Agents tab, and preferred width across relaunch. It
+retains default and compact screenshots beneath `tests\PiStation.UiTests\artifacts\workbench-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-WorkbenchSlice.ps1
+```
+
+The workbench journey exercises the Ghostty/WebView2 renderer and retains terminal-search,
+terminal-font-settings, and both adjustable terminal split-orientation screenshots.
+
+## Run the responsive compatibility journey
+
+This DPI-aware packaged journey verifies Narrow, Compact, Standard, Wide, and maximized layouts;
+sidebar and workbench containment; the 720 px reading column; bounded multiline composer growth;
+focus restoration; persisted Dark/Light/System themes; and 100%, 150%, and 200% app-owned typography
+profiles. It retains review screenshots beneath
+`tests\PiStation.UiTests\artifacts\compatibility-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-CompatibilitySlice.ps1
+```
+
+## Run the Pi-configuration journey
+
+This packaged-app journey selects a reasoning level, switches to a non-reasoning model, verifies
+the capability-driven `Off` fallback, relaunches the app, and confirms the revisioned per-thread
+selection persisted. Runtime-mode controls are also verified absent while FakePi reports none.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-PiConfigurationSlice.ps1
+```
+
+## Run the thread-lifecycle journey
+
+This packaged-app journey renames and pins a thread, exercises matching and empty title searches,
+archives and restores it through the archived shelf, relaunches the app to verify persistence, and
+then unpins it. UI-tree, screenshot, log, and write-manifest artifacts are retained beneath
+`tests\PiStation.UiTests\artifacts\thread-lifecycle-runs`.
+
+```powershell
+pwsh .\tests\PiStation.UiTests\Invoke-ThreadLifecycleSlice.ps1
+```
+
+## Local host behavior
+
+The embedded host binds HTTP only to `127.0.0.1` on an ephemeral port and requires a high-entropy
+per-process bearer credential supplied in memory. The credential is never placed in a URL. Host
+metadata is stored in `host.db`, while Pi remains the transcript authority through session JSONL
+under the configured application data root. Draft attachments stream to authenticated HTTP,
+receive durable IDs, are SHA-256 checked, and are copied beneath the host `attachments` directory.
+The default limits are eight attachments per draft, 10 MB per image, and 50 MB per generic file.
+Turn commands reference the exact durable draft revision and attachment IDs. PNG, JPEG, GIF, and
+WebP files are sent through Pi's native image blocks; every attachment also appears in a structured
+host-path manifest so Pi can access generic files. After Pi accepts the turn, a receipt-led clear
+atomically removes only the sent draft revision and its files. Transcript hydration replaces the
+internal manifest with a filename-only attachment summary, so host paths are not shown in the UI.
+
+Workspace filename search is exposed through the `file.search` capability. Searches are bounded,
+deterministically ranked, confined to the selected project root, and skip reparse points plus common
+generated/vendor trees. Results contain forward-slash relative paths only. Typing `@` in the
+composer opens a debounced project-file picker with keyboard and mouse selection; the selected path
+is inserted as an inline mention and quoted when it contains whitespace.
+
+The host integration suite launches the real FakePi child process through Kestrel and SignalR and
+verifies streaming, Stop, reconnect cursors, command idempotency, conflict rejection, and restart
+hydration:
+
+```powershell
+dotnet test .\tests\PiStation.Host.Tests\PiStation.Host.Tests.csproj
+```
+
+## Run the optional real-Pi smoke test
+
+The normal suite uses the deterministic FakePi executable. To exercise an installed Pi, including
+session resume, opt in explicitly. The configured Pi provider must already be usable.
+
+```powershell
+$env:PISTATION_RUN_REAL_PI = '1'
+$env:PISTATION_PI_PATH = 'C:\path\to\pi.cmd' # optional when discovery can find Pi
+dotnet test .\tests\PiStation.PiRpc.Tests\PiStation.PiRpc.Tests.csproj --filter Category=RealPi
+```
+
+The smoke harness rejects Pi versions below `0.84.4` and keeps its session files under an isolated
+temporary data root. The MVP baseline passed this test with Pi `0.84.4` on September 1, 2026.
+
+## Continuous integration
+
+`.github/workflows/pistationdesktop-pr.yml` provisions the pinned .NET, WinApp CLI, and Pester
+versions on `windows-2025`, runs `Invoke-PullRequestTests.ps1`, and always uploads TRX results plus
+the synthetic UI diagnostics. The workflow still needs successful repository runs before the
+runner-specific UI Automation requirement can be considered proven.

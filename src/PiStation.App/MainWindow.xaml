@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="PiStation.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation"
+    xmlns:controls="using:PiStation.App.Views.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:PiStation.App"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="Pi Station Desktop"
+    mc:Ignorable="d">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="RootGrid"
+          Background="{ThemeResource PiCanvasBrush}"
+          automation:AutomationProperties.AutomationId="AppMainWindow"
+          automation:AutomationProperties.Name="Pi Station Desktop main window">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid
+            x:Name="AppTitleBar"
+            Height="{StaticResource PiTitleBarHeight}"
+            Background="{ThemeResource PiCanvasBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="TitleBarSidebarColumn" Width="{StaticResource PiSidebarWidth}" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border
+                Background="{ThemeResource PiSidebarBrush}"
+                BorderBrush="{ThemeResource PiDividerBrush}"
+                BorderThickness="0,0,1,1">
+                <StackPanel
+                    Margin="12,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Border
+                        Width="20"
+                        Height="20"
+                        Background="{ThemeResource PiAccentBrush}"
+                        CornerRadius="5">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontSize="12"
+                            FontWeight="Bold"
+                            Foreground="White"
+                            Text="π" />
+                    </Border>
+                    <TextBlock
+                        x:Name="TitleBarBrandText"
+                        VerticalAlignment="Center"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource PiTextPrimaryBrush}"
+                        Text="Pi Station" />
+                </StackPanel>
+            </Border>
+
+            <ContentControl
+                x:Name="TitleBarChatHeaderHost"
+                Grid.Column="1"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch" />
+        </Grid>
+
+        <ContentControl
+            x:Name="RootContent"
+            Grid.Row="1"
+            HorizontalContentAlignment="Stretch"
+            VerticalContentAlignment="Stretch" />
+    </Grid>
+</Window>

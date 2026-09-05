@@ -1,0 +1,1409 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="PiStation.App.Views.Controls.RightPanelHost"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation"
+    xmlns:local="using:PiStation.App.Views.Controls"
+    xmlns:models="using:PiStation.Protocol.Models"
+    xmlns:viewModels="using:PiStation.App.ViewModels"
+    xmlns:views="using:PiStation.App.Views">
+
+    <Border
+        x:Name="Root"
+        automation:AutomationProperties.AutomationId="RightPanelHost"
+        automation:AutomationProperties.Name="Workbench"
+        Style="{StaticResource PiWorkbenchSurfaceStyle}"
+        Visibility="{x:Bind ViewModel.Layout.RightPanelVisibility, Mode=OneWay}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <local:WorkbenchResizeHandle
+                x:Name="RightPanelResizeHandle"
+                automation:AutomationProperties.AutomationId="RightPanelResizeHandle"
+                automation:AutomationProperties.Name="Resize workbench"
+                Background="Transparent"
+                PointerCaptureLost="OnResizePointerCaptureLost"
+                PointerMoved="OnResizePointerMoved"
+                PointerPressed="OnResizePointerPressed"
+                PointerReleased="OnResizePointerReleased">
+                <Border
+                    Width="1"
+                    HorizontalAlignment="Left"
+                    Background="{ThemeResource PiDividerBrush}" />
+            </local:WorkbenchResizeHandle>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid MinHeight="40" Padding="12,0,8,0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Style="{StaticResource PiPanelHeaderTextStyle}"
+                        Text="Workbench" />
+                    <Button
+                        x:Name="CloseRightPanelButton"
+                        Grid.Column="1"
+                        automation:AutomationProperties.AutomationId="CloseRightPanelButton"
+                        automation:AutomationProperties.Name="Close workbench"
+                        Click="OnCloseClicked"
+                        Style="{StaticResource PiToolbarIconButtonStyle}"
+                        ToolTipService.ToolTip="Close workbench">
+                        <FontIcon FontSize="11" Glyph="&#xE711;" />
+                    </Button>
+                </Grid>
+
+                <ScrollViewer
+                    Grid.Row="1"
+                    HorizontalScrollBarVisibility="Hidden"
+                    HorizontalScrollMode="Enabled"
+                    VerticalScrollMode="Disabled"
+                    ZoomMode="Disabled">
+                    <StackPanel
+                        x:Name="RightPanelTabs"
+                        automation:AutomationProperties.AutomationId="RightPanelTabs"
+                        automation:AutomationProperties.Name="Workbench views"
+                        Orientation="Horizontal">
+                        <ToggleButton
+                            x:Name="ChangesPanelTab"
+                            automation:AutomationProperties.AutomationId="ChangesPanelTab"
+                            automation:AutomationProperties.Name="Show changes workbench"
+                            Click="OnPanelTabClicked"
+                            Content="Changes"
+                            Style="{StaticResource PiWorkbenchTabStyle}"
+                            Tag="Changes" />
+                        <ToggleButton
+                            x:Name="FilesPanelTab"
+                            automation:AutomationProperties.AutomationId="FilesPanelTab"
+                            automation:AutomationProperties.Name="Show files workbench"
+                            Click="OnPanelTabClicked"
+                            Content="Files"
+                            Style="{StaticResource PiWorkbenchTabStyle}"
+                            Tag="Files" />
+                        <ToggleButton
+                            x:Name="TerminalPanelTab"
+                            automation:AutomationProperties.AutomationId="TerminalPanelTab"
+                            automation:AutomationProperties.Name="Show terminal workbench"
+                            Click="OnPanelTabClicked"
+                            Content="Terminal"
+                            Style="{StaticResource PiWorkbenchTabStyle}"
+                            Tag="Terminal" />
+                        <ToggleButton
+                            x:Name="PreviewPanelTab"
+                            automation:AutomationProperties.AutomationId="PreviewPanelTab"
+                            automation:AutomationProperties.Name="Show preview workbench"
+                            Click="OnPanelTabClicked"
+                            Content="Preview"
+                            Style="{StaticResource PiWorkbenchTabStyle}"
+                            Tag="Preview" />
+                        <ToggleButton
+                            x:Name="AgentsPanelTab"
+                            automation:AutomationProperties.AutomationId="AgentsPanelTab"
+                            automation:AutomationProperties.Name="Show agents workbench"
+                            Click="OnPanelTabClicked"
+                            Content="Agents"
+                            Style="{StaticResource PiWorkbenchTabStyle}"
+                            Tag="Agents" />
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid
+                    x:Name="RightPanelContent"
+                    Grid.Row="2"
+                    automation:AutomationProperties.AutomationId="RightPanelContent"
+                    automation:AutomationProperties.Name="Selected workbench view">
+                    <StackPanel
+                        Margin="28"
+                        MaxWidth="300"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="10"
+                        Visibility="{x:Bind ViewModel.Layout.WorkbenchEmptyStateVisibility, Mode=OneWay}">
+                        <FontIcon
+                            HorizontalAlignment="Center"
+                            FontSize="24"
+                            Foreground="{ThemeResource PiTextMutedBrush}"
+                            Glyph="&#xE8A5;" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Style="{StaticResource PiPanelHeaderTextStyle}"
+                            Text="{x:Bind ViewModel.Layout.SelectedPanelTitle, Mode=OneWay}" />
+                        <TextBlock
+                            x:Name="WorkbenchEmptyStateText"
+                            HorizontalAlignment="Center"
+                            automation:AutomationProperties.AutomationId="WorkbenchEmptyStateText"
+                            automation:AutomationProperties.LiveSetting="Polite"
+                            Foreground="{ThemeResource PiTextSecondaryBrush}"
+                            Text="{x:Bind ViewModel.Layout.SelectedPanelDescription, Mode=OneWay}"
+                            TextAlignment="Center"
+                            TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+
+                    <Grid
+                        x:Name="ChangesWorkbenchSurface"
+                        Padding="12"
+                        automation:AutomationProperties.AutomationId="ChangesWorkbenchSurface"
+                        automation:AutomationProperties.Name="Git changes"
+                        RowSpacing="8"
+                        Visibility="{x:Bind ViewModel.Layout.ChangesPanelVisibility, Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="0.8*" />
+                            <RowDefinition Height="1" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="1.2*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Canvas
+                                Width="16"
+                                Height="16"
+                                VerticalAlignment="Center"
+                                automation:AutomationProperties.AccessibilityView="Raw">
+                                <Path
+                                    Data="M 4,4 L 4,12 M 4,8 L 8,8 C 10.2,8 12,6.2 12,5"
+                                    Stroke="{ThemeResource PiTextSecondaryBrush}"
+                                    StrokeEndLineCap="Round"
+                                    StrokeStartLineCap="Round"
+                                    StrokeThickness="1.4" />
+                                <Ellipse
+                                    Width="3"
+                                    Height="3"
+                                    Canvas.Left="2.5"
+                                    Canvas.Top="1"
+                                    Fill="{ThemeResource PiTextSecondaryBrush}" />
+                                <Ellipse
+                                    Width="3"
+                                    Height="3"
+                                    Canvas.Left="2.5"
+                                    Canvas.Top="12"
+                                    Fill="{ThemeResource PiTextSecondaryBrush}" />
+                                <Ellipse
+                                    Width="3"
+                                    Height="3"
+                                    Canvas.Left="10.5"
+                                    Canvas.Top="2"
+                                    Fill="{ThemeResource PiTextSecondaryBrush}" />
+                            </Canvas>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                <TextBlock
+                                    x:Name="GitBranchNameText"
+                                    automation:AutomationProperties.AutomationId="GitBranchNameText"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind ViewModel.WorkbenchChanges.BranchName, Mode=OneWay}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    x:Name="GitBranchDetailText"
+                                    automation:AutomationProperties.AutomationId="GitBranchDetailText"
+                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                    Text="{x:Bind ViewModel.WorkbenchChanges.BranchDetail, Mode=OneWay}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button
+                                x:Name="RefreshChangesButton"
+                                Grid.Column="2"
+                                automation:AutomationProperties.AutomationId="RefreshChangesButton"
+                                automation:AutomationProperties.Name="Refresh Git changes"
+                                Click="OnRefreshChangesClicked"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Refresh changes">
+                                <FontIcon FontSize="12" Glyph="&#xE72C;" />
+                            </Button>
+                        </Grid>
+
+                        <TextBlock
+                            x:Name="WorkbenchChangesStatusText"
+                            Grid.Row="1"
+                            automation:AutomationProperties.AutomationId="WorkbenchChangesStatusText"
+                            automation:AutomationProperties.LiveSetting="Polite"
+                            FontSize="{StaticResource PiFontSizeCaption}"
+                            Foreground="{ThemeResource PiTextMutedBrush}"
+                            Text="{x:Bind ViewModel.WorkbenchChanges.Status, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.WorkbenchChanges.StatusVisibility, Mode=OneWay}" />
+
+                        <StackPanel Grid.Row="2" Spacing="6">
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    x:Name="GitBranchSelector"
+                                    MinWidth="100"
+                                    automation:AutomationProperties.AutomationId="GitBranchSelector"
+                                    automation:AutomationProperties.Name="Git branch"
+                                    DisplayMemberPath="Name"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}"
+                                    ItemsSource="{x:Bind ViewModel.WorkbenchChanges.Branches}"
+                                    SelectedItem="{x:Bind ViewModel.WorkbenchChanges.SelectedBranch, Mode=TwoWay}" />
+                                <Button
+                                    Grid.Column="1"
+                                    automation:AutomationProperties.AutomationId="SwitchGitBranchButton"
+                                    Click="OnSwitchGitBranchClicked"
+                                    Content="Switch"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}" />
+                                <Button
+                                    Grid.Column="2"
+                                    automation:AutomationProperties.AutomationId="PullGitBranchButton"
+                                    Click="OnPullGitBranchClicked"
+                                    Content="Pull"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}" />
+                            </Grid>
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox
+                                    x:Name="NewGitBranchNameBox"
+                                    automation:AutomationProperties.AutomationId="NewGitBranchNameBox"
+                                    PlaceholderText="New branch"
+                                    Text="{x:Bind ViewModel.WorkbenchChanges.NewBranchName, Mode=TwoWay}" />
+                                <Button
+                                    Grid.Column="1"
+                                    automation:AutomationProperties.AutomationId="CreateGitBranchButton"
+                                    Click="OnCreateGitBranchClicked"
+                                    Content="Create"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}" />
+                                <Button
+                                    Grid.Column="2"
+                                    automation:AutomationProperties.AutomationId="InitializeGitButton"
+                                    Click="OnInitializeGitClicked"
+                                    Content="Init"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}" />
+                            </Grid>
+                            <TextBox
+                                x:Name="GitCommitMessageBox"
+                                automation:AutomationProperties.AutomationId="GitCommitMessageBox"
+                                PlaceholderText="Commit message (optional)"
+                                Text="{x:Bind ViewModel.WorkbenchChanges.CommitMessage, Mode=TwoWay}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button
+                                    automation:AutomationProperties.AutomationId="CommitGitChangesButton"
+                                    Click="OnCommitGitChangesClicked"
+                                    Content="Commit"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanCommit, Mode=OneWay}" />
+                                <Button
+                                    automation:AutomationProperties.AutomationId="CommitPushGitChangesButton"
+                                    Click="OnCommitPushGitChangesClicked"
+                                    Content="Commit + push"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanCommit, Mode=OneWay}" />
+                                <Button
+                                    automation:AutomationProperties.AutomationId="PushGitBranchButton"
+                                    Click="OnPushGitBranchClicked"
+                                    Content="Push"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}" />
+                            </StackPanel>
+                            <Button
+                                HorizontalAlignment="Left"
+                                automation:AutomationProperties.AutomationId="RemoveThreadWorktreeButton"
+                                Click="OnRemoveThreadWorktreeClicked"
+                                Content="Remove thread worktree…"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanRunGitCommand, Mode=OneWay}"
+                                Visibility="{x:Bind ViewModel.WorkbenchChanges.RemoveWorktreeVisibility, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <ListView
+                            x:Name="WorkbenchChangeList"
+                            Grid.Row="3"
+                            automation:AutomationProperties.AutomationId="WorkbenchChangeList"
+                            automation:AutomationProperties.Name="Changed files"
+                            IsTabStop="False"
+                            ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
+                            ItemsSource="{x:Bind ViewModel.WorkbenchChanges.Changes}"
+                            SelectedItem="{x:Bind ViewModel.WorkbenchChanges.SelectedChange, Mode=OneWay}"
+                            SelectionChanged="OnWorkbenchChangeSelectionChanged">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="viewModels:WorkbenchChangeItemViewModel">
+                                    <Grid
+                                        MinHeight="42"
+                                        Padding="2,3"
+                                        automation:AutomationProperties.Name="{x:Bind AccessibleName}"
+                                        ToolTipService.ToolTip="{x:Bind StatusLabel}"
+                                        ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border
+                                            MinWidth="24"
+                                            Padding="4,2"
+                                            VerticalAlignment="Center"
+                                            Background="{ThemeResource PiControlSurfaceBrush}"
+                                            BorderBrush="{ThemeResource PiBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="{StaticResource PiRadiusSmall}">
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                Foreground="{ThemeResource PiAccentBrush}"
+                                                Text="{x:Bind StatusCode}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                            <TextBlock
+                                                FontWeight="SemiBold"
+                                                Text="{x:Bind FileName}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                                Text="{x:Bind RelativePath}"
+                                                TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <StackPanel
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Right"
+                                            Spacing="1">
+                                            <TextBlock
+                                                HorizontalAlignment="Right"
+                                                CharacterSpacing="45"
+                                                FontSize="9"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                                Text="{x:Bind AreaLabel}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Right"
+                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                                Text="{x:Bind LineSummary}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <Border Grid.Row="4" Background="{ThemeResource PiDividerBrush}" />
+
+                        <StackPanel Grid.Row="5" Spacing="2">
+                            <TextBlock Style="{StaticResource PiSectionLabelTextStyle}" Text="DIFF" />
+                            <TextBlock
+                                x:Name="WorkbenchDiffPathText"
+                                automation:AutomationProperties.AutomationId="WorkbenchDiffPathText"
+                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                Foreground="{ThemeResource PiTextPrimaryBrush}"
+                                Text="{x:Bind ViewModel.WorkbenchChanges.DiffPath, Mode=OneWay}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                x:Name="WorkbenchDiffStatusText"
+                                automation:AutomationProperties.AutomationId="WorkbenchDiffStatusText"
+                                automation:AutomationProperties.LiveSetting="Polite"
+                                FontSize="{StaticResource PiFontSizeCaption}"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="{x:Bind ViewModel.WorkbenchChanges.DiffMessage, Mode=OneWay}"
+                                TextWrapping="WrapWholeWords" />
+                        </StackPanel>
+
+                        <TextBox
+                            x:Name="WorkbenchDiffPreview"
+                            Grid.Row="6"
+                            automation:AutomationProperties.AutomationId="WorkbenchDiffPreview"
+                            automation:AutomationProperties.Name="Git diff content"
+                            AcceptsReturn="True"
+                            Background="{ThemeResource PiControlSurfaceBrush}"
+                            BorderBrush="{ThemeResource PiBorderBrush}"
+                            FontFamily="{StaticResource PiMonospaceFontFamily}"
+                            FontSize="{StaticResource PiFontSizeCaption}"
+                            IsReadOnly="True"
+                            Padding="10"
+                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto"
+                            Text="{x:Bind ViewModel.WorkbenchChanges.DiffContent, Mode=OneWay}"
+                            TextWrapping="NoWrap"
+                            Visibility="{x:Bind ViewModel.WorkbenchChanges.DiffContentVisibility, Mode=OneWay}" />
+                    </Grid>
+
+                    <Grid
+                        x:Name="TerminalWorkbenchSurface"
+                        Padding="12"
+                        automation:AutomationProperties.AutomationId="TerminalWorkbenchSurface"
+                        automation:AutomationProperties.Name="Project terminal"
+                        RowSpacing="8"
+                        Visibility="{x:Bind ViewModel.Layout.TerminalPanelVisibility, Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="TerminalShellSelector"
+                                MinWidth="150"
+                                HorizontalAlignment="Stretch"
+                                automation:AutomationProperties.AutomationId="TerminalShellSelector"
+                                automation:AutomationProperties.Name="New terminal shell"
+                                DisplayMemberPath="DisplayName"
+                                ItemsSource="{x:Bind ViewModel.WorkbenchTerminal.Shells}"
+                                SelectedItem="{x:Bind ViewModel.WorkbenchTerminal.SelectedShell, Mode=OneWay}"
+                                SelectionChanged="OnTerminalShellSelectionChanged" />
+                            <Button
+                                x:Name="NewTerminalButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="NewTerminalButton"
+                                automation:AutomationProperties.Name="Start new terminal"
+                                Click="OnNewTerminalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanCreate, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="New terminal">
+                                <FontIcon FontSize="12" Glyph="&#xE710;" />
+                            </Button>
+                        </Grid>
+
+                        <Grid Grid.Row="1" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="TerminalSessionSelector"
+                                HorizontalAlignment="Stretch"
+                                automation:AutomationProperties.AutomationId="TerminalSessionSelector"
+                                automation:AutomationProperties.Name="Terminal session"
+                                DisplayMemberPath="Name"
+                                ItemsSource="{x:Bind ViewModel.WorkbenchTerminal.Sessions}"
+                                SelectedItem="{x:Bind ViewModel.WorkbenchTerminal.SelectedSession, Mode=OneWay}"
+                                SelectionChanged="OnTerminalSessionSelectionChanged" />
+                            <Button
+                                x:Name="StopTerminalButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="StopTerminalButton"
+                                automation:AutomationProperties.Name="Stop terminal"
+                                Click="OnStopTerminalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanStop, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Stop terminal">
+                                <FontIcon FontSize="11" Glyph="&#xE71A;" />
+                            </Button>
+                            <Button
+                                x:Name="RestartTerminalButton"
+                                Grid.Column="2"
+                                automation:AutomationProperties.AutomationId="RestartTerminalButton"
+                                automation:AutomationProperties.Name="Restart terminal"
+                                Click="OnRestartTerminalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanRestart, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Restart terminal">
+                                <FontIcon FontSize="11" Glyph="&#xE72C;" />
+                            </Button>
+                            <Button
+                                x:Name="ClearTerminalButton"
+                                Grid.Column="3"
+                                automation:AutomationProperties.AutomationId="ClearTerminalButton"
+                                automation:AutomationProperties.Name="Clear terminal output"
+                                Click="OnClearTerminalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanClose, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Clear output">
+                                <FontIcon FontSize="11" Glyph="&#xE74D;" />
+                            </Button>
+                            <Button
+                                x:Name="CloseTerminalButton"
+                                Grid.Column="4"
+                                automation:AutomationProperties.AutomationId="CloseTerminalButton"
+                                automation:AutomationProperties.Name="Close terminal session"
+                                Click="OnCloseTerminalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanClose, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Close terminal">
+                                <FontIcon FontSize="11" Glyph="&#xE711;" />
+                            </Button>
+                        </Grid>
+
+                        <Grid Grid.Row="2" ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="1">
+                                <TextBlock
+                                    x:Name="TerminalSessionSummaryText"
+                                    automation:AutomationProperties.AutomationId="TerminalSessionSummaryText"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind ViewModel.WorkbenchTerminal.SessionSummary, Mode=OneWay}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    x:Name="TerminalPaneSummaryText"
+                                    automation:AutomationProperties.AutomationId="TerminalPaneSummaryText"
+                                    automation:AutomationProperties.LiveSetting="Polite"
+                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                    Text="{x:Bind ViewModel.WorkbenchTerminal.PaneSummary, Mode=OneWay}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    x:Name="TerminalStatusText"
+                                    automation:AutomationProperties.AutomationId="TerminalStatusText"
+                                    automation:AutomationProperties.LiveSetting="Polite"
+                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                    Text="{x:Bind ViewModel.WorkbenchTerminal.Status, Mode=OneWay}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                                <Button
+                                    x:Name="SplitTerminalRightButton"
+                                    automation:AutomationProperties.AutomationId="SplitTerminalRightButton"
+                                    automation:AutomationProperties.Name="Split terminal right"
+                                    Click="OnSplitTerminalRightClicked"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanSplit, Mode=OneWay}"
+                                    Style="{StaticResource PiToolbarIconButtonStyle}"
+                                    ToolTipService.ToolTip="Split terminal right (Ctrl+Shift+5)">
+                                    <Viewbox Width="14" Height="14">
+                                        <Canvas Width="16" Height="16">
+                                            <Rectangle
+                                                Width="14"
+                                                Height="12"
+                                                Canvas.Left="1"
+                                                Canvas.Top="2"
+                                                RadiusX="1"
+                                                RadiusY="1"
+                                                Stroke="{ThemeResource PiTextSecondaryBrush}"
+                                                StrokeThickness="1.3" />
+                                            <Path
+                                                Data="M 8,2 L 8,14"
+                                                Stroke="{ThemeResource PiTextSecondaryBrush}"
+                                                StrokeThickness="1.3" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Button>
+                                <Button
+                                    x:Name="SplitTerminalDownButton"
+                                    automation:AutomationProperties.AutomationId="SplitTerminalDownButton"
+                                    automation:AutomationProperties.Name="Split terminal down"
+                                    Click="OnSplitTerminalDownClicked"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanSplit, Mode=OneWay}"
+                                    Style="{StaticResource PiToolbarIconButtonStyle}"
+                                    ToolTipService.ToolTip="Split terminal down (Ctrl+Shift+D)">
+                                    <Viewbox Width="14" Height="14">
+                                        <Canvas Width="16" Height="16">
+                                            <Rectangle
+                                                Width="14"
+                                                Height="12"
+                                                Canvas.Left="1"
+                                                Canvas.Top="2"
+                                                RadiusX="1"
+                                                RadiusY="1"
+                                                Stroke="{ThemeResource PiTextSecondaryBrush}"
+                                                StrokeThickness="1.3" />
+                                            <Path
+                                                Data="M 1,8 L 15,8"
+                                                Stroke="{ThemeResource PiTextSecondaryBrush}"
+                                                StrokeThickness="1.3" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Button>
+                                <Button
+                                    x:Name="CloseTerminalPaneButton"
+                                    automation:AutomationProperties.AutomationId="CloseTerminalPaneButton"
+                                    automation:AutomationProperties.Name="Close active terminal pane"
+                                    Click="OnCloseTerminalPaneClicked"
+                                    IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanClosePane, Mode=OneWay}"
+                                    Style="{StaticResource PiToolbarIconButtonStyle}"
+                                    ToolTipService.ToolTip="Close active pane (Ctrl+Shift+W)">
+                                    <FontIcon FontSize="11" Glyph="&#xE711;" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid
+                            x:Name="TerminalPaneHost"
+                            Grid.Row="3"
+                            automation:AutomationProperties.AutomationId="TerminalPaneTree"
+                            automation:AutomationProperties.Name="Terminal pane tree" />
+
+                        <Grid Grid.Row="4" ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox
+                                x:Name="TerminalInput"
+                                automation:AutomationProperties.AutomationId="TerminalInput"
+                                automation:AutomationProperties.Name="Terminal command"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanStop, Mode=OneWay}"
+                                KeyDown="OnTerminalInputKeyDown"
+                                PlaceholderText="Run a command (focus output for interactive keys)"
+                                Style="{StaticResource PiTextBoxStyle}"
+                                Text="{x:Bind ViewModel.WorkbenchTerminal.InputText, Mode=OneWay}"
+                                TextChanged="OnTerminalInputTextChanged" />
+                            <Button
+                                x:Name="SendTerminalInputButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="SendTerminalInputButton"
+                                automation:AutomationProperties.Name="Run terminal command"
+                                Click="OnSendTerminalInputClicked"
+                                Content="Run"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanSend, Mode=OneWay}" />
+                        </Grid>
+                    </Grid>
+
+                    <Grid
+                        x:Name="FileWorkbenchSurface"
+                        Padding="8"
+                        automation:AutomationProperties.AutomationId="FileWorkbenchSurface"
+                        automation:AutomationProperties.Name="Project files"
+                        Visibility="{x:Bind ViewModel.Layout.FilesPanelVisibility, Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="WorkbenchFileSearchMode"
+                                Width="104"
+                                automation:AutomationProperties.AutomationId="WorkbenchFileSearchMode"
+                                automation:AutomationProperties.Name="File search mode"
+                                SelectedIndex="{x:Bind ViewModel.WorkbenchFiles.SearchModeIndex, Mode=OneWay}"
+                                SelectionChanged="OnFileSearchModeChanged">
+                                <x:String>Files</x:String>
+                                <x:String>Contents</x:String>
+                            </ComboBox>
+                            <TextBox
+                                x:Name="WorkbenchFileSearchInput"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="WorkbenchFileSearchInput"
+                                automation:AutomationProperties.Name="Filter project files"
+                                PlaceholderText="{x:Bind ViewModel.WorkbenchFiles.SearchPlaceholder, Mode=OneWay}"
+                                Style="{StaticResource PiTextBoxStyle}"
+                                Text="{x:Bind ViewModel.WorkbenchFiles.SearchQuery, Mode=OneWay}"
+                                TextChanged="OnFileSearchTextChanged" />
+                            <Button
+                                x:Name="RefreshWorkbenchFilesButton"
+                                Grid.Column="5"
+                                automation:AutomationProperties.AutomationId="RefreshWorkbenchFilesButton"
+                                automation:AutomationProperties.Name="Refresh project files"
+                                Click="OnRefreshFilesClicked"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Refresh files">
+                                <FontIcon FontSize="12" Glyph="&#xE72C;" />
+                            </Button>
+                            <ToggleButton
+                                Grid.Column="2"
+                                automation:AutomationProperties.Name="Match case"
+                                Click="OnContentSearchOptionClicked"
+                                Content="Aa"
+                                IsChecked="{x:Bind ViewModel.WorkbenchFiles.CaseSensitive, Mode=OneWay}"
+                                Style="{StaticResource PiIconToggleButtonStyle}"
+                                Tag="case"
+                                ToolTipService.ToolTip="Match case"
+                                Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
+                            <ToggleButton
+                                Grid.Column="3"
+                                automation:AutomationProperties.Name="Match whole word"
+                                Click="OnContentSearchOptionClicked"
+                                Content="ab"
+                                IsChecked="{x:Bind ViewModel.WorkbenchFiles.WholeWord, Mode=OneWay}"
+                                Style="{StaticResource PiIconToggleButtonStyle}"
+                                Tag="word"
+                                ToolTipService.ToolTip="Match whole word"
+                                Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
+                            <ToggleButton
+                                Grid.Column="4"
+                                automation:AutomationProperties.Name="Use regular expression"
+                                Click="OnContentSearchOptionClicked"
+                                Content=".*"
+                                IsChecked="{x:Bind ViewModel.WorkbenchFiles.UseRegularExpression, Mode=OneWay}"
+                                Style="{StaticResource PiIconToggleButtonStyle}"
+                                Tag="regex"
+                                ToolTipService.ToolTip="Use regular expression"
+                                Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
+                        </Grid>
+
+                        <TextBlock
+                            x:Name="WorkbenchFileStatusText"
+                            Grid.Row="1"
+                            automation:AutomationProperties.AutomationId="WorkbenchFileStatusText"
+                            automation:AutomationProperties.LiveSetting="Polite"
+                            FontSize="{StaticResource PiFontSizeCaption}"
+                            Foreground="{ThemeResource PiTextMutedBrush}"
+                            Text="{x:Bind ViewModel.WorkbenchFiles.Status, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.WorkbenchFiles.StatusVisibility, Mode=OneWay}" />
+
+                        <Grid
+                            Grid.Row="2"
+                            Margin="0,8,0,0"
+                            ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240" />
+                                <ColumnDefinition Width="1" />
+                                <ColumnDefinition Width="62*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid>
+                                <TreeView
+                                    x:Name="WorkspaceFileTree"
+                                    automation:AutomationProperties.AutomationId="WorkspaceFileTree"
+                                    automation:AutomationProperties.Name="Workspace directory tree"
+                                    ItemInvoked="OnWorkspaceTreeItemInvoked"
+                                    ItemsSource="{x:Bind ViewModel.WorkbenchFiles.TreeRoots, Mode=OneWay}"
+                                    SelectionMode="Single"
+                                    Visibility="{x:Bind ViewModel.WorkbenchFiles.TreeVisibility, Mode=OneWay}">
+                                    <TreeView.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:WorkspaceTreeItemViewModel">
+                                            <TreeViewItem
+                                                CanDrag="True"
+                                                DragStarting="OnWorkspaceTreeItemDragStarting"
+                                                IsExpanded="True"
+                                                ItemsSource="{x:Bind Children}">
+                                                <StackPanel Orientation="Horizontal" Spacing="7" ToolTipService.ToolTip="{x:Bind RelativePath}">
+                                                    <FontIcon FontSize="12" Glyph="{x:Bind Glyph}" />
+                                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </TreeViewItem>
+                                        </DataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+
+                                <ListView
+                                    x:Name="WorkbenchFileList"
+                                    automation:AutomationProperties.AutomationId="WorkbenchFileList"
+                                    automation:AutomationProperties.Name="Matching workspace files"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="OnWorkbenchFileClicked"
+                                    ItemsSource="{x:Bind ViewModel.WorkbenchFiles.Files, Mode=OneWay}"
+                                    SelectedItem="{x:Bind ViewModel.WorkbenchFiles.SelectedFile, Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.WorkbenchFiles.PathResultsVisibility, Mode=OneWay}">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="models:ProjectFileMatch">
+                                            <Grid
+                                                MinHeight="40"
+                                                Padding="4,3"
+                                                CanDrag="True"
+                                                DragStarting="OnProjectFileDragStarting"
+                                                ToolTipService.ToolTip="{x:Bind RelativePath}">
+                                                <StackPanel>
+                                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind FileName}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+
+                                <ListView
+                                    x:Name="WorkbenchContentSearchResults"
+                                    automation:AutomationProperties.AutomationId="WorkbenchContentSearchResults"
+                                    automation:AutomationProperties.Name="Workspace content matches"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="OnWorkbenchContentMatchClicked"
+                                    ItemsSource="{x:Bind ViewModel.WorkbenchFiles.ContentMatches, Mode=OneWay}"
+                                    SelectedItem="{x:Bind ViewModel.WorkbenchFiles.SelectedContentMatch, Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentResultsVisibility, Mode=OneWay}">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="models:ProjectContentMatch">
+                                            <Grid
+                                                MinHeight="54"
+                                                Padding="4"
+                                                CanDrag="True"
+                                                DragStarting="OnContentMatchDragStarting"
+                                                ToolTipService.ToolTip="{x:Bind RelativePath}">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind FileName}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="11" Text="{x:Bind LineContent}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontSize="10" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind LineNumber}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+
+                            <Border Grid.Column="1" Background="{ThemeResource PiDividerBrush}" />
+
+                            <Grid Grid.Column="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <ListView
+                                    x:Name="WorkbenchFileTabs"
+                                    MinHeight="36"
+                                    automation:AutomationProperties.AutomationId="WorkbenchFileTabs"
+                                    automation:AutomationProperties.Name="Open file tabs"
+                                    ItemsSource="{x:Bind ViewModel.WorkbenchFiles.OpenDocuments, Mode=OneWay}"
+                                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                    ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                    SelectedItem="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument, Mode=OneWay}"
+                                    SelectionChanged="OnWorkbenchFileTabSelectionChanged">
+                                    <ListView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsStackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ListView.ItemsPanel>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:WorkbenchFileDocumentViewModel">
+                                            <Grid ColumnSpacing="4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock MaxWidth="150" VerticalAlignment="Center" Text="{x:Bind DisplayTitle, Mode=OneWay}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind RelativePath}" />
+                                                <Button Grid.Column="1" Click="OnCloseWorkbenchFileTabClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Close file">
+                                                    <FontIcon FontSize="10" Glyph="&#xE711;" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+
+                                <Grid
+                                    Grid.Row="1"
+                                    Margin="0,4"
+                                    ColumnSpacing="4"
+                                    Visibility="{x:Bind ViewModel.WorkbenchFiles.DocumentVisibility, Mode=OneWay}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        x:Name="WorkbenchFilePreviewPathText"
+                                        VerticalAlignment="Center"
+                                        automation:AutomationProperties.AutomationId="WorkbenchFilePreviewPathText"
+                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                        Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.RelativePath, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <Button Grid.Column="1" automation:AutomationProperties.AutomationId="SaveWorkbenchFileButton" Click="OnSaveWorkbenchFileClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.CanSave, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)" Content="Save" />
+                                    <Button Grid.Column="2" automation:AutomationProperties.AutomationId="ReloadWorkbenchFileButton" Click="OnReloadWorkbenchFileClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Reload from disk"><FontIcon FontSize="12" Glyph="&#xE72C;" /></Button>
+                                    <Button Grid.Column="3" automation:AutomationProperties.AutomationId="OpenWorkbenchFileInEditorButton" Click="OnOpenWorkbenchFileInEditorClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Open in external editor" Content="Open in Editor" />
+                                    <ToggleButton
+                                        Grid.Column="4"
+                                        automation:AutomationProperties.AutomationId="WorkbenchMarkdownToggle"
+                                        IsChecked="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.ShowRenderedMarkdown, Mode=TwoWay}"
+                                        Style="{StaticResource PiIconToggleButtonStyle}"
+                                        ToolTipService.ToolTip="Toggle Markdown source/preview"
+                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.MarkdownToggleVisibility, Mode=OneWay}">
+                                        <FontIcon FontSize="12" Glyph="&#xE890;" />
+                                    </ToggleButton>
+                                </Grid>
+
+                                <TextBlock
+                                    x:Name="WorkbenchFilePreviewStatusText"
+                                    Grid.Row="2"
+                                    Margin="0,0,0,4"
+                                    automation:AutomationProperties.AutomationId="WorkbenchFilePreviewStatusText"
+                                    automation:AutomationProperties.LiveSetting="Polite"
+                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                    Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.Status, Mode=OneWay}"
+                                    TextWrapping="WrapWholeWords"
+                                    Visibility="{x:Bind ViewModel.WorkbenchFiles.DocumentVisibility, Mode=OneWay}" />
+
+                                <Grid Grid.Row="3" Visibility="{x:Bind ViewModel.WorkbenchFiles.DocumentVisibility, Mode=OneWay}">
+                                    <TextBox
+                                        x:Name="WorkbenchFileEditor"
+                                        automation:AutomationProperties.AutomationId="WorkbenchFileEditor"
+                                        automation:AutomationProperties.Name="Editable workspace file"
+                                        AcceptsReturn="True"
+                                        Background="{ThemeResource PiControlSurfaceBrush}"
+                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        IsReadOnly="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.IsReadOnly, Mode=OneWay}"
+                                        Padding="10"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                        Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        TextWrapping="NoWrap"
+                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.SourceVisibility, Mode=OneWay}" />
+
+                                    <ScrollViewer Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.MarkdownVisibility, Mode=OneWay}" VerticalScrollBarVisibility="Auto">
+                                        <views:MarkdownView Margin="12" automation:AutomationProperties.AutomationId="WorkbenchMarkdownPreview" Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.Content, Mode=OneWay}" />
+                                    </ScrollViewer>
+
+                                    <ScrollViewer Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.ImageVisibility, Mode=OneWay}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" ZoomMode="Enabled">
+                                        <Image x:Name="WorkbenchFileImage" Margin="12" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1600" MaxHeight="1200" Stretch="Uniform" />
+                                    </ScrollViewer>
+                                </Grid>
+
+                                <StackPanel Grid.RowSpan="4" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Visibility="{x:Bind ViewModel.WorkbenchFiles.EmptyDocumentVisibility, Mode=OneWay}">
+                                    <FontIcon FontSize="28" Foreground="{ThemeResource PiTextMutedBrush}" Glyph="&#xE8A5;" />
+                                    <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="Choose a file to open it in a tab" />
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+
+                    <Grid
+                        x:Name="PreviewWorkbenchSurface"
+                        automation:AutomationProperties.AutomationId="WorkbenchPreviewPanel"
+                        automation:AutomationProperties.Name="Web preview"
+                        Visibility="{x:Bind ViewModel.Layout.PreviewPanelVisibility, Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid
+                            x:Name="PreviewTabsBar"
+                            automation:AutomationProperties.AutomationId="PreviewTabsBar"
+                            Padding="6,4,6,0"
+                            ColumnSpacing="4"
+                            Visibility="{x:Bind ViewModel.WorkbenchPreview.TabStripVisibility, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ListView
+                                x:Name="PreviewTabStrip"
+                                MinHeight="34"
+                                automation:AutomationProperties.AutomationId="PreviewTabStrip"
+                                automation:AutomationProperties.Name="Open browser preview tabs"
+                                ItemsSource="{x:Bind ViewModel.WorkbenchPreview.Tabs, Mode=OneWay}"
+                                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                SelectedItem="{x:Bind ViewModel.WorkbenchPreview.ActiveTab, Mode=OneWay}"
+                                SelectionChanged="OnPreviewTabSelectionChanged">
+                                <ListView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <ItemsStackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListView.ItemsPanel>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:WorkbenchPreviewTabViewModel">
+                                        <Grid ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock MaxWidth="130" VerticalAlignment="Center" Text="{x:Bind TabTitle, Mode=OneWay}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind CurrentUrl}" />
+                                            <Button Grid.Column="1" automation:AutomationProperties.Name="Close preview tab" Click="OnClosePreviewTabClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Close preview tab">
+                                                <FontIcon FontSize="10" Glyph="&#xE711;" />
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <Button
+                                x:Name="AddPreviewTabButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="AddPreviewTabButton"
+                                automation:AutomationProperties.Name="New preview tab"
+                                Click="OnAddPreviewTabClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanAddTab, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="New preview tab">
+                                <FontIcon FontSize="12" Glyph="&#xE710;" />
+                            </Button>
+                        </Grid>
+
+                        <Grid Grid.Row="1" Padding="8,6" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button
+                                x:Name="PreviewBackButton"
+                                automation:AutomationProperties.AutomationId="PreviewBackButton"
+                                automation:AutomationProperties.Name="Go back in preview"
+                                Click="OnPreviewBackClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanGoBack, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Back">
+                                <FontIcon FontSize="12" Glyph="&#xE72B;" />
+                            </Button>
+                            <Button
+                                x:Name="PreviewForwardButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="PreviewForwardButton"
+                                automation:AutomationProperties.Name="Go forward in preview"
+                                Click="OnPreviewForwardClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanGoForward, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Forward">
+                                <FontIcon FontSize="12" Glyph="&#xE72A;" />
+                            </Button>
+                            <Button
+                                x:Name="PreviewReloadStopButton"
+                                Grid.Column="2"
+                                automation:AutomationProperties.AutomationId="PreviewReloadStopButton"
+                                automation:AutomationProperties.Name="{x:Bind ViewModel.WorkbenchPreview.ReloadStopLabel, Mode=OneWay}"
+                                Click="OnPreviewReloadStopClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanReloadOrStop, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Reload or stop preview">
+                                <FontIcon
+                                    FontSize="12"
+                                    Glyph="{x:Bind ViewModel.WorkbenchPreview.ReloadStopGlyph, Mode=OneWay}" />
+                            </Button>
+                            <TextBox
+                                x:Name="PreviewAddressBox"
+                                Grid.Column="3"
+                                MinWidth="80"
+                                automation:AutomationProperties.AutomationId="PreviewAddressBox"
+                                automation:AutomationProperties.Name="Preview address"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanNavigate, Mode=OneWay}"
+                                KeyDown="OnPreviewAddressKeyDown"
+                                PlaceholderText="localhost:5173"
+                                Style="{StaticResource PiTextBoxStyle}"
+                                Text="{x:Bind ViewModel.WorkbenchPreview.AddressText, Mode=OneWay}"
+                                TextChanged="OnPreviewAddressTextChanged" />
+                            <Button
+                                x:Name="PreviewAnnotateButton"
+                                Grid.Column="4"
+                                automation:AutomationProperties.AutomationId="PreviewAnnotateButton"
+                                automation:AutomationProperties.Name="{x:Bind ViewModel.WorkbenchPreview.AnnotationLabel, Mode=OneWay}"
+                                Click="OnPreviewAnnotateClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanAnnotate, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Select an element and add it to the composer">
+                                <FontIcon FontSize="12" Glyph="&#xE7C8;" />
+                            </Button>
+                            <Button
+                                x:Name="PreviewCaptureButton"
+                                Grid.Column="5"
+                                automation:AutomationProperties.AutomationId="PreviewCaptureButton"
+                                automation:AutomationProperties.Name="Capture preview screenshot"
+                                Click="OnPreviewCaptureClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanCapture, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Capture screenshot">
+                                <FontIcon FontSize="12" Glyph="&#xE722;" />
+                            </Button>
+                            <Button
+                                x:Name="PreviewOpenExternalButton"
+                                Grid.Column="6"
+                                automation:AutomationProperties.AutomationId="PreviewOpenExternalButton"
+                                automation:AutomationProperties.Name="Open preview in system browser"
+                                Click="OnPreviewOpenExternalClicked"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanOpenExternal, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Open externally">
+                                <FontIcon FontSize="12" Glyph="&#xE8A7;" />
+                            </Button>
+                        </Grid>
+
+                        <Grid Grid.Row="2" Height="2">
+                            <ProgressBar
+                                x:Name="PreviewLoadingProgress"
+                                automation:AutomationProperties.AutomationId="PreviewLoadingProgress"
+                                IsIndeterminate="True"
+                                Visibility="{x:Bind ViewModel.WorkbenchPreview.LoadingProgressVisibility, Mode=OneWay}" />
+                        </Grid>
+
+                        <Grid
+                            Grid.Row="3"
+                            Padding="8,4"
+                            ColumnSpacing="6"
+                            Visibility="{x:Bind ViewModel.WorkbenchPreview.ViewportControlsVisibility, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="PreviewViewportSelector"
+                                Width="178"
+                                automation:AutomationProperties.AutomationId="PreviewViewportSelector"
+                                automation:AutomationProperties.Name="Preview device size"
+                                SelectedIndex="{x:Bind ViewModel.WorkbenchPreview.ViewportPresetIndex, Mode=OneWay}"
+                                SelectionChanged="OnPreviewViewportSelectionChanged">
+                                <x:String>Responsive</x:String>
+                                <x:String>Desktop 1440 × 900</x:String>
+                                <x:String>Tablet 768 × 1024</x:String>
+                                <x:String>Phone 390 × 844</x:String>
+                            </ComboBox>
+                            <Button
+                                x:Name="RotatePreviewViewportButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="RotatePreviewViewportButton"
+                                automation:AutomationProperties.Name="Rotate preview device"
+                                Click="OnRotatePreviewViewportClicked"
+                                Style="{StaticResource PiToolbarIconButtonStyle}"
+                                ToolTipService.ToolTip="Rotate device">
+                                <FontIcon FontSize="12" Glyph="&#xE7AD;" />
+                            </Button>
+                            <TextBlock
+                                x:Name="PreviewViewportDescriptionText"
+                                Grid.Column="2"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Right"
+                                automation:AutomationProperties.AutomationId="PreviewViewportDescriptionText"
+                                FontSize="11"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="{x:Bind ViewModel.WorkbenchPreview.ViewportDescription, Mode=OneWay}" />
+                        </Grid>
+
+                        <Grid
+                            Grid.Row="4"
+                            Margin="10,0,10,4"
+                            ColumnSpacing="6"
+                            Visibility="{x:Bind ViewModel.WorkbenchPreview.CaptureStatusVisibility, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                            x:Name="PreviewCaptureStatusText"
+                            automation:AutomationProperties.AutomationId="PreviewCaptureStatusText"
+                            automation:AutomationProperties.LiveSetting="Polite"
+                            FontSize="11"
+                            Foreground="{ThemeResource PiTextMutedBrush}"
+                            Text="{x:Bind ViewModel.WorkbenchPreview.CaptureStatus, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                            <Button
+                                x:Name="RevealPreviewCaptureButton"
+                                Grid.Column="1"
+                                automation:AutomationProperties.AutomationId="RevealPreviewCaptureButton"
+                                automation:AutomationProperties.Name="Open captured screenshot"
+                                Click="OnRevealPreviewCaptureClicked"
+                                Content="Open"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanRevealCapture, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                        </Grid>
+
+                        <Grid Grid.Row="5">
+                            <ScrollViewer
+                                x:Name="PreviewBrowserHost"
+                                automation:AutomationProperties.AutomationId="PreviewBrowserHost"
+                                HorizontalScrollBarVisibility="Auto"
+                                SizeChanged="OnPreviewBrowserHostSizeChanged"
+                                VerticalScrollBarVisibility="Auto"
+                                Visibility="{x:Bind ViewModel.WorkbenchPreview.BrowserVisibility, Mode=OneWay}"
+                                ZoomMode="Disabled">
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.WorkbenchPreview.Tabs, Mode=OneWay}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Grid />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:WorkbenchPreviewTabViewModel">
+                                            <Border
+                                                Width="{x:Bind SurfaceWidth, Mode=OneWay}"
+                                                Height="{x:Bind SurfaceHeight, Mode=OneWay}"
+                                                MinWidth="240"
+                                                MinHeight="240"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Top"
+                                                Background="White"
+                                                BorderBrush="{ThemeResource PiBorderStrongBrush}"
+                                                BorderThickness="1"
+                                                Visibility="{x:Bind SurfaceVisibility, Mode=OneWay}">
+                                                <local:PreviewWebViewSurface
+                                                    Tag="{x:Bind TabId}"
+                                                    Loaded="OnPreviewBrowserLoaded"
+                                                    Unloaded="OnPreviewBrowserUnloaded" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+
+                            <ScrollViewer
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto"
+                                Visibility="{x:Bind ViewModel.WorkbenchPreview.EmptyStateVisibility, Mode=OneWay}">
+                                <StackPanel
+                                    Margin="24"
+                                    MaxWidth="320"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="12">
+                                    <FontIcon
+                                        HorizontalAlignment="Center"
+                                        FontSize="26"
+                                        Foreground="{ThemeResource PiTextMutedBrush}"
+                                        Glyph="&#xE774;" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Style="{StaticResource PiPanelHeaderTextStyle}"
+                                        Text="No preview yet" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                        Text="Enter an address above or run a local development server."
+                                        TextAlignment="Center"
+                                        TextWrapping="WrapWholeWords" />
+                                    <Grid Margin="0,8,0,0" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            Style="{StaticResource PiSectionLabelTextStyle}"
+                                            Text="LOCAL SERVERS" />
+                                        <Button
+                                            x:Name="PreviewRefreshServersButton"
+                                            Grid.Column="1"
+                                            automation:AutomationProperties.AutomationId="PreviewRefreshServersButton"
+                                            automation:AutomationProperties.Name="Refresh local preview servers"
+                                            Click="OnPreviewRefreshServersClicked"
+                                            IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanDiscover, Mode=OneWay}"
+                                            Style="{StaticResource PiToolbarIconButtonStyle}"
+                                            ToolTipService.ToolTip="Refresh local servers">
+                                            <FontIcon FontSize="12" Glyph="&#xE72C;" />
+                                        </Button>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ProgressRing
+                                            Width="16"
+                                            Height="16"
+                                            IsActive="{x:Bind ViewModel.WorkbenchPreview.IsDiscovering, Mode=OneWay}"
+                                            Visibility="{x:Bind ViewModel.WorkbenchPreview.DiscoveryProgressVisibility, Mode=OneWay}" />
+                                        <TextBlock
+                                            x:Name="PreviewDiscoveryStatusText"
+                                            automation:AutomationProperties.AutomationId="PreviewDiscoveryStatusText"
+                                            automation:AutomationProperties.LiveSetting="Polite"
+                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                            Foreground="{ThemeResource PiTextMutedBrush}"
+                                            Text="{x:Bind ViewModel.WorkbenchPreview.DiscoveryStatus, Mode=OneWay}"
+                                            TextWrapping="WrapWholeWords"
+                                            Visibility="{x:Bind ViewModel.WorkbenchPreview.DiscoveryStatusVisibility, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <ListView
+                                        x:Name="PreviewServerList"
+                                        MaxHeight="280"
+                                        automation:AutomationProperties.AutomationId="PreviewServerList"
+                                        automation:AutomationProperties.Name="Local preview servers"
+                                        IsItemClickEnabled="True"
+                                        IsTabStop="False"
+                                        ItemClick="OnPreviewServerClicked"
+                                        ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
+                                        ItemsSource="{x:Bind ViewModel.WorkbenchPreview.DiscoveredServers}">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="models:DiscoveredPreviewServer">
+                                                <Grid MinHeight="44" Padding="4" ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <FontIcon
+                                                        VerticalAlignment="Center"
+                                                        FontSize="13"
+                                                        Foreground="{ThemeResource PiAccentBrush}"
+                                                        Glyph="&#xE774;" />
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                        <TextBlock
+                                                            FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                            Text="{x:Bind Url}"
+                                                            TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock
+                                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                                            Foreground="{ThemeResource PiTextMutedBrush}"
+                                                            Text="{x:Bind ProcessName}"
+                                                            TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <Border
+                                x:Name="PreviewFailureOverlay"
+                                Margin="16"
+                                Padding="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                automation:AutomationProperties.AutomationId="PreviewFailureOverlay"
+                                automation:AutomationProperties.Name="Preview unavailable"
+                                Background="{ThemeResource PiSurfaceElevatedBrush}"
+                                BorderBrush="{ThemeResource PiBorderStrongBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource PiRadiusControl}"
+                                Visibility="{x:Bind ViewModel.WorkbenchPreview.FailureVisibility, Mode=OneWay}">
+                                <StackPanel MaxWidth="300" Spacing="10">
+                                    <TextBlock
+                                        Style="{StaticResource PiPanelHeaderTextStyle}"
+                                        Text="Preview unavailable" />
+                                    <TextBlock
+                                        x:Name="PreviewFailureMessageText"
+                                        automation:AutomationProperties.AutomationId="PreviewFailureMessageText"
+                                        automation:AutomationProperties.LiveSetting="Assertive"
+                                        Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                        Text="{x:Bind ViewModel.WorkbenchPreview.FailureMessage, Mode=OneWay}"
+                                        TextWrapping="WrapWholeWords" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            x:Name="PreviewFailureReloadButton"
+                                            automation:AutomationProperties.AutomationId="PreviewFailureReloadButton"
+                                            automation:AutomationProperties.Name="Reload failed preview"
+                                            Click="OnPreviewFailureReloadClicked"
+                                            Content="Reload"
+                                            IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanReloadOrStop, Mode=OneWay}" />
+                                        <Button
+                                            x:Name="PreviewReturnToServersButton"
+                                            automation:AutomationProperties.AutomationId="PreviewReturnToServersButton"
+                                            automation:AutomationProperties.Name="Return to local servers"
+                                            Click="OnPreviewReturnToServersClicked"
+                                            Content="Servers" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

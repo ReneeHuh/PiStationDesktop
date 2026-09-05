@@ -1,0 +1,7 @@
+{
+  "dotnetSdk": "10.0.400",
+  "winappCli": "0.6.1",
+  "winuiTemplatePack": "0.0.6-alpha",
+  "windowsAppSdk": "2.4.0",
+  "pester": "5.7.1"
+}

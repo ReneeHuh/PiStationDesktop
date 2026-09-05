@@ -1,0 +1,606 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <Color x:Key="PiCanvasColor">#FF151515</Color>
+            <Color x:Key="PiSidebarColor">#FF181818</Color>
+            <Color x:Key="PiChromeColor">#FF181818</Color>
+            <Color x:Key="PiSurfaceColor">#FF1C1C1C</Color>
+            <Color x:Key="PiSurfaceElevatedColor">#FF212121</Color>
+            <Color x:Key="PiWorkbenchColor">#FF191919</Color>
+            <Color x:Key="PiControlSurfaceColor">#FF242424</Color>
+            <Color x:Key="PiSurfaceHoverColor">#FF292929</Color>
+            <Color x:Key="PiSurfaceSelectedColor">#FF303030</Color>
+            <Color x:Key="PiMessageUserColor">#FF272727</Color>
+            <Color x:Key="PiOverlayColor">#F21B1B1B</Color>
+            <Color x:Key="PiDividerColor">#FF292929</Color>
+            <Color x:Key="PiBorderColor">#FF2B2B2B</Color>
+            <Color x:Key="PiBorderStrongColor">#FF3A3A3A</Color>
+            <Color x:Key="PiTextPrimaryColor">#FFF2F2F2</Color>
+            <Color x:Key="PiTextSecondaryColor">#FFAAAAAA</Color>
+            <Color x:Key="PiTextMutedColor">#FF777777</Color>
+            <Color x:Key="PiAccentColor">#FF4C8DFF</Color>
+            <Color x:Key="PiAccentHoverColor">#FF659EFF</Color>
+            <Color x:Key="PiFocusColor">#FF7AA2FF</Color>
+            <Color x:Key="PiWarningSurfaceColor">#FF2A2418</Color>
+            <Color x:Key="PiCriticalSurfaceColor">#FF2A1D1D</Color>
+            <Color x:Key="PiSuccessSurfaceColor">#FF192720</Color>
+            <Color x:Key="PiRunningColor">#FF58B8D8</Color>
+            <Color x:Key="PiCompletedColor">#FF54D6A0</Color>
+            <Color x:Key="PiWaitingColor">#FFE6B85C</Color>
+            <Color x:Key="PiCriticalColor">#FFF06A6A</Color>
+            <Color x:Key="PiOfflineColor">#FF858585</Color>
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Light">
+            <Color x:Key="PiCanvasColor">#FFF7F7F7</Color>
+            <Color x:Key="PiSidebarColor">#FFF1F1F1</Color>
+            <Color x:Key="PiChromeColor">#FFF3F3F3</Color>
+            <Color x:Key="PiSurfaceColor">#FFFFFFFF</Color>
+            <Color x:Key="PiSurfaceElevatedColor">#FFFAFAFA</Color>
+            <Color x:Key="PiWorkbenchColor">#FFF5F5F5</Color>
+            <Color x:Key="PiControlSurfaceColor">#FFF3F3F3</Color>
+            <Color x:Key="PiSurfaceHoverColor">#FFEAEAEA</Color>
+            <Color x:Key="PiSurfaceSelectedColor">#FFE2E2E2</Color>
+            <Color x:Key="PiMessageUserColor">#FFECECEC</Color>
+            <Color x:Key="PiOverlayColor">#F2FFFFFF</Color>
+            <Color x:Key="PiDividerColor">#FFE5E5E5</Color>
+            <Color x:Key="PiBorderColor">#FFE5E5E5</Color>
+            <Color x:Key="PiBorderStrongColor">#FFD1D1D1</Color>
+            <Color x:Key="PiTextPrimaryColor">#FF1D1D1D</Color>
+            <Color x:Key="PiTextSecondaryColor">#FF626262</Color>
+            <Color x:Key="PiTextMutedColor">#FF878787</Color>
+            <Color x:Key="PiAccentColor">#FF2563C7</Color>
+            <Color x:Key="PiAccentHoverColor">#FF174FA8</Color>
+            <Color x:Key="PiFocusColor">#FF155CC4</Color>
+            <Color x:Key="PiWarningSurfaceColor">#FFFFF5D9</Color>
+            <Color x:Key="PiCriticalSurfaceColor">#FFFFE8E8</Color>
+            <Color x:Key="PiSuccessSurfaceColor">#FFE5F7EF</Color>
+            <Color x:Key="PiRunningColor">#FF187D9C</Color>
+            <Color x:Key="PiCompletedColor">#FF16805E</Color>
+            <Color x:Key="PiWaitingColor">#FF936A13</Color>
+            <Color x:Key="PiCriticalColor">#FFB52B2B</Color>
+            <Color x:Key="PiOfflineColor">#FF777777</Color>
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="HighContrast">
+            <Color x:Key="PiCanvasColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiSidebarColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiChromeColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiSurfaceColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiSurfaceElevatedColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiWorkbenchColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiControlSurfaceColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiSurfaceHoverColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiSurfaceSelectedColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiMessageUserColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiOverlayColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiDividerColor">{ThemeResource SystemColorWindowTextColor}</Color>
+            <Color x:Key="PiBorderColor">{ThemeResource SystemColorWindowTextColor}</Color>
+            <Color x:Key="PiBorderStrongColor">{ThemeResource SystemColorWindowTextColor}</Color>
+            <Color x:Key="PiTextPrimaryColor">{ThemeResource SystemColorWindowTextColor}</Color>
+            <Color x:Key="PiTextSecondaryColor">{ThemeResource SystemColorWindowTextColor}</Color>
+            <Color x:Key="PiTextMutedColor">{ThemeResource SystemColorGrayTextColor}</Color>
+            <Color x:Key="PiAccentColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiAccentHoverColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiFocusColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiWarningSurfaceColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiCriticalSurfaceColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiSuccessSurfaceColor">{ThemeResource SystemColorWindowColor}</Color>
+            <Color x:Key="PiRunningColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiCompletedColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiWaitingColor">{ThemeResource SystemColorHighlightColor}</Color>
+            <Color x:Key="PiCriticalColor">{ThemeResource SystemColorHotlightColor}</Color>
+            <Color x:Key="PiOfflineColor">{ThemeResource SystemColorGrayTextColor}</Color>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <SolidColorBrush x:Key="PiCanvasBrush" Color="{ThemeResource PiCanvasColor}" />
+    <SolidColorBrush x:Key="PiSidebarBrush" Color="{ThemeResource PiSidebarColor}" />
+    <SolidColorBrush x:Key="PiChromeBrush" Color="{ThemeResource PiChromeColor}" />
+    <SolidColorBrush x:Key="PiSurfaceBrush" Color="{ThemeResource PiSurfaceColor}" />
+    <SolidColorBrush x:Key="PiSurfaceElevatedBrush" Color="{ThemeResource PiSurfaceElevatedColor}" />
+    <SolidColorBrush x:Key="PiWorkbenchBrush" Color="{ThemeResource PiWorkbenchColor}" />
+    <SolidColorBrush x:Key="PiControlSurfaceBrush" Color="{ThemeResource PiControlSurfaceColor}" />
+    <SolidColorBrush x:Key="PiSurfaceHoverBrush" Color="{ThemeResource PiSurfaceHoverColor}" />
+    <SolidColorBrush x:Key="PiSurfaceSelectedBrush" Color="{ThemeResource PiSurfaceSelectedColor}" />
+    <SolidColorBrush x:Key="PiMessageUserBrush" Color="{ThemeResource PiMessageUserColor}" />
+    <SolidColorBrush x:Key="PiOverlayBrush" Color="{ThemeResource PiOverlayColor}" />
+    <SolidColorBrush x:Key="PiDividerBrush" Color="{ThemeResource PiDividerColor}" />
+    <SolidColorBrush x:Key="PiBorderBrush" Color="{ThemeResource PiBorderColor}" />
+    <SolidColorBrush x:Key="PiBorderStrongBrush" Color="{ThemeResource PiBorderStrongColor}" />
+    <SolidColorBrush x:Key="PiTextPrimaryBrush" Color="{ThemeResource PiTextPrimaryColor}" />
+    <SolidColorBrush x:Key="PiTextSecondaryBrush" Color="{ThemeResource PiTextSecondaryColor}" />
+    <SolidColorBrush x:Key="PiTextMutedBrush" Color="{ThemeResource PiTextMutedColor}" />
+    <SolidColorBrush x:Key="PiAccentBrush" Color="{ThemeResource PiAccentColor}" />
+    <SolidColorBrush x:Key="PiAccentHoverBrush" Color="{ThemeResource PiAccentHoverColor}" />
+    <SolidColorBrush x:Key="PiFocusBrush" Color="{ThemeResource PiFocusColor}" />
+    <SolidColorBrush x:Key="PiWarningSurfaceBrush" Color="{ThemeResource PiWarningSurfaceColor}" />
+    <SolidColorBrush x:Key="PiCriticalSurfaceBrush" Color="{ThemeResource PiCriticalSurfaceColor}" />
+    <SolidColorBrush x:Key="PiSuccessSurfaceBrush" Color="{ThemeResource PiSuccessSurfaceColor}" />
+    <SolidColorBrush x:Key="PiRunningBrush" Color="{ThemeResource PiRunningColor}" />
+    <SolidColorBrush x:Key="PiCompletedBrush" Color="{ThemeResource PiCompletedColor}" />
+    <SolidColorBrush x:Key="PiWaitingBrush" Color="{ThemeResource PiWaitingColor}" />
+    <SolidColorBrush x:Key="PiCriticalBrush" Color="{ThemeResource PiCriticalColor}" />
+    <SolidColorBrush x:Key="PiOfflineBrush" Color="{ThemeResource PiOfflineColor}" />
+
+    <FontFamily x:Key="PiSansFontFamily">Segoe UI Variable Text</FontFamily>
+    <FontFamily x:Key="PiMonospaceFontFamily">Cascadia Mono</FontFamily>
+
+    <x:Double x:Key="PiFontSizeCaption">11</x:Double>
+    <x:Double x:Key="PiFontSizeBody">13</x:Double>
+    <x:Double x:Key="PiFontSizeBodyLarge">14</x:Double>
+    <x:Double x:Key="PiFontSizeHeading">16</x:Double>
+    <x:Double x:Key="PiFontSizeTitle">20</x:Double>
+    <x:Double x:Key="PiControlHeightCompact">28</x:Double>
+    <x:Double x:Key="PiControlHeight">32</x:Double>
+    <x:Double x:Key="PiTwoLineRowHeight">44</x:Double>
+    <GridLength x:Key="PiSidebarWidth">260</GridLength>
+    <x:Double x:Key="PiSidebarWidthValue">260</x:Double>
+    <x:Double x:Key="PiSidebarCollapsedWidth">52</x:Double>
+    <x:Double x:Key="PiSidebarMinWidth">220</x:Double>
+    <x:Double x:Key="PiSidebarMaxWidth">320</x:Double>
+    <x:Double x:Key="PiTitleBarHeight">40</x:Double>
+    <x:Double x:Key="PiThreadHeaderHeight">40</x:Double>
+    <x:Double x:Key="PiWorkspaceTopBarHeight">52</x:Double>
+    <x:Double x:Key="PiReadingColumnWidth">720</x:Double>
+    <x:Double x:Key="PiUserMessageMaxWidth">576</x:Double>
+    <GridLength x:Key="PiWorkbenchPanelWidth">420</GridLength>
+    <x:Double x:Key="PiWorkbenchPanelMinWidth">360</x:Double>
+    <x:Double x:Key="PiWorkbenchPanelMaxWidth">520</x:Double>
+    <x:Double x:Key="PiComposerMinHeight">96</x:Double>
+    <x:Double x:Key="PiComposerMaxHeight">240</x:Double>
+    <x:Double x:Key="PiBreakpointNarrow">720</x:Double>
+    <x:Double x:Key="PiBreakpointCompact">900</x:Double>
+    <x:Double x:Key="PiBreakpointWorkbench">1180</x:Double>
+    <x:Double x:Key="PiMotionDurationShort">120</x:Double>
+    <x:Double x:Key="PiMotionDurationNormal">180</x:Double>
+
+    <Thickness x:Key="PiSpace2">2</Thickness>
+    <Thickness x:Key="PiSpace4">4</Thickness>
+    <Thickness x:Key="PiSpace8">8</Thickness>
+    <Thickness x:Key="PiSpace12">12</Thickness>
+    <Thickness x:Key="PiSpace16">16</Thickness>
+    <Thickness x:Key="PiSpace20">20</Thickness>
+    <Thickness x:Key="PiSpace24">24</Thickness>
+    <Thickness x:Key="PiPagePadding">24,16,24,16</Thickness>
+    <Thickness x:Key="PiMainGutter">24</Thickness>
+    <Thickness x:Key="PiCompactControlPadding">9,4</Thickness>
+    <Thickness x:Key="PiIconControlPadding">6</Thickness>
+    <Thickness x:Key="PiSurfacePadding">12</Thickness>
+    <Thickness x:Key="PiComposerPadding">14,12</Thickness>
+
+    <CornerRadius x:Key="PiRadiusSmall">4</CornerRadius>
+    <CornerRadius x:Key="PiRadiusControl">6</CornerRadius>
+    <CornerRadius x:Key="PiRadiusSurface">8</CornerRadius>
+    <CornerRadius x:Key="PiRadiusComposer">18</CornerRadius>
+    <CornerRadius x:Key="PiRadiusPill">999</CornerRadius>
+
+    <Style x:Key="PiPageTitleTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeTitle}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+    </Style>
+
+    <Style x:Key="PiPanelHeaderTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeHeading}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+    </Style>
+
+    <Style x:Key="PiBodyTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+    </Style>
+
+    <Style x:Key="PiMutedTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextSecondaryBrush}" />
+    </Style>
+
+    <Style x:Key="PiSectionLabelTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="CharacterSpacing" Value="80" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextMutedBrush}" />
+    </Style>
+
+    <Style x:Key="PiMonospaceTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiMonospaceFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+    </Style>
+
+    <Style x:Key="PiMarkdownBodyStyle" TargetType="RichTextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBodyLarge}" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="PiMarkdownCodeTextStyle" TargetType="RichTextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource PiMonospaceFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+    </Style>
+
+    <Style x:Key="PiMarkdownCodeBlockStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderStrongBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+    </Style>
+
+    <Style x:Key="PiSurfaceCardStyle" TargetType="Border">
+        <Setter Property="Padding" Value="{StaticResource PiSurfacePadding}" />
+        <Setter Property="Background" Value="{ThemeResource PiSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusSurface}" />
+    </Style>
+
+    <Style x:Key="PiChromeSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource PiChromeBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiDividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+
+    <Style x:Key="PiWorkbenchSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource PiWorkbenchBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiDividerBrush}" />
+        <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+
+    <Style x:Key="PiToolbarSurfaceStyle" TargetType="Border">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiDividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,1,0,0" />
+    </Style>
+
+    <Style x:Key="PiSidebarRowStyle" TargetType="Border">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+    </Style>
+
+    <Style x:Key="PiDisclosureRowStyle" TargetType="Border" BasedOn="{StaticResource PiSidebarRowStyle}">
+        <Setter Property="BorderBrush" Value="{ThemeResource PiDividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="CornerRadius" Value="0" />
+    </Style>
+
+    <Style x:Key="PiAssistantMessageStyle" TargetType="Border">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style x:Key="PiUserMessageStyle" TargetType="Border">
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Background" Value="{ThemeResource PiMessageUserBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusSurface}" />
+    </Style>
+
+    <Style x:Key="PiBannerStyle" TargetType="Border">
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="Background" Value="{ThemeResource PiSurfaceElevatedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+    </Style>
+
+    <Style x:Key="PiWarningBannerStyle" TargetType="Border" BasedOn="{StaticResource PiBannerStyle}">
+        <Setter Property="Background" Value="{ThemeResource PiWarningSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiWaitingBrush}" />
+    </Style>
+
+    <Style x:Key="PiCriticalBannerStyle" TargetType="Border" BasedOn="{StaticResource PiBannerStyle}">
+        <Setter Property="Background" Value="{ThemeResource PiCriticalSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiCriticalBrush}" />
+    </Style>
+
+    <Style x:Key="PiSuccessBannerStyle" TargetType="Border" BasedOn="{StaticResource PiBannerStyle}">
+        <Setter Property="Background" Value="{ThemeResource PiSuccessSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiCompletedBrush}" />
+    </Style>
+
+    <Style x:Key="PiElevatedSurfaceStyle" TargetType="Border" BasedOn="{StaticResource PiSurfaceCardStyle}">
+        <Setter Property="Background" Value="{ThemeResource PiSurfaceElevatedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderStrongBrush}" />
+    </Style>
+
+    <Style x:Key="PiComposerSurfaceStyle" TargetType="Border" BasedOn="{StaticResource PiSurfaceCardStyle}">
+        <Setter Property="Padding" Value="{StaticResource PiComposerPadding}" />
+        <Setter Property="Background" Value="{ThemeResource PiSurfaceElevatedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderStrongBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusComposer}" />
+    </Style>
+
+    <Style x:Key="PiComposerToolbarStyle" TargetType="Border">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Padding" Value="0,6,0,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style x:Key="PiPillStyle" TargetType="Border">
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusPill}" />
+    </Style>
+
+    <Style x:Key="PiPillTextStyle" TargetType="TextBlock" BasedOn="{StaticResource PiMutedTextStyle}">
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="PiAttachmentChipStyle" TargetType="Border" BasedOn="{StaticResource PiPillStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="Padding" Value="8,2,2,2" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style x:Key="PiStatusDotStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="6" />
+        <Setter Property="Height" Value="6" />
+        <Setter Property="Fill" Value="{ThemeResource PiOfflineBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="PiStatusDotRunningStyle" TargetType="Ellipse" BasedOn="{StaticResource PiStatusDotStyle}">
+        <Setter Property="Fill" Value="{ThemeResource PiRunningBrush}" />
+    </Style>
+
+    <Style x:Key="PiStatusDotCompletedStyle" TargetType="Ellipse" BasedOn="{StaticResource PiStatusDotStyle}">
+        <Setter Property="Fill" Value="{ThemeResource PiCompletedBrush}" />
+    </Style>
+
+    <Style x:Key="PiStatusDotWaitingStyle" TargetType="Ellipse" BasedOn="{StaticResource PiStatusDotStyle}">
+        <Setter Property="Fill" Value="{ThemeResource PiWaitingBrush}" />
+    </Style>
+
+    <Style x:Key="PiStatusDotCriticalStyle" TargetType="Ellipse" BasedOn="{StaticResource PiStatusDotStyle}">
+        <Setter Property="Fill" Value="{ThemeResource PiCriticalBrush}" />
+    </Style>
+
+    <Style x:Key="PiSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Padding" Value="{StaticResource PiCompactControlPadding}" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiCompactButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+    </Style>
+
+    <Style x:Key="PiIconButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
+        <Setter Property="Width" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Height" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="{StaticResource PiIconControlPadding}" />
+    </Style>
+
+    <Style x:Key="PiToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style x:Key="PiToolbarIconButtonStyle" TargetType="Button" BasedOn="{StaticResource PiToolbarButtonStyle}">
+        <Setter Property="Width" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="Height" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="5" />
+    </Style>
+
+    <Style x:Key="PiIconToggleButtonStyle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Height" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="{StaticResource PiIconControlPadding}" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiWorkbenchTabStyle" TargetType="ToggleButton">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource PiTextSecondaryBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Grid x:Name="Root" Background="{TemplateBinding Background}">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource PiSurfaceHoverBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource PiSurfaceSelectedBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.45" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionIndicator.Visibility" Value="Visible" />
+                                        <Setter Target="TabContent.Foreground" Value="{ThemeResource PiAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource PiSurfaceHoverBrush}" />
+                                        <Setter Target="SelectionIndicator.Visibility" Value="Visible" />
+                                        <Setter Target="TabContent.Foreground" Value="{ThemeResource PiAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource PiSurfaceSelectedBrush}" />
+                                        <Setter Target="SelectionIndicator.Visibility" Value="Visible" />
+                                        <Setter Target="TabContent.Foreground" Value="{ThemeResource PiAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.45" />
+                                        <Setter Target="SelectionIndicator.Visibility" Value="Visible" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter
+                            x:Name="TabContent"
+                            Padding="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" />
+                        <Border
+                            x:Name="SelectionIndicator"
+                            Height="2"
+                            Margin="8,0"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Bottom"
+                            Background="{ThemeResource PiAccentBrush}"
+                            Visibility="Collapsed" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="PiPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Padding" Value="{StaticResource PiCompactControlPadding}" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiCircularPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PiPrimaryButtonStyle}">
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="7" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusPill}" />
+    </Style>
+
+    <Style x:Key="PiTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiComposerTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource PiTextBoxStyle}">
+        <Setter Property="Padding" Value="4,6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBodyLarge}" />
+    </Style>
+
+    <Style x:Key="PiComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiComposerComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource PiComboBoxStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="Padding" Value="7,2" />
+    </Style>
+
+    <Style x:Key="PiSidebarListViewItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="PiSidebarActionButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="8,5" />
+    </Style>
+
+    <Style x:Key="PiTranscriptListViewItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="IsTabStop" Value="False" />
+    </Style>
+</ResourceDictionary>

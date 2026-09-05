@@ -1,0 +1,554 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="PiStation.App.Views.ShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation"
+    xmlns:controls="using:PiStation.App.Views.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    FontFamily="{StaticResource PiSansFontFamily}"
+    mc:Ignorable="d">
+
+    <Grid x:Name="PageLayoutGrid" Background="{ThemeResource PiCanvasBrush}">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="PageResponsiveStates">
+                <VisualState x:Name="NarrowLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ConversationTimelineHost.Margin" Value="12,8,12,0" />
+                        <Setter Target="RecoveryBannerHost.Margin" Value="12,0" />
+                        <Setter Target="ComposerSurfaceHost.Margin" Value="12,8,12,0" />
+                        <Setter Target="WorkspaceStatusBarHost.Margin" Value="12,0,12,4" />
+                        <Setter Target="SettingsShell.MinWidth" Value="0" />
+                        <Setter Target="ProjectDialogContent.MinWidth" Value="0" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="CompactLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="720" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ConversationTimelineHost.Margin" Value="16,10,16,0" />
+                        <Setter Target="RecoveryBannerHost.Margin" Value="16,0" />
+                        <Setter Target="ComposerSurfaceHost.Margin" Value="16,8,16,0" />
+                        <Setter Target="WorkspaceStatusBarHost.Margin" Value="16,0,16,6" />
+                        <Setter Target="SettingsShell.MinWidth" Value="360" />
+                        <Setter Target="ProjectDialogContent.MinWidth" Value="340" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="StandardLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="900" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ConversationTimelineHost.Margin" Value="20,12,20,0" />
+                        <Setter Target="RecoveryBannerHost.Margin" Value="20,0" />
+                        <Setter Target="ComposerSurfaceHost.Margin" Value="20,10,20,0" />
+                        <Setter Target="WorkspaceStatusBarHost.Margin" Value="20,0,20,8" />
+                        <Setter Target="SettingsShell.MinWidth" Value="420" />
+                        <Setter Target="ProjectDialogContent.MinWidth" Value="380" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="WideLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1180" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ConversationTimelineHost.Margin" Value="24,12,24,0" />
+                        <Setter Target="RecoveryBannerHost.Margin" Value="24,0" />
+                        <Setter Target="ComposerSurfaceHost.Margin" Value="24,10,24,0" />
+                        <Setter Target="WorkspaceStatusBarHost.Margin" Value="24,0,24,8" />
+                        <Setter Target="SettingsShell.MinWidth" Value="420" />
+                        <Setter Target="ProjectDialogContent.MinWidth" Value="380" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
+        <controls:WorkspaceShell x:Name="ShellLayout">
+            <controls:WorkspaceShell.MainContent>
+                <Grid Background="{ThemeResource PiCanvasBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <ContentControl
+                        x:Name="ConversationTimelineHost"
+                        MaxWidth="{StaticResource PiReadingColumnWidth}"
+                        Margin="24,12,24,0"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" />
+
+                    <ContentControl
+                        x:Name="RecoveryBannerHost"
+                        Grid.Row="1"
+                        MaxWidth="{StaticResource PiReadingColumnWidth}"
+                        Margin="24,0"
+                        HorizontalContentAlignment="Stretch" />
+
+                    <ContentControl
+                        x:Name="ComposerSurfaceHost"
+                        Grid.Row="2"
+                        MaxWidth="{StaticResource PiReadingColumnWidth}"
+                        Margin="24,10,24,0"
+                        HorizontalContentAlignment="Stretch" />
+
+                    <ContentControl
+                        x:Name="WorkspaceStatusBarHost"
+                        Grid.Row="3"
+                        MaxWidth="{StaticResource PiReadingColumnWidth}"
+                        Margin="24,0,24,8"
+                        HorizontalContentAlignment="Stretch" />
+                </Grid>
+            </controls:WorkspaceShell.MainContent>
+        </controls:WorkspaceShell>
+
+        <ContentDialog
+            x:Name="CommandPaletteDialog"
+            automation:AutomationProperties.AutomationId="CommandPaletteDialog"
+            Closed="OnCommandPaletteClosed"
+            CloseButtonText="Close"
+            DefaultButton="None"
+            Title="Command Palette">
+            <Grid MinWidth="620" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBox
+                    x:Name="CommandPaletteQuery"
+                    automation:AutomationProperties.AutomationId="CommandPaletteQuery"
+                    automation:AutomationProperties.Name="Search commands and workspace"
+                    KeyDown="OnCommandPaletteQueryKeyDown"
+                    PlaceholderText="Search commands, projects, branches, messages, and threads…"
+                    Style="{StaticResource PiTextBoxStyle}"
+                    TextChanged="OnCommandPaletteQueryChanged" />
+                <ProgressBar
+                    x:Name="CommandPaletteProgress"
+                    Grid.Row="1"
+                    Height="2"
+                    IsIndeterminate="True"
+                    Visibility="Collapsed" />
+                <ListView
+                    x:Name="CommandPaletteResults"
+                    Grid.Row="2"
+                    MaxHeight="430"
+                    automation:AutomationProperties.AutomationId="CommandPaletteResults"
+                    IsItemClickEnabled="True"
+                    ItemClick="OnCommandPaletteResultClicked"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid
+                                MinHeight="54"
+                                Padding="8,6"
+                                ColumnSpacing="12"
+                                Opacity="{Binding ResultOpacity}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="82" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                    Text="{Binding KindLabel}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource PiTextPrimaryBrush}"
+                                        Text="{Binding Title}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        MaxLines="2"
+                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                        Text="{Binding Description}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Border
+                                    Grid.Column="2"
+                                    Padding="7,3"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource PiControlSurfaceBrush}"
+                                    CornerRadius="4">
+                                    <TextBlock
+                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                        Text="{Binding ShortcutLabel}" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock
+                    x:Name="CommandPaletteStatusText"
+                    Grid.Row="3"
+                    automation:AutomationProperties.AutomationId="CommandPaletteStatusText"
+                    FontSize="{StaticResource PiFontSizeCaption}"
+                    Foreground="{ThemeResource PiTextMutedBrush}"
+                    Text="Type &gt; to search commands only. Use Up, Down, and Enter to navigate."
+                    TextWrapping="Wrap" />
+            </Grid>
+        </ContentDialog>
+
+        <ContentDialog
+            x:Name="SettingsDialog"
+            automation:AutomationProperties.AutomationId="SettingsDialog"
+            Closed="OnSettingsDialogClosed"
+            CloseButtonText="Done"
+            DefaultButton="Close"
+            Title="Settings">
+            <ScrollViewer MaxHeight="560" VerticalScrollBarVisibility="Auto">
+                <StackPanel
+                    x:Name="SettingsShell"
+                    MinWidth="420"
+                    automation:AutomationProperties.AutomationId="SettingsShell"
+                    automation:AutomationProperties.Name="Pi Station settings"
+                    Spacing="12">
+                    <TextBlock
+                        Foreground="{ThemeResource PiTextSecondaryBrush}"
+                        Text="Configure this local Pi Station workspace."
+                        TextWrapping="Wrap" />
+
+                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Appearance" />
+                                <TextBlock
+                                    x:Name="SettingsThemeStatusText"
+                                    automation:AutomationProperties.AutomationId="SettingsThemeStatusText"
+                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                    Text="{x:Bind ViewModel.Layout.ThemeSummary, Mode=OneWay}" />
+                            </StackPanel>
+                            <ComboBox
+                                x:Name="PiThemeSelector"
+                                Grid.Column="1"
+                                MinWidth="116"
+                                automation:AutomationProperties.AutomationId="PiThemeSelector"
+                                automation:AutomationProperties.Name="Application theme"
+                                SelectionChanged="OnThemeSelectionChanged"
+                                Style="{StaticResource PiComboBoxStyle}">
+                                <ComboBoxItem Content="Dark" Tag="Dark" />
+                                <ComboBoxItem Content="System" Tag="System" />
+                                <ComboBoxItem Content="Light" Tag="Light" />
+                            </ComboBox>
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.ColumnSpan="2"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="System follows Windows, including high contrast."
+                                TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Keyboard shortcuts" />
+                            <TextBlock
+                                x:Name="KeybindingSummaryText"
+                                automation:AutomationProperties.AutomationId="KeybindingSummaryText"
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                            <ComboBox
+                                x:Name="KeybindingCommandSelector"
+                                automation:AutomationProperties.AutomationId="KeybindingCommandSelector"
+                                DisplayMemberPath="Title"
+                                Header="Command"
+                                SelectionChanged="OnKeybindingCommandSelectionChanged"
+                                Style="{StaticResource PiComboBoxStyle}" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox
+                                    x:Name="KeybindingGestureInput"
+                                    automation:AutomationProperties.AutomationId="KeybindingGestureInput"
+                                    Header="Shortcut"
+                                    PlaceholderText="Ctrl+K"
+                                    Style="{StaticResource PiTextBoxStyle}" />
+                                <TextBox
+                                    x:Name="KeybindingWhenInput"
+                                    Grid.Column="1"
+                                    automation:AutomationProperties.AutomationId="KeybindingWhenInput"
+                                    Header="When"
+                                    PlaceholderText="projectOpen &amp;&amp; !terminalFocus"
+                                    Style="{StaticResource PiTextBoxStyle}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    x:Name="SaveKeybindingButton"
+                                    automation:AutomationProperties.AutomationId="SaveKeybindingButton"
+                                    Click="OnSaveKeybindingClicked"
+                                    Content="Save shortcut"
+                                    Style="{StaticResource PiPrimaryButtonStyle}" />
+                                <Button
+                                    x:Name="ResetAllKeybindingsButton"
+                                    automation:AutomationProperties.AutomationId="ResetAllKeybindingsButton"
+                                    Click="OnResetAllKeybindingsClicked"
+                                    Content="Reset all"
+                                    Style="{StaticResource PiSecondaryButtonStyle}" />
+                            </StackPanel>
+                            <TextBlock
+                                x:Name="KeybindingValidationText"
+                                automation:AutomationProperties.AutomationId="KeybindingValidationText"
+                                Foreground="{ThemeResource PiWaitingBrush}"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="KeybindingEmptyText"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="No custom overrides. Default shortcuts are active."
+                                TextWrapping="Wrap" />
+                            <ListView
+                                x:Name="KeybindingOverridesList"
+                                MaxHeight="180"
+                                automation:AutomationProperties.AutomationId="KeybindingOverridesList"
+                                SelectionMode="None">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid MinHeight="44" ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                <TextBlock FontWeight="SemiBold" Text="{Binding CommandTitle}" />
+                                                <TextBlock
+                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                                    Text="{Binding Summary}" />
+                                            </StackPanel>
+                                            <Button
+                                                Grid.Column="1"
+                                                Click="OnResetKeybindingClicked"
+                                                Content="Reset"
+                                                Style="{StaticResource PiToolbarButtonStyle}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <TextBlock
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="Conditions support !, &amp;&amp;, ||, and parentheses. Conflicting shortcuts with overlapping contexts are rejected."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <Grid RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Terminal" />
+                            <TextBlock
+                                x:Name="SettingsTerminalAppearanceStatusText"
+                                Grid.Row="1"
+                                automation:AutomationProperties.AutomationId="SettingsTerminalAppearanceStatusText"
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                Text="{x:Bind ViewModel.Layout.TerminalAppearanceSummary, Mode=OneWay}" />
+                            <Grid Grid.Row="2" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="104" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    x:Name="TerminalFontFamilySelector"
+                                    MinWidth="170"
+                                    automation:AutomationProperties.AutomationId="TerminalFontFamilySelector"
+                                    automation:AutomationProperties.Name="Terminal font family"
+                                    Header="Font family"
+                                    SelectionChanged="OnTerminalFontFamilySelectionChanged"
+                                    Style="{StaticResource PiComboBoxStyle}">
+                                    <ComboBoxItem Content="Cascadia Mono" Tag="Cascadia Mono, Consolas" />
+                                    <ComboBoxItem Content="Consolas" Tag="Consolas" />
+                                    <ComboBoxItem Content="Cascadia Code" Tag="Cascadia Code" />
+                                    <ComboBoxItem Content="CaskaydiaCove Nerd Font" Tag="CaskaydiaCove Nerd Font" />
+                                    <ComboBoxItem Content="JetBrains Mono" Tag="JetBrains Mono" />
+                                    <ComboBoxItem Content="Fira Code" Tag="Fira Code" />
+                                </ComboBox>
+                                <ComboBox
+                                    x:Name="TerminalFontSizeSelector"
+                                    Grid.Column="1"
+                                    automation:AutomationProperties.AutomationId="TerminalFontSizeSelector"
+                                    automation:AutomationProperties.Name="Terminal font size"
+                                    Header="Size"
+                                    SelectionChanged="OnTerminalFontSizeSelectionChanged"
+                                    Style="{StaticResource PiComboBoxStyle}">
+                                    <ComboBoxItem Content="10 px" Tag="10" />
+                                    <ComboBoxItem Content="11 px" Tag="11" />
+                                    <ComboBoxItem Content="12 px" Tag="12" />
+                                    <ComboBoxItem Content="13 px" Tag="13" />
+                                    <ComboBoxItem Content="14 px" Tag="14" />
+                                    <ComboBoxItem Content="16 px" Tag="16" />
+                                    <ComboBoxItem Content="18 px" Tag="18" />
+                                    <ComboBoxItem Content="20 px" Tag="20" />
+                                </ComboBox>
+                            </Grid>
+                            <Button
+                                x:Name="ResetTerminalAppearanceButton"
+                                Grid.Row="3"
+                                HorizontalAlignment="Left"
+                                automation:AutomationProperties.AutomationId="ResetTerminalAppearanceButton"
+                                automation:AutomationProperties.Name="Reset terminal appearance"
+                                Click="OnResetTerminalAppearanceClicked"
+                                Content="Reset terminal font"
+                                Style="{StaticResource PiSecondaryButtonStyle}" />
+                            <TextBlock
+                                Grid.Row="4"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="Changes apply to open terminals immediately. Missing or proportional fonts fall back to the default monospace stack."
+                                TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <Grid RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Workspace layout" />
+                            <TextBlock
+                                x:Name="SettingsLayoutSummaryText"
+                                Grid.Row="1"
+                                automation:AutomationProperties.AutomationId="SettingsLayoutSummaryText"
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                Text="{x:Bind ViewModel.Layout.LayoutSummary, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <Button
+                                x:Name="ResetLayoutButton"
+                                Grid.Row="2"
+                                HorizontalAlignment="Left"
+                                automation:AutomationProperties.AutomationId="ResetLayoutButton"
+                                automation:AutomationProperties.Name="Reset workspace layout"
+                                Click="OnResetLayoutClicked"
+                                Content="Reset layout"
+                                Style="{StaticResource PiSecondaryButtonStyle}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Local environment" />
+                            <TextBlock
+                                x:Name="SettingsConnectionStatusText"
+                                Grid.Row="1"
+                                automation:AutomationProperties.AutomationId="SettingsConnectionStatusText"
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                Text="{x:Bind ViewModel.Connection.Status, Mode=OneWay}" />
+                            <TextBlock
+                                x:Name="SettingsProjectPathText"
+                                Grid.Row="2"
+                                automation:AutomationProperties.AutomationId="SettingsProjectPathText"
+                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                FontSize="{StaticResource PiFontSizeCaption}"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}"
+                                TextTrimming="CharacterEllipsis"
+                                ToolTipService.ToolTip="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}" />
+                        </Grid>
+                    </Border>
+
+                    <Border
+                        x:Name="DiagnosticsSection"
+                        automation:AutomationProperties.AutomationId="DiagnosticsSection"
+                        Style="{StaticResource PiWarningBannerStyle}"
+                        Visibility="{x:Bind ViewModel.UiTestFaultControlsVisibility}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Test diagnostics" />
+                            <TextBlock
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                Text="These controls are available only in deterministic FakePi test launches."
+                                TextWrapping="Wrap" />
+                            <Button
+                                x:Name="SimulateTransportDropButton"
+                                HorizontalAlignment="Left"
+                                automation:AutomationProperties.AutomationId="SimulateTransportDropButton"
+                                automation:AutomationProperties.Name="Simulate a transport disconnect for UI testing"
+                                Click="OnSimulateTransportDropClicked"
+                                Content="Simulate transport disconnect"
+                                Style="{StaticResource PiSecondaryButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PiBannerStyle}">
+                        <StackPanel Spacing="4">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="About" />
+                            <TextBlock
+                                Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                Text="Pi Station Desktop • Native Windows client for Pi"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </ContentDialog>
+
+        <ContentDialog
+            x:Name="AddProjectDialog"
+            automation:AutomationProperties.AutomationId="AddProjectDialog"
+            Closed="OnAddProjectDialogClosed"
+            CloseButtonText="Cancel"
+            DefaultButton="Close"
+            Title="Add local project">
+            <StackPanel x:Name="ProjectDialogContent" MinWidth="380" Spacing="12">
+                <Border Style="{StaticResource PiBannerStyle}">
+                    <StackPanel Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="Local folders only" />
+                        <TextBlock
+                            Foreground="{ThemeResource PiTextSecondaryBrush}"
+                            Text="Pi Station stores workspace metadata locally and never uploads the folder itself."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <TextBox
+                    x:Name="ProjectPathInput"
+                    automation:AutomationProperties.AutomationId="ProjectPathInput"
+                    automation:AutomationProperties.Name="Project directory path"
+                    Header="Project path"
+                    PlaceholderText="C:\Projects\my-project"
+                    Style="{StaticResource PiTextBoxStyle}" />
+                <Button
+                    x:Name="AddProjectConfirmButton"
+                    HorizontalAlignment="Right"
+                    automation:AutomationProperties.AutomationId="AddProjectConfirmButton"
+                    automation:AutomationProperties.Name="Confirm add project"
+                    Click="OnAddProjectConfirmed"
+                    Content="Add project"
+                    Style="{StaticResource PiPrimaryButtonStyle}" />
+            </StackPanel>
+        </ContentDialog>
+    </Grid>
+</Page>

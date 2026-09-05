@@ -1,0 +1,43 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/PiStation.App/PiStation.App.csproj">
+      <Platform Project="x64" />
+      <Deploy />
+    </Project>
+    <Project Path="src/PiStation.ClientRuntime/PiStation.ClientRuntime.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="src/PiStation.Host/PiStation.Host.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="src/PiStation.PiRpc/PiStation.PiRpc.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="src/PiStation.Protocol/PiStation.Protocol.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PiStation.CommandSystem.Tests/PiStation.CommandSystem.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="tests/PiStation.ClientRuntime.Tests/PiStation.ClientRuntime.Tests.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="tests/PiStation.FakePi/PiStation.FakePi.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="tests/PiStation.Host.Tests/PiStation.Host.Tests.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="tests/PiStation.PiRpc.Tests/PiStation.PiRpc.Tests.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+    <Project Path="tests/PiStation.Protocol.Tests/PiStation.Protocol.Tests.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
+  </Folder>
+</Solution>
