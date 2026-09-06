@@ -46,6 +46,12 @@ public sealed partial class HostDatabase
                 PRAGMA journal_mode = WAL;
                 PRAGMA busy_timeout = 5000;
 
+                CREATE TABLE IF NOT EXISTS PiSessionCopies (
+                    OperationId TEXT PRIMARY KEY NOT NULL,
+                    RequestHash TEXT NOT NULL,
+                    ThreadId TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS Environment (
                     EnvironmentId TEXT PRIMARY KEY NOT NULL,
                     Name TEXT NOT NULL,

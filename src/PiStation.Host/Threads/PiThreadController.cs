@@ -179,6 +179,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 {
                     Queue = CreateQueueProjection(activeState, Journal.Projection.Queue?.Messages ?? []),
                     AgentActivities = [],
+                    Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false),
                 };
                 var persistedAgentEvents = await _database.ListThreadAgentEventsAsync(
                     _thread.ThreadId,
@@ -276,7 +277,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
             new("background", "Submit the draft and keep working elsewhere.", ComposerCommandSource.BuiltIn),
         };
-        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand).Select(static command => new ComposerCommandDescriptor(
+        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand).Select(static command => new ComposerCommandDescriptor(
             command.Name,
             command.Description ?? command.Name,
             command.Source switch
@@ -518,12 +519,17 @@ public sealed partial class PiThreadController : IAsyncDisposable
         }
     }
 
-    public async Task<TurnId> StartTurnAsync(
+    public Task<TurnId> StartTurnAsync(string prompt, IReadOnlyList<PiPromptAttachment> attachments,
+        ClientId clientId, CommandId commandId, CancellationToken cancellationToken = default) =>
+        StartTurnCoreAsync(prompt, attachments, clientId, commandId, null, cancellationToken);
+
+    private async Task<TurnId> StartTurnCoreAsync(
         string prompt,
         IReadOnlyList<PiPromptAttachment> attachments,
         ClientId clientId,
         CommandId commandId,
-        CancellationToken cancellationToken = default)
+        long? approvedPlanRevision,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ArgumentNullException.ThrowIfNull(attachments);
@@ -546,6 +552,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
 
             // Resolve resources before creating a turn or consuming its draft.
             var preparedPrompt = await _process.Connection.PreparePromptAsync(prompt, cancellationToken).ConfigureAwait(false);
+            if (approvedPlanRevision is { } planRevision)
+                await ApplyPlanCommandAsync(new("execute", planRevision), cancellationToken).ConfigureAwait(false);
             var firstToken = prompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             var isExtensionCommand = firstToken?.StartsWith('/') == true &&
                 (await _process.Connection.GetCommandsAsync(cancellationToken).ConfigureAwait(false))
@@ -603,6 +611,14 @@ public sealed partial class PiThreadController : IAsyncDisposable
             lock (_stateLock)
             {
                 _settlementReceipts.Remove((clientId, commandId));
+            }
+
+            if (approvedPlanRevision is not null)
+            {
+                // Revoke a possibly delivered approval by closing the owned runtime.
+                // Its persisted executing state reopens paused and requires a new approval.
+                await DisposePreviousProcessAsync().ConfigureAwait(false);
+                Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Stopped));
             }
 
             throw;
@@ -870,7 +886,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     state.SessionFile,
                     state.Model?.ContextWindow,
                     retained,
-                    state.SessionId) with { AgentActivities = [] };
+                    state.SessionId) with { AgentActivities = [], Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false) };
                 var retainedAgentEvents = await _database.ListThreadAgentEventsAsync(
                     _thread.ThreadId,
                     cancellationToken).ConfigureAwait(false);
@@ -1135,6 +1151,11 @@ public sealed partial class PiThreadController : IAsyncDisposable
         {
             case PiIdlePromptCompletedEvent completed when Journal.Projection.CurrentTurnId?.Value == completed.Tag:
                 await SettleAsync().ConfigureAwait(false);
+                break;
+            case PiExtensionUiUpdateEvent { Key: "pistation-plan-state", Text: { } text }:
+                var planState = PiPlanState.Parse(text);
+                // Session-transition events can arrive before the rewind operation updates the thread identity.
+                if (planState.SessionId == _thread.PiSessionId) Journal.Commit(new PiPlanChangedEvent(planState));
                 break;
             case PiExtensionUiUpdateEvent update:
                 Journal.Commit(new PiExtensionUiChangedEvent(new PiExtensionUiUpdate(update.RequestId, update.Method,

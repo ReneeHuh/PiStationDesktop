@@ -28,6 +28,7 @@ public sealed record ThreadCursor(ProjectionEpoch ProjectionEpoch, Sequence Sequ
 [JsonDerivedType(typeof(AgentActivityChangedEvent), "agentActivityChanged")]
 [JsonDerivedType(typeof(ContextCompactionChangedEvent), "contextCompactionChanged")]
 [JsonDerivedType(typeof(PiExtensionUiChangedEvent), "piExtensionUiChanged")]
+[JsonDerivedType(typeof(PiPlanChangedEvent), "piPlanChanged")]
 public abstract record ThreadEvent;
 
 public sealed record RuntimeStateChangedEvent(ThreadRuntimeState State) : ThreadEvent;
@@ -86,6 +87,8 @@ public sealed record AgentActivityChangedEvent(AgentActivityProjection Activity)
 public sealed record ContextCompactionChangedEvent(ContextCompactionProjection Compaction) : ThreadEvent;
 
 public sealed record PiExtensionUiChangedEvent(PiExtensionUiUpdate Update) : ThreadEvent;
+
+public sealed record PiPlanChangedEvent(PiPlanState Plan) : ThreadEvent;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(ThreadSnapshotEnvelope), "snapshot")]

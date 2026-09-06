@@ -14,7 +14,7 @@ Pi Station currently targets **Windows 11 x64** (Windows build 22000 or later).
 
 Open **Settings → Pi / runtime**. Keep discovery off to load the bundled desktop extensions and paths you explicitly add. Turn on **Discover installed Pi extensions** to let Pi discover installed resources under its own project trust policy. Inspect and save project trust decisions in **Settings → Pi resources**; Pi's trust extensions still determine the effective policy. Additional extension paths must be absolute paths to existing files or directories. These extensions execute code with the Pi process's permissions, so add paths you trust.
 
-Choose **Save and connect**, then **Restart selected thread** once its turn and interactions have finished. New runtimes use the saved configuration immediately. Removing an explicit path or turning discovery off takes effect at that restart. The bundled browser and resource-management extensions remain available. Settings are saved together in `pi-runtime.json` under the app data root; older `pi-executable.txt` settings are read when the new file is absent.
+Choose **Save and connect**, then **Restart selected thread** once its turn and interactions have finished. New runtimes use the saved configuration immediately. Removing an explicit path or turning discovery off takes effect at that restart. The bundled browser, resource-management and planning extensions remain available. Settings are saved together in `pi-runtime.json` under the app data root; older `pi-executable.txt` settings are read when the new file is absent.
 
 Use the skill picker or write `Please use $skill:review on these changes.` Inline and multiple skill mentions resolve against Pi's discovered skills and include their instructions in the model request. Code examples, escaped mentions, and quoted context do not invoke skills. Missing or ambiguous skills produce an error before the draft is consumed. Native `/skill:name` prefixes and prompt templates remain supported by Pi.
 
@@ -31,6 +31,26 @@ Use **Enable / Disable** for a discovered resource, then **Restart selected thre
 Expand **Add or update a custom model** to save a provider ID, model ID, endpoint and API to Pi's `models.json`. The endpoint and API affect all models with that provider ID. Other providers and existing model fields are retained; comments and formatting are rewritten. Supply an environment-variable **name**, then set its value before launching PiStation; leave the field blank to preserve an existing credential configuration. **Local server needs no key** is available for localhost endpoints. Restart and select the model in the composer after saving. Stale edits and malformed JSON require refresh or file repair before another save.
 
 The resource and package terminal buttons open Pi's own `config` and `list` commands. In the package terminal, `pi install <source>`, `pi remove <source>` and `pi update` use the same configured runtime. The native panel refreshes metadata without installing packages. General runtime arguments, per-runtime environment editing and automatic Pi installation/update remain future setup work.
+
+## Import, fork and export Pi sessions
+
+Open **Settings → Sessions**, or search for **Manage Pi Sessions** in the command palette. Select the project that should own the new thread first.
+
+**Import:** refresh Pi's default session folder, enter/choose another folder, or use **Import JSONL file…**. Select a listed session and choose **Import selected session**. PiStation copies the full session tree under its own data directory with a new identity. The CLI source remains unchanged. Current Pi v3 sessions are supported, up to 64 MiB and 50,000 entries; open older sessions in a current Pi version before importing. Unreadable/unsupported files are counted in the browser result. A folder scan examines at most 500 files within four subfolder levels.
+
+**Fork:** select an idle thread and choose **Refresh session tree**. Active and alternate branches show their entry and parent identities. Select a completed assistant response, then **Fork after selected response**. The new thread contains the path through that response. **Copy whole session** retains every branch. Both actions use the selected project's current local workspace; they do not copy a worktree or rewind files. Model and thinking settings come from the copied history, and the new draft starts empty. The original thread keeps its draft. An unavailable source model is reported by the normal Pi configuration/recovery controls.
+
+**Export:** **Export Pi JSONL…** saves the full tree, including embedded image data. **Export readable HTML…** saves a standalone, escaped text transcript of the active branch, including tool/thinking text. HTML represents images as placeholders; use JSONL to retain image data. Linked workspace files remain external to both formats. Choose a destination outside PiStation's application data.
+
+Inspect, copy/fork and export require an idle thread with a saved session. A stale tree requires refresh before a new fork. If a copy request loses its response, retrying the unchanged action checks the saved operation outcome. Created threads survive relaunch and appear in the selected project's thread list.
+
+## Plan, approve and execute
+
+Expand **Plan** above the composer and choose **Plan mode**, then send your task in the composer. Pi can use dedicated file read/search tools to propose a numbered plan. Shell commands, writes, browser actions and other tools are blocked by the planning policy. Trusted extensions themselves still have the Pi process's permissions; this is not an OS sandbox.
+
+Review or edit the numbered list, choose **Save plan**, then **Approve and execute remaining steps**. Approval enables the normal Pi tools for the run and preserves your unsent composer draft and attachments. **Stop** interrupts execution. The panel tracks the agent's reported completed steps; remaining steps require another approval after a paused run. **Export** saves the reviewed plan and progress as Markdown.
+
+Plans and progress survive thread switches, reconnect and restart. Execution interrupted by process shutdown reopens paused. **Reload saved plan** replaces unsaved editor changes; stale saves require reviewing the current version first. After completion, planning restrictions remain active until **Return to normal tools**. Plan text supports up to 32 KiB and 100 steps. Back up the `plans` directory together with the sessions and host database.
 
 ## Organize and review work
 
@@ -51,7 +71,7 @@ The resource and package terminal buttons open Pi's own `config` and `list` comm
 
 ## Back up and update
 
-Close Pi Station, then back up the complete `%LOCALAPPDATA%\PiStationDesktop` directory and your project repositories. Keep `host.db`, sessions, attachments, worktrees, and settings together. A `--data-root` launch uses that directory instead. Restore with the app closed.
+Close Pi Station, then back up the complete `%LOCALAPPDATA%\PiStationDesktop` directory and your project repositories. Keep `host.db`, sessions, plans, attachments, worktrees, and settings together. A `--data-root` launch uses that directory instead. Restore with the app closed.
 
 Run `pwsh ./Build-Release.ps1` to generate an unsigned development MSIX and checksum in a fresh folder beneath `artifacts/release`. Unsigned packages are build artifacts; they need signing before normal installation.
 

@@ -95,6 +95,10 @@ public interface IEnvironmentClient : IAsyncDisposable
 
     Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default);
     Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default);
+    Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default);
+    Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default);
+    Task<ThreadDescriptor> CopyPiSessionAsync(CopyPiSessionRequest request, CancellationToken cancellationToken = default);
+    Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default);
     Task<PiSetupTerminalResult> StartPiSetupAsync(StartPiSetupRequest request, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default);
@@ -323,6 +327,9 @@ public interface IEnvironmentClient : IAsyncDisposable
         DraftId draftId,
         long expectedRevision,
         IReadOnlyList<AttachmentId> expectedAttachmentIds,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> ManagePlanAsync(ThreadId threadId, string action, long expectedRevision, string? text = null,
         CancellationToken cancellationToken = default);
 
     Task<CommandReceipt> StartTurnAsync(

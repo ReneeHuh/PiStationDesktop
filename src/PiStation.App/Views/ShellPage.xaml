@@ -88,6 +88,29 @@
                         VerticalContentAlignment="Stretch" />
 
                     <StackPanel Grid.Row="1" Spacing="6">
+                        <Expander Header="{x:Bind ViewModel.Plan.Heading, Mode=OneWay}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            MaxWidth="{StaticResource PiReadingColumnWidth}" Margin="24,0" Visibility="{x:Bind ViewModel.Plan.Visibility, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiPlanPanel" automation:AutomationProperties.Name="{x:Bind ViewModel.Plan.Heading, Mode=OneWay}">
+                            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="{x:Bind ViewModel.Plan.Policy, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiPlanPolicyText" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Plan mode" Tag="plan" Click="OnPlanActionClicked" IsEnabled="{x:Bind ViewModel.Plan.CanChangeMode, Mode=OneWay}" automation:AutomationProperties.AutomationId="StartPlanningButton" />
+                                        <Button Content="Refresh" Tag="inspect" Click="OnPlanActionClicked" IsEnabled="{x:Bind ViewModel.Plan.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="RefreshPlanButton" />
+                                    </StackPanel>
+                                    <TextBox Header="Review or edit the numbered plan" Text="{x:Bind ViewModel.Plan.EditText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="96" MaxHeight="160" MaxLength="32768" IsEnabled="{x:Bind ViewModel.Plan.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiPlanEditor" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Save plan" Click="OnPlanActionClicked" Tag="save" IsEnabled="{x:Bind ViewModel.Plan.CanSave, Mode=OneWay}" automation:AutomationProperties.AutomationId="SavePlanButton" />
+                                        <Button Content="Reload saved plan" Click="OnReloadPlanClicked" IsEnabled="{x:Bind ViewModel.Plan.CanAct, Mode=OneWay}" />
+                                        <Button Content="Export" Click="OnExportPlanClicked" IsEnabled="{x:Bind ViewModel.Plan.CanExport, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPlanButton" />
+                                    </StackPanel>
+                                    <TextBlock Text="{x:Bind ViewModel.Plan.Progress, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiPlanProgressText" />
+                                    <Button Content="Approve and execute remaining steps" Tag="execute" Click="OnPlanActionClicked" IsEnabled="{x:Bind ViewModel.Plan.CanExecute, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExecutePlanButton" />
+                                    <TextBlock Text="Use Stop in the composer to interrupt execution. Completed steps are reported by the agent." TextWrapping="Wrap" />
+                                    <Button Content="Return to normal tools" Tag="off" Click="OnPlanActionClicked" IsEnabled="{x:Bind ViewModel.Plan.CanChangeMode, Mode=OneWay}" automation:AutomationProperties.AutomationId="LeavePlanningButton" />
+                                    <TextBlock Text="{x:Bind ViewModel.Plan.Status, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiPlanStatusText" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Expander>
                         <Expander Header="{x:Bind ViewModel.ExtensionUi.Heading, Mode=OneWay}" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                             MaxWidth="{StaticResource PiReadingColumnWidth}" Margin="24,0" Visibility="{x:Bind ViewModel.ExtensionUi.PanelVisibility, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiExtensionPanel">
                             <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
@@ -252,6 +275,7 @@
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsProjectsNavItem" Content="Projects" Tag="Projects" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsRuntimeNavItem" Content="Pi / runtime" Tag="PiRuntime" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsPiResourcesNavItem" Content="Pi resources" Tag="PiResources" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsPiSessionsNavItem" Content="Sessions" Tag="PiSessions" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsSourceControlNavItem" Content="Source control" Tag="SourceControl" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsAppearanceNavItem" Content="Appearance" Tag="Appearance" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsIntegrationsNavItem" Content="Integrations" Tag="Integrations" />
@@ -653,6 +677,55 @@
                                 <ScrollViewer MaxHeight="180">
                                     <TextBlock Text="{x:Bind ViewModel.PiResources.Diagnostics, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                                 </ScrollViewer>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                    <Border Tag="PiSessions" Style="{StaticResource PiElevatedSurfaceStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Pi sessions" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.PiSessions.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiSessionsStatusText" />
+                            <TextBlock Text="Import and fork create independent local threads in the selected project. Originals and unsent drafts are preserved. Workspace files are not copied or rewound." TextWrapping="Wrap" FontSize="12" />
+                            <TextBox Header="New thread title (optional)" Text="{x:Bind ViewModel.PiSessions.NewTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="PiSessionTitleInput" />
+                            <Expander Header="Import a session" IsExpanded="True" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBox Header="Session folder" PlaceholderText="Empty uses Pi's default session folder" Text="{x:Bind ViewModel.PiSessions.Directory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="PiSessionDirectoryInput" />
+                                    <Button Content="Refresh session files" Click="OnBrowsePiSessionsClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="BrowsePiSessionsButton" />
+                                    <Button Content="Choose folder…" Click="OnChoosePiSessionFolderClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
+                                    <Button Content="Import JSONL file…" Click="OnChoosePiSessionFileClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportPiSessionFileButton" />
+                                    <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Candidates}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedCandidate, Mode=TwoWay}" MaxHeight="240" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionCandidateList">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="viewModels:PiSessionCandidateRow">
+                                                <StackPanel Spacing="4" Margin="0,6">
+                                                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{x:Bind Details}" TextWrapping="Wrap" FontSize="12" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                    <Button Content="Import selected session" Click="OnImportSelectedPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportSelectedPiSessionButton" />
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Selected thread" IsExpanded="True" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <Button Content="Refresh session tree" Click="OnInspectPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="InspectPiSessionButton" />
+                                    <TextBlock Text="{x:Bind ViewModel.PiSessions.Summary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiSessionSummaryText" />
+                                    <TextBlock Text="The tree includes alternate branches and configuration entries. Fork after a completed assistant response to continue that conversation in a new thread." TextWrapping="Wrap" FontSize="12" />
+                                    <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Entries}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedEntry, Mode=TwoWay}" MaxHeight="300" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionTreeList">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="viewModels:PiSessionTreeRow">
+                                                <StackPanel Spacing="4" Margin="{x:Bind Indent}">
+                                                    <TextBlock Text="{x:Bind Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{x:Bind Details}" TextWrapping="Wrap" FontSize="12" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                    <Button Content="Fork after selected response" Click="OnForkPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ForkPiSessionButton" />
+                                    <Button Content="Copy whole session" Click="OnCopyPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="CopyPiSessionButton" />
+                                    <TextBlock Text="JSONL retains the full tree and embedded images. HTML is a readable text transcript of the active branch. Linked files remain external." TextWrapping="Wrap" FontSize="12" />
+                                    <Button Content="Export Pi JSONL…" Tag="jsonl" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionJsonlButton" />
+                                    <Button Content="Export readable HTML…" Tag="html" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionHtmlButton" />
+                                </StackPanel>
                             </Expander>
                         </StackPanel>
                     </Border>

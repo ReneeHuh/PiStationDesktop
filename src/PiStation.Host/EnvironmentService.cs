@@ -754,6 +754,13 @@ public sealed partial class EnvironmentService : IAsyncDisposable
 
             switch (request.Command)
             {
+                case ThreadManagePlanCommand { Action: "execute" } plan:
+                    await controller!.ExecutePlanAsync(plan.ExpectedRevision, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadManagePlanCommand plan:
+                    await controller!.ManagePlanAsync(plan, cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
                 case ThreadStartTurnCommand start:
                     ArgumentNullException.ThrowIfNull(start.Prompt);
                     var promptAttachments = await ResolveTurnAttachmentsAsync(

@@ -7,11 +7,13 @@ internal sealed class FakeSessionStore
 {
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
     private readonly string _sessionFile;
+    private readonly string _sessionId;
 
     public FakeSessionStore(string sessionDirectory, string sessionId)
     {
         Directory.CreateDirectory(sessionDirectory);
         _sessionFile = Path.Combine(sessionDirectory, $"{sessionId}.jsonl");
+        _sessionId = sessionId;
     }
 
     public string SessionFile => _sessionFile;
@@ -26,7 +28,7 @@ internal sealed class FakeSessionStore
 
         foreach (var line in await File.ReadAllLinesAsync(_sessionFile, cancellationToken).ConfigureAwait(false))
         {
-            if (JsonNode.Parse(line) is JsonObject entry)
+            if (JsonNode.Parse(line) is JsonObject entry && entry["type"]?.GetValue<string>() != "session")
             {
                 entries.Add(entry);
             }
@@ -102,6 +104,7 @@ internal sealed class FakeSessionStore
     public static JsonObject AssistantMessage(string text) => new()
     {
         ["role"] = "assistant",
+        ["stopReason"] = "stop",
         ["content"] = new JsonArray
         {
             new JsonObject { ["type"] = "text", ["text"] = text },
@@ -128,6 +131,12 @@ internal sealed class FakeSessionStore
 
     private async Task AppendAsync(JsonObject entry, CancellationToken cancellationToken)
     {
+        if (!File.Exists(_sessionFile))
+        {
+            var header = new JsonObject { ["type"] = "session", ["version"] = 3, ["id"] = _sessionId,
+                ["cwd"] = Environment.CurrentDirectory, ["timestamp"] = DateTimeOffset.UtcNow.ToString("O") };
+            await File.WriteAllTextAsync(_sessionFile, header.ToJsonString() + "\n", Utf8WithoutBom, cancellationToken).ConfigureAwait(false);
+        }
         var line = entry.ToJsonString() + "\n";
         await File.AppendAllTextAsync(_sessionFile, line, Utf8WithoutBom, cancellationToken).ConfigureAwait(false);
     }

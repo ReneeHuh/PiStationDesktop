@@ -8,14 +8,21 @@ namespace PiStation.PiRpc.Transport;
 public sealed partial class PiRpcConnection
 {
     public const string ManagementCommand = "pistation-desktop-resources";
+    public const string PlanCommand = "pistation-desktop-plan";
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _managementRequests = new();
 
-    public async Task<JsonElement> ManageAsync(JsonObject action, CancellationToken cancellationToken = default)
+    public Task<JsonElement> ManageAsync(JsonObject action, CancellationToken cancellationToken = default) =>
+        ManageCoreAsync(ManagementCommand, action, cancellationToken);
+
+    public Task<JsonElement> ManagePlanAsync(JsonObject action, CancellationToken cancellationToken = default) =>
+        ManageCoreAsync(PlanCommand, action, cancellationToken);
+
+    private async Task<JsonElement> ManageCoreAsync(string commandName, JsonObject action, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposeCancellation.Token);
         timeout.CancelAfter(_options.DefaultCommandTimeout);
-        if (!(await GetCommandsAsync(timeout.Token).ConfigureAwait(false)).Any(command => command.Name == ManagementCommand))
-            throw new PiRpcCommandException(ManagementCommand, "The PiStation management extension is unavailable. Restart Pi after updating PiStation.");
+        if (!(await GetCommandsAsync(timeout.Token).ConfigureAwait(false)).Any(command => command.Name == commandName))
+            throw new PiRpcCommandException(commandName, "The PiStation management extension is unavailable. Restart Pi after updating PiStation.");
         var id = Guid.NewGuid().ToString("N");
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         _managementRequests[id] = completion;
@@ -24,15 +31,15 @@ public sealed partial class PiRpcConnection
             action = (JsonObject)action.DeepClone();
             action["id"] = id;
             var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(action.ToJsonString())).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            await PromptAsync("/" + ManagementCommand + " " + payload, [], null, timeout.Token, expandSkills: false).ConfigureAwait(false);
+            await PromptAsync("/" + commandName + " " + payload, [], null, timeout.Token, expandSkills: false).ConfigureAwait(false);
             var record = await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
             if (!record.GetProperty("success").GetBoolean())
-                throw new PiRpcCommandException(ManagementCommand, record.GetProperty("error").GetString() ?? "Management failed.");
+                throw new PiRpcCommandException(commandName, record.GetProperty("error").GetString() ?? "Management failed.");
             return record.GetProperty("data").Clone();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_disposeCancellation.IsCancellationRequested)
         {
-            throw new PiRpcCommandException(ManagementCommand, "Pi management timed out. Refresh to check the saved state before retrying a change.");
+            throw new PiRpcCommandException(commandName, "Pi management timed out. Refresh to check the saved state before retrying a change.");
         }
         finally { _managementRequests.TryRemove(id, out _); }
     }

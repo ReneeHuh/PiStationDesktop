@@ -125,6 +125,7 @@ public sealed partial class ShellPage : Page
             "project.add", "Add Local Project", "Project", "Add another local project folder.",
             OpenAddProjectAsync, enableWhen: "connected", defaultShortcut: "Ctrl+Shift+O",
             disabledReason: "Connect to the local environment first.");
+        Register("sessions.manage", "Manage Pi Sessions", "Conversation", "Import, fork and export Pi conversations.", OpenPiSessionsAsync);
         Register(
             "settings.open", "Open Settings", "Application",
             "Configure appearance, terminal, and keyboard shortcuts.", OpenSettingsAsync,

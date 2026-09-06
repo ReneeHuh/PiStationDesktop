@@ -826,7 +826,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         RunOnUiThread(() =>
         {
-            if (SelectedThread?.ThreadId != thread?.ThreadId) PiResources.Clear();
+            if (SelectedThread?.ThreadId != thread?.ThreadId)
+            {
+                PiResources.Clear();
+                PiSessions.ClearThread();
+            }
             SelectedThread = thread;
         });
         if (_subscription is not null)
@@ -3565,6 +3569,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _lastProjectionRuntimeState = projection?.RuntimeState;
         Thread.ApplyProjection(projection, SelectedThread is not null);
         ExtensionUi.Apply(projection);
+        Plan.Apply(projection);
         WorkbenchAgents.Apply(projection?.AgentActivities);
         RaiseCommandStateChanged();
         if (previousRuntimeState == ThreadRuntimeState.Running &&
@@ -3588,6 +3593,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RaiseCommandStateChanged()
     {
+        Plan.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(CanSend));
         OnPropertyChanged(nameof(CanStashPrompt));
         OnPropertyChanged(nameof(CanQueueFollowUp));

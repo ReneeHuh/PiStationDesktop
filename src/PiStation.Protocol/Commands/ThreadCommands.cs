@@ -7,6 +7,7 @@ namespace PiStation.Protocol.Commands;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(ThreadStartTurnCommand), "threadStartTurn")]
+[JsonDerivedType(typeof(ThreadManagePlanCommand), "threadManagePlan")]
 [JsonDerivedType(typeof(ThreadQueueSteeringCommand), "threadQueueSteering")]
 [JsonDerivedType(typeof(ThreadQueueFollowUpCommand), "threadQueueFollowUp")]
 [JsonDerivedType(typeof(ThreadClearQueueCommand), "threadClearQueue")]
@@ -34,6 +35,8 @@ namespace PiStation.Protocol.Commands;
 [JsonDerivedType(typeof(ThreadCompactContextCommand), "threadCompactContext")]
 [JsonDerivedType(typeof(ThreadRevertCheckpointCommand), "threadRevertCheckpoint")]
 public abstract record ThreadCommand;
+
+public sealed record ThreadManagePlanCommand(string Action, long ExpectedRevision, string? Text = null) : ThreadCommand;
 
 public sealed record ThreadStartTurnCommand(
     string Prompt,

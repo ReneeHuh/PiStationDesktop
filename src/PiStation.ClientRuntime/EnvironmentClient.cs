@@ -211,6 +211,20 @@ public sealed class EnvironmentClient : IEnvironmentClient
     public Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiResourcesSnapshot>("ManagePiResources", request, cancellationToken);
 
+    public Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSessionBrowserResult>("BrowsePiSessions", request, cancellationToken);
+    public Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSessionSnapshot>("InspectPiSession", threadId, cancellationToken);
+    public Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSessionExportResult>("ExportPiSession", request, cancellationToken);
+    public async Task<ThreadDescriptor> CopyPiSessionAsync(CopyPiSessionRequest request, CancellationToken cancellationToken = default)
+    {
+        var descriptor = EnsureConnected();
+        var thread = await InvokeAsync<ThreadDescriptor>("CopyPiSession", request, cancellationToken).ConfigureAwait(false);
+        ApplyThreadDescriptor(descriptor, thread, request.ProjectId);
+        return ThreadMetadata.GetCurrent(thread.ThreadId) ?? thread;
+    }
+
     public Task<PiSetupTerminalResult> StartPiSetupAsync(StartPiSetupRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSetupTerminalResult>("StartPiSetup", request, cancellationToken);
 
@@ -938,6 +952,10 @@ public sealed class EnvironmentClient : IEnvironmentClient
             : null;
         return new ThreadDraftClearResult(receipt, draft);
     }
+
+    public Task<CommandReceipt> ManagePlanAsync(ThreadId threadId, string action, long expectedRevision, string? text = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(threadId, null, null, new ThreadManagePlanCommand(action, expectedRevision, text), cancellationToken);
 
     public Task<CommandReceipt> StartTurnAsync(
         ThreadId threadId,

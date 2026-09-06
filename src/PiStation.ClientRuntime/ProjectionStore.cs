@@ -144,6 +144,7 @@ internal static class ClientProjectionReducer
 {
     public static ThreadProjection Apply(ThreadProjection projection, ThreadEvent @event) => @event switch
     {
+        PiPlanChangedEvent changed when changed.Plan.SessionId == projection.PiSessionId && changed.Plan.Revision >= (projection.Plan?.Revision ?? -1) => projection with { Plan = changed.Plan },
         PiExtensionUiChangedEvent changed => projection with { ExtensionUi = (projection.ExtensionUi ?? PiExtensionUiState.Empty).Apply(changed.Update) },
         RuntimeStateChangedEvent changed => ApplyRuntimeStateChanged(projection, changed),
         TurnStartedEvent started => ApplyTurnStarted(projection, started),

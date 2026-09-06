@@ -142,6 +142,22 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
     }
 
+    public Task<PiSessionBrowserResult> BrowsePiSessions(BrowsePiSessionsRequest request) =>
+        SessionOperationAsync(() => _environment.BrowsePiSessionsAsync(request, Context.ConnectionAborted));
+    public Task<PiSessionSnapshot> InspectPiSession(ThreadId threadId) =>
+        SessionOperationAsync(() => _environment.InspectPiSessionAsync(threadId, Context.ConnectionAborted));
+    public Task<ThreadDescriptor> CopyPiSession(CopyPiSessionRequest request) =>
+        SessionOperationAsync(() => _environment.CopyPiSessionAsync(request, Context.ConnectionAborted));
+    public Task<PiSessionExportResult> ExportPiSession(ExportPiSessionRequest request) =>
+        SessionOperationAsync(() => _environment.ExportPiSessionAsync(request, Context.ConnectionAborted));
+
+    private static async Task<T> SessionOperationAsync<T>(Func<Task<T>> operation)
+    {
+        try { return await operation().ConfigureAwait(false); }
+        catch (Exception exception) when (exception is HostOperationException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
+        { throw new HubException(exception.Message); }
+    }
+
     public async Task<PiSetupTerminalResult> StartPiSetup(StartPiSetupRequest request)
     {
         try { return await _environment.StartPiSetupAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }

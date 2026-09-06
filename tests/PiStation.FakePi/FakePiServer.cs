@@ -138,6 +138,13 @@ internal sealed partial class FakePiServer : IDisposable
         switch (type)
         {
             case "prompt":
+                if (_arguments.Scenario == "plan-workflow" && command["message"]?.ToString() is { } planPrompt)
+                {
+                    if (planPrompt.StartsWith("/pistation-desktop-plan ", StringComparison.Ordinal))
+                        await HandlePlanCommandAsync(id, planPrompt, cancellationToken).ConfigureAwait(false);
+                    else await HandlePlanPromptAsync(id, planPrompt, cancellationToken).ConfigureAwait(false);
+                    break;
+                }
                 if (_arguments.Scenario.StartsWith("resource-management", StringComparison.Ordinal) &&
                     command["message"]?.GetValue<string>() is { } managementPrompt &&
                     managementPrompt.StartsWith("/pistation-desktop-resources ", StringComparison.Ordinal))
@@ -233,6 +240,7 @@ internal sealed partial class FakePiServer : IDisposable
                     ["name"] = "pistation-desktop-resources", ["source"] = "extension",
                     ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "management.ts"), ["scope"] = "temporary" },
                 });
+                if (_arguments.Scenario == "plan-workflow") commands.Add(new JsonObject { ["name"] = "pistation-desktop-plan", ["source"] = "extension" });
                 await _writer.WriteAsync(Response(id, type, new JsonObject { ["commands"] = commands }), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "compact" when _arguments.Scenario != "command-timeout":

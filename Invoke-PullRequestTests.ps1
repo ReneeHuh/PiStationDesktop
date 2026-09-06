@@ -42,6 +42,8 @@ try {
     & (Join-Path $uiTests 'Invoke-InteractionSlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-PiConfigurationSlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-PiResourcesSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-PiSessionsSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-PiPlanSlice.ps1') -NoBuild -Capture
     & (Join-Path $uiTests 'Invoke-ThreadLifecycleSlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-InputAccessibilitySlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-HardeningSlice.ps1') -Configuration $Configuration -NoBuild
