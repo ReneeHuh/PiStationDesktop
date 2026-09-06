@@ -12,7 +12,7 @@ using PiStation.PiRpc.Wire.Responses;
 
 namespace PiStation.PiRpc.Transport;
 
-public sealed class PiRpcConnection : IAsyncDisposable
+public sealed partial class PiRpcConnection : IAsyncDisposable
 {
     private static readonly HashSet<string> NativeImageMediaTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -631,6 +631,7 @@ public sealed class PiRpcConnection : IAsyncDisposable
 
     private async ValueTask HandleExtensionUiRequestAsync(JsonElement record, CancellationToken cancellationToken)
     {
+        if (TryHandleManagementResponse(record)) return;
         var id = GetRequiredString(record, "id");
         var method = GetRequiredString(record, "method");
         if (!DialogMethods.Contains(method) && method is not ("notify" or "setStatus" or "setWidget" or "setTitle" or "set_editor_text"))
@@ -715,6 +716,8 @@ public sealed class PiRpcConnection : IAsyncDisposable
         }
 
         _pending.Clear();
+        foreach (var pending in _managementRequests.Values) pending.TrySetException(exception);
+        _managementRequests.Clear();
         _events.Writer.TryComplete(exception);
         _completion.TrySetException(exception);
     }

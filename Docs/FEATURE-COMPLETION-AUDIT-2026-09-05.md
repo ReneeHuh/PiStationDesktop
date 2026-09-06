@@ -2,9 +2,9 @@
 
 September 5, 2026. Target: the features in the supplied T3 Code checkout, adapted to PiStation, plus Pi capabilities that the desktop has not exposed.
 
-PiStation has a substantial local coding workspace. It does **not** yet have full T3 feature parity. Following the first Pi integration milestone, the immediate gaps include resource management, session/plan/subagent workflows, richer conversation artifacts and full pull-request review. Remote environments, other agent runtimes, web/mobile clients, and custom themes are larger remaining product areas.
+PiStation has a substantial local coding workspace. It does **not** yet have full T3 feature parity. Following the first Pi integration milestone, the immediate gaps include advanced runtime setup, session/plan/subagent workflows, richer conversation artifacts and full pull-request review. Remote environments, other agent runtimes, web/mobile clients, and custom themes are larger remaining product areas.
 
-**Implementation follow-up:** the [first Pi integration milestone](PI-INTEGRATION-MILESTONE-2026-09-05.md) implements skill expansion/current metadata, configurable extension loading, supported text-based extension UI and idle restart. PI-01 through PI-03 below include that progress. The other feature families remain backlog; this is not a full-parity completion claim.
+**Implementation follow-up:** the [first Pi integration milestone](PI-INTEGRATION-MILESTONE-2026-09-05.md) implements skill expansion/current metadata, configurable extension loading, supported text-based extension UI and idle restart. PI-01 through PI-03 below include that progress. The [resource and provider setup follow-up](PI-RESOURCES-AND-SETUP-2026-09-06.md) adds PI-04/05 implementation and Pi 0.85/authenticated acceptance. The other feature families remain backlog; this is not a full-parity completion claim.
 
 This audit includes the current uncommitted and untracked PiStation source. Several improvements from the earlier September 5 audit are already implemented. Do not reuse that older missing-feature list without its implementation follow-up.
 
@@ -57,7 +57,7 @@ These should be extended or verified, rather than rebuilt.
 
 Discovery remains off by default; enabling it uses Pi's own project trust decisions. Configuration persists atomically and applies to new or explicitly restarted idle runtimes. A real Pi 0.84.4 offline extension registered and ran a tool and commands; a discovered extension appeared and disappeared across off/on/off launches. Host tests cover command completion without a model turn and idle restart. Native checks cover settings and draft persistence.
 
-Remaining: a real subagent extension producing Agents activity, a native resource/trust inventory and per-resource load-error reporting (PI-04), plus validation against the 0.85.0 binary and authenticated providers. An Agents panel that recognizes subagent output alone does not establish subagent workflow parity.
+Remaining: a real subagent extension producing Agents activity and more precise per-resource failure attribution. Native resource/trust inventory, Pi 0.85 execution and authenticated-provider smoke coverage are now recorded in the September 6 follow-up. An Agents panel that recognizes subagent output alone does not establish subagent workflow parity.
 
 **Acceptance:** a configured user extension registers a tool and command inside PiStation; disabling it removes both after the documented reload/restart; a subagent example produces real activity in Agents.
 
@@ -69,7 +69,7 @@ Pi reference: [CLI flags](../../Pi%20Agent/packages/coding-agent/src/cli/args.ts
 
 Arguments, attachments and visible user text are preserved; generated skill bodies are removed when sessions hydrate the transcript. Missing/ambiguous/oversized resources fail before a host turn is created. Code literals, escaped tokens and quoted context are excluded. [FakePi](../tests/PiStation.FakePi/FakePiServer.cs) now returns current metadata and actual fixture skill files.
 
-The [real Pi offline test](../tests/PiStation.PiRpc.Tests/RealPiOfflineTests.cs) proves skill body arrival at a provider, template argument expansion and extension command execution. Full authenticated-provider and 0.85.0 runtime acceptance remains under QA-01.
+The [real Pi offline test](../tests/PiStation.PiRpc.Tests/RealPiOfflineTests.cs) proves skill body arrival at a provider, template argument expansion and extension command execution. The September 6 follow-up adds actual 0.85.0 and authenticated skill/resume smoke coverage; broader runtime acceptance remains under QA-01.
 
 **Acceptance:** select a real skill in the picker and prove its content reaches the request; exercise a prompt template and extension command too; source metadata resolves to the correct resource.
 
@@ -89,8 +89,8 @@ Pi limitation: arbitrary TUI component factories, overlays, custom editors/foote
 
 | ID | Status | Work to finish | Completion check |
 | --- | --- | --- | --- |
-| PI-04 | Partial | Extension discovery/explicit paths and idle restart now exist. Still needed: effective Pi trust and loaded context/resource/error inventory, package/skill/prompt management and granular enable/disable/reload. Existing **repository script trust** concerns `t3.json` scripts and does not configure Pi resource trust. | A project-local skill/settings file loads only under the intended Pi trust policy, and its effective source is visible. |
-| PI-05 | Missing UI | Pi account/model configuration: provider login/logout or a guided terminal flow, custom endpoints/models, runtime arguments/environment configuration, and package/runtime install/update actions. Executable validation and reconnect already exist. | A clean-machine user configures the intended provider and reaches a real first turn; errors identify the account/runtime involved. |
+| PI-04 | Implemented core; partial acceptance | Native effective context/resource paths and sources, saved enable/disable settings including package filters, effective/saved project trust, startup/configuration messages and explicit idle restart. Pi config/package terminal actions cover additional resource management. Remaining: exact extension-load/failure attribution where Pi exposes no registered feature, and broader package/trust-extension acceptance. Repository script trust stays separate. | Real Pi 0.84.4/0.85 tests cover local/package skills, project trust and restart. Native controls and draft preservation pass. |
+| PI-05 | Partial | Guided Pi login/logout terminal, credential-source status, native custom endpoints/models with environment-variable references, and package CLI actions are implemented. Still needed: general runtime arguments/environment editing, automatic runtime install/update and clean-machine onboarding acceptance. | Authenticated skill invocation and resume passed with an existing configured account on 0.84.4 and 0.85.0. A fresh login/provider setup journey is not yet certified. |
 | PI-06 | Partial | Session browser/import/resume for existing Pi conversations, independent clone/fork into a new PiStation thread, full branch-tree inspection, session stats and HTML export. Current `fork`/`get_entries` use supports checkpoint rewind; it is not a general session manager. | Import a CLI session, fork without replacing the original, reopen both after restart, and export a readable transcript. |
 | PI-07 | Partial | Settings for `set_auto_compaction` and `set_auto_retry`; preserve effective values across process recreation. Manual compaction and retry status/abort already exist. | Toggle each option and verify Pi reports/uses the persisted choice after idle restart. |
 | PI-08 | Missing | Direct Pi shell execution (`bash`/`abort_bash`, analogous to `!`/`!!`): stream output and control whether it becomes model context. The integrated terminal is a separate process/session. | Run a command without an LLM call, stream its output, then demonstrate include/exclude context and cancellation. |
@@ -168,7 +168,7 @@ Current PiStation boundaries: [bootstrap](../src/PiStation.App/Composition/AppBo
 
 | ID | Status | Remaining work |
 | --- | --- | --- |
-| QA-01 | Partial acceptance | Current metadata fixtures and an installed Pi 0.84.4 offline test now cover skills/templates, tool execution, extension commands/UI, discovery and resume. Still needed: actual 0.85.0 and authenticated-provider coverage, model/thinking changes, attachments, queue delivery, compaction, subagents and browser automation. FakePi or an offline provider alone cannot establish those paths. |
+| QA-01 | Partial acceptance | Actual Pi 0.84.4/0.85.0 offline tests cover skills/templates, tool execution, extension commands/UI, discovery, resource/package toggles, trust, custom-model persistence and resume. Authenticated skill invocation and resumed turns passed on both versions. Remaining: broader providers, first-login onboarding, model/thinking changes, attachments, queue delivery, compaction, subagents and browser automation. |
 | QA-02 | Acceptance | Authenticated GitHub/GitLab/Azure end-to-end checks on disposable repositories, including writes, reconnection/uncertain results and actual CLI output. Add Bitbucket after its adapter exists. |
 | QA-03 | Acceptance | Measure startup, thread switching, typing during streaming, long transcript/diff behavior, many projects and four terminals; verify idle CPU/memory and runtime eviction. Coalescing and idle cleanup exist; quantitative performance acceptance does not. Include pagination/truncation UX at collection bounds. |
 | QA-04 | Acceptance | Remaining native accessibility/visual acceptance: physical DPI and mixed monitors, Windows High Contrast, real OS text scaling, keyboard/screen reader journeys, populated tables/media/review surfaces. Earlier app-owned text-profile checks do not certify all physical DPI settings. |
@@ -180,7 +180,7 @@ Retained evidence and coverage limits: [implementation status](IMPLEMENTATION-ST
 
 | Milestone | Work | Exit condition |
 | --- | --- | --- |
-| 1. Make Pi features actually reachable | First slice implemented for PI-01–03. Finish PI-04–05 and the remaining QA-01 acceptance. | Real skills/extensions load, selected skills invoke correctly, extension status/widgets appear, and provider/trust setup is understandable. |
+| 1. Make Pi features actually reachable | PI-01–03 and core PI-04–05 implemented. Finish advanced setup and remaining QA-01 acceptance. | Real skills/extensions load, selected skills invoke correctly, extension status/widgets appear, and provider/trust setup is understandable. |
 | 2. Complete the local Pi workflow | PI-06–10; DESK-01–08 | Import/fork/export, plan and subagent workflows, thread organization, sent artifacts/citations and background task creation work through restart. |
 | 3. Complete review and browser work | GIT-01–06; BROWSER-01–02; QA-02 | Ask → implement → review → revise → commit → PR → review/merge works in one desktop workflow, including real browser actions. |
 | 4. Complete personalization and measured reliability | LOOK-01–02; USAGE-01–02; QA-03–04 | Useful usage/limits where supported, custom appearance, and recorded responsiveness/accessibility acceptance. |

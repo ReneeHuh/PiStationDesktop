@@ -23,6 +23,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <None Update="Fixtures\offline-provider.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PiStation.App\PiExtensions\pistation-resources.ts" Link="Fixtures\pistation-resources.ts" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -136,6 +136,18 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     public Task<PiRuntimeSetupResult> ConfigurePiRuntime(ConfigurePiRuntimeRequest request) =>
         _environment.ConfigurePiRuntimeAsync(request, Context.ConnectionAborted);
 
+    public async Task<PiResourcesSnapshot> ManagePiResources(ManagePiResourcesRequest request)
+    {
+        try { return await _environment.ManagePiResourcesAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<PiSetupTerminalResult> StartPiSetup(StartPiSetupRequest request)
+    {
+        try { return await _environment.StartPiSetupAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is HostOperationException or ArgumentException) { throw new HubException(exception.Message); }
+    }
+
     public async Task<HostingOperation[]> ListHostingOperations() =>
         [.. await _environment.ListHostingOperationsAsync(Context.ConnectionAborted).ConfigureAwait(false)];
 

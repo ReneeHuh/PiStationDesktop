@@ -17,7 +17,7 @@ using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host.Threads;
 
-public sealed class PiThreadController : IAsyncDisposable
+public sealed partial class PiThreadController : IAsyncDisposable
 {
     private readonly HostDatabase _database;
     private readonly HostOptions _options;
@@ -276,7 +276,7 @@ public sealed class PiThreadController : IAsyncDisposable
             new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
             new("background", "Submit the draft and keep working elsewhere.", ComposerCommandSource.BuiltIn),
         };
-        result.AddRange(commands.Select(static command => new ComposerCommandDescriptor(
+        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand).Select(static command => new ComposerCommandDescriptor(
             command.Name,
             command.Description ?? command.Name,
             command.Source switch

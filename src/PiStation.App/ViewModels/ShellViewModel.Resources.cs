@@ -1,0 +1,76 @@
+using PiStation.Protocol.Models;
+
+namespace PiStation.App.ViewModels;
+
+public sealed partial class ShellViewModel
+{
+    public PiResourcesViewModel PiResources { get; } = new();
+
+    public Task RefreshPiResourcesAsync(CancellationToken cancellationToken = default) =>
+        ManagePiResourcesAsync("inspect", cancellationToken: cancellationToken);
+
+    public async Task ManagePiResourcesAsync(string action, PiResourceRow? resource = null, bool? enabled = null,
+        CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        if (thread is null) { PiResources.Status = "Select a thread to inspect and manage its Pi resources."; return; }
+        if (PiResources.IsBusy) return;
+        if (action != "inspect" && (PiResources.ThreadId != thread.ThreadId || PiResources.Snapshot is null))
+        {
+            PiResources.Status = "Refresh the selected thread before making changes.";
+            return;
+        }
+        var request = new ManagePiResourcesRequest(thread.ThreadId, action, resource?.Resource.Id, enabled,
+            action == "saveModel" ? PiResources.Snapshot?.ModelsRevision : resource?.Resource.Revision,
+            action == "saveModel" ? PiResources.CreateModel() : null);
+        PiResources.IsBusy = true;
+        PiResources.Status = action == "inspect" ? "Reading Pi resources…" : "Saving Pi configuration…";
+        try
+        {
+            var snapshot = await RequireClient().ManagePiResourcesAsync(request, cancellationToken).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (SelectedThread?.ThreadId == thread.ThreadId) PiResources.Apply(thread.ThreadId, snapshot);
+            }).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() => { if (SelectedThread?.ThreadId == thread.ThreadId) PiResources.Status = exception.Message; });
+        }
+        finally { RunOnUiThread(() => PiResources.IsBusy = false); }
+    }
+
+    public async Task StartPiSetupTerminalAsync(string action, CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        var threadId = SelectedThread?.ThreadId;
+        if (project is null) { PiResources.Status = "Add or select a project before opening Pi setup."; return; }
+        try
+        {
+            var result = await RequireClient().StartPiSetupAsync(new(project.ProjectId, threadId, action), cancellationToken).ConfigureAwait(false);
+            var sessions = FilterTerminalSessions(
+                await RequireClient().ListTerminalSessionsAsync(project.ProjectId, cancellationToken).ConfigureAwait(false), threadId);
+            await RunOnUiThreadAsync(() =>
+            {
+                PiResources.Status = result.Instructions;
+                if (SelectedProject?.ProjectId != project.ProjectId || SelectedThread?.ThreadId != threadId) return;
+                WorkbenchTerminal.ApplySessions(sessions, result.Terminal.TerminalSessionId);
+                WorkbenchTerminal.Status = result.Instructions;
+                Layout.IsRightPanelOpen = true;
+                Layout.SelectedPanel = WorkbenchPanelKind.Terminal;
+                SaveWorkbenchTerminalLayout();
+            }).ConfigureAwait(false);
+            await SynchronizeTerminalSubscriptionsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() =>
+            {
+                PiResources.Status = exception.Message;
+                WorkbenchTerminal.Status = exception.Message;
+                Layout.IsRightPanelOpen = true;
+                Layout.SelectedPanel = WorkbenchPanelKind.Terminal;
+            });
+        }
+    }
+}

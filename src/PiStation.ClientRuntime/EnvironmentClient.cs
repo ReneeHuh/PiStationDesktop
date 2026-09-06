@@ -208,6 +208,12 @@ public sealed class EnvironmentClient : IEnvironmentClient
     public Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiRuntimeSetupResult>("ConfigurePiRuntime", request, cancellationToken);
 
+    public Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiResourcesSnapshot>("ManagePiResources", request, cancellationToken);
+
+    public Task<PiSetupTerminalResult> StartPiSetupAsync(StartPiSetupRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSetupTerminalResult>("StartPiSetup", request, cancellationToken);
+
     public Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
         ExportDiagnosticsRequest request,
         CancellationToken cancellationToken = default) =>

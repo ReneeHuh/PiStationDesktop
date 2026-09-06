@@ -824,7 +824,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        RunOnUiThread(() => SelectedThread = thread);
+        RunOnUiThread(() =>
+        {
+            if (SelectedThread?.ThreadId != thread?.ThreadId) PiResources.Clear();
+            SelectedThread = thread;
+        });
         if (_subscription is not null)
         {
             _subscription.Store.Changed -= OnProjectionChanged;

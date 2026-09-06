@@ -291,6 +291,7 @@ public sealed partial class PiLocator
 
         var startDirectory = Path.GetDirectoryName(candidatePath);
         if (string.Equals(Path.GetExtension(candidatePath), ".cmd", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Path.GetExtension(candidatePath), ".ps1", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Path.GetFileName(candidatePath), "pi", StringComparison.OrdinalIgnoreCase))
         {
             var nested = startDirectory is null

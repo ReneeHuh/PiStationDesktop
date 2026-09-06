@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 namespace PiStation.FakePi;
 
-internal sealed class FakePiServer : IDisposable
+internal sealed partial class FakePiServer : IDisposable
 {
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
     private readonly string _commandLog;
@@ -37,6 +37,9 @@ internal sealed class FakePiServer : IDisposable
         _arguments = arguments;
         _session = new FakeSessionStore(arguments.SessionDirectory, arguments.SessionId);
         _commandLog = Path.Combine(arguments.SessionDirectory, "command-log.jsonl");
+        var management = ReadManagementSettings();
+        _resourceEnabledAtStart = management["enabled"]?.GetValue<bool>() ?? true;
+        _projectTrustedAtStart = management["trusted"]?.GetValue<bool>() ?? false;
     }
 
     public async Task<int> RunAsync()
@@ -135,6 +138,13 @@ internal sealed class FakePiServer : IDisposable
         switch (type)
         {
             case "prompt":
+                if (_arguments.Scenario.StartsWith("resource-management", StringComparison.Ordinal) &&
+                    command["message"]?.GetValue<string>() is { } managementPrompt &&
+                    managementPrompt.StartsWith("/pistation-desktop-resources ", StringComparison.Ordinal))
+                {
+                    await HandleManagementAsync(id, managementPrompt, cancellationToken).ConfigureAwait(false);
+                    break;
+                }
                 if (_arguments.Scenario == "extension-ui" && command["message"]?.GetValue<string>() == "/review")
                 {
                     await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -196,9 +206,7 @@ internal sealed class FakePiServer : IDisposable
                 Directory.CreateDirectory(skillDirectory);
                 var skillPath = Path.Combine(skillDirectory, "SKILL.md");
                 if (!File.Exists(skillPath)) await File.WriteAllTextAsync(skillPath, "---\nname: fake-skill\ndescription: Test resource\n---\nFAKE_SKILL_INSTRUCTION: verify the actual prompt body.", cancellationToken).ConfigureAwait(false);
-                await _writer.WriteAsync(Response(id, type, new JsonObject
-                {
-                    ["commands"] = new JsonArray(
+                var commands = new JsonArray(
                         new JsonObject
                         {
                             ["name"] = "review",
@@ -219,8 +227,13 @@ internal sealed class FakePiServer : IDisposable
                             ["description"] = "Exercise the fake skill",
                             ["source"] = "skill",
                             ["sourceInfo"] = new JsonObject { ["path"] = skillPath, ["source"] = "local", ["scope"] = "user", ["origin"] = "top-level", ["baseDir"] = skillDirectory },
-                        }),
-                }), cancellationToken: cancellationToken).ConfigureAwait(false);
+                        });
+                if (_arguments.Scenario.StartsWith("resource-management", StringComparison.Ordinal)) commands.Add(new JsonObject
+                {
+                    ["name"] = "pistation-desktop-resources", ["source"] = "extension",
+                    ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "management.ts"), ["scope"] = "temporary" },
+                });
+                await _writer.WriteAsync(Response(id, type, new JsonObject { ["commands"] = commands }), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "compact" when _arguments.Scenario != "command-timeout":
                 await _writer.WriteAsync(new JsonObject

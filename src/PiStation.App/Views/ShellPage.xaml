@@ -6,6 +6,7 @@
     xmlns:automation="using:Microsoft.UI.Xaml.Automation"
     xmlns:controls="using:PiStation.App.Views.Controls"
     xmlns:models="using:PiStation.Protocol.Models"
+    xmlns:viewModels="using:PiStation.App.ViewModels"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     FontFamily="{StaticResource PiSansFontFamily}"
@@ -250,6 +251,7 @@
                 <NavigationView.MenuItems>
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsProjectsNavItem" Content="Projects" Tag="Projects" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsRuntimeNavItem" Content="Pi / runtime" Tag="PiRuntime" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsPiResourcesNavItem" Content="Pi resources" Tag="PiResources" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsSourceControlNavItem" Content="Source control" Tag="SourceControl" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsAppearanceNavItem" Content="Appearance" Tag="Appearance" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsIntegrationsNavItem" Content="Integrations" Tag="Integrations" />
@@ -589,6 +591,71 @@
                         </StackPanel>
                     </Border>
 
+                    <Border Tag="PiResources" Style="{StaticResource PiElevatedSurfaceStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="10" automation:AutomationProperties.AutomationId="PiResourcesSettingsPanel">
+                            <TextBlock Text="Pi resources and providers" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <TextBlock Text="{x:Bind ViewModel.PiResources.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiResourcesStatusText" />
+                            <Button Content="Refresh resources" Click="OnRefreshPiResourcesClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RefreshPiResourcesButton" />
+                            <Button Content="Restart selected thread" Click="OnRestartConfiguredPiClicked" IsEnabled="{x:Bind ViewModel.CanRestartPi, Mode=OneWay}" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RestartResourcePiButton" />
+                            <Expander Header="Project and configuration folders" HorizontalAlignment="Stretch">
+                                <TextBlock Text="{x:Bind ViewModel.PiResources.Directories, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" />
+                            </Expander>
+                            <TextBlock Text="{x:Bind ViewModel.PiResources.TrustSummary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiProjectTrustText" />
+                            <TextBlock Text="Trust allows Pi to load this project's settings, extensions and skills, including executable code. Saved decisions apply after restarting Pi and remain subject to Pi's trust extensions." TextWrapping="Wrap" FontSize="12" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Trust project" Click="OnTrustPiProjectClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="TrustPiProjectButton" />
+                                <Button Content="Do not trust" Click="OnUntrustPiProjectClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="UntrustPiProjectButton" />
+                            </StackPanel>
+                            <TextBlock Text="Saved settings apply after restart. Confirmation reflects resources reported by Pi; extensions may load without registering a feature. Edit explicit extension paths under Pi / runtime." TextWrapping="Wrap" FontSize="12" />
+                            <ScrollViewer MaxHeight="300" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}">
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.PiResources.Resources}" automation:AutomationProperties.AutomationId="PiResourceList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:PiResourceRow">
+                                            <StackPanel Spacing="4" Margin="0,0,0,14">
+                                                <TextBlock Text="{x:Bind Heading}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                                <TextBlock Text="{x:Bind Source}" TextWrapping="Wrap" FontSize="12" />
+                                                <TextBlock Text="{x:Bind Path}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" />
+                                                <TextBlock Text="{x:Bind State}" TextWrapping="Wrap" FontSize="12" />
+                                                <Button Content="{x:Bind ToggleLabel}" IsEnabled="{x:Bind CanToggle}" Click="OnTogglePiResourceClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="TogglePiResourceButton" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <Button Content="Manage resources in Pi terminal" Tag="resources" Click="OnPiSetupTerminalClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="ManagePiResourcesTerminalButton" />
+                            <Button Content="Open Pi package terminal" Tag="packages" Click="OnPiSetupTerminalClicked" HorizontalAlignment="Left" />
+                            <Expander Header="Providers and login" IsExpanded="True" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Credential configured means Pi found a credential source. It does not verify an authenticated model request. Credentials stay in Pi's login flow." TextWrapping="Wrap" FontSize="12" />
+                                    <Button Content="Open Pi login / logout" Tag="login" Click="OnPiSetupTerminalClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="OpenPiLoginButton" />
+                                    <TextBlock Text="In the terminal, enter /login or /logout and follow Pi's prompts. Exit Pi, restart the thread, then refresh here." TextWrapping="Wrap" />
+                                    <ScrollViewer MaxHeight="180">
+                                        <TextBlock Text="{x:Bind ViewModel.PiResources.ProviderSummary, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiProviderSummaryText" />
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Add or update a custom model" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="CustomPiModelExpander">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Save to Pi's models.json. The endpoint and API apply to every model under the provider ID. Other providers and model settings are preserved; comments and formatting are rewritten." TextWrapping="Wrap" FontSize="12" />
+                                    <TextBox Header="Provider ID" Text="{x:Bind ViewModel.PiResources.ModelProvider, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="CustomPiProviderInput" />
+                                    <TextBox Header="Model ID" Text="{x:Bind ViewModel.PiResources.ModelId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="CustomPiModelInput" />
+                                    <TextBox Header="Display name" Text="{x:Bind ViewModel.PiResources.ModelDisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox Header="Endpoint URL" PlaceholderText="http://localhost:11434/v1" Text="{x:Bind ViewModel.PiResources.ModelBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="CustomPiEndpointInput" />
+                                    <ComboBox Header="API" ItemsSource="{x:Bind ViewModel.PiResources.ModelApis}" SelectedItem="{x:Bind ViewModel.PiResources.ModelApi, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+                                    <TextBox Header="API key environment-variable name" PlaceholderText="MY_PROVIDER_API_KEY" Text="{x:Bind ViewModel.PiResources.ModelKeyEnvironmentVariable, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="CustomPiKeyVariableInput" />
+                                    <TextBlock Text="Enter a variable name, never the key itself. Leave empty to keep the existing credential configuration. Set the variable before starting PiStation." TextWrapping="Wrap" FontSize="12" />
+                                    <CheckBox Content="Local server needs no key" IsChecked="{x:Bind ViewModel.PiResources.ModelKeyless, Mode=TwoWay}" automation:AutomationProperties.AutomationId="CustomPiKeylessToggle" />
+                                    <CheckBox Content="Model supports reasoning" IsChecked="{x:Bind ViewModel.PiResources.ModelReasoning, Mode=TwoWay}" />
+                                    <Button Content="Save provider and model" Click="OnSavePiModelClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="SaveCustomPiModelButton" />
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Configuration and startup messages" HorizontalAlignment="Stretch">
+                                <ScrollViewer MaxHeight="180">
+                                    <TextBlock Text="{x:Bind ViewModel.PiResources.Diagnostics, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                </ScrollViewer>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
                     <Border
                         x:Name="SourceControlSettingsSection"
                         Tag="SourceControl"

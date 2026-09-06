@@ -22,6 +22,25 @@ public sealed partial class ShellPage
     {
         await ViewModel.RestartPiAsync();
         await ViewModel.RefreshComposerPowerAsync();
+        if (ViewModel.PiResources.Snapshot is not null) await ViewModel.RefreshPiResourcesAsync();
+    }
+
+    private async void OnRefreshPiResourcesClicked(object sender, RoutedEventArgs e) => await ViewModel.RefreshPiResourcesAsync();
+    private async void OnTogglePiResourceClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Microsoft.UI.Xaml.Controls.Button { DataContext: ViewModels.PiResourceRow row })
+            await ViewModel.ManagePiResourcesAsync("toggle", row, !row.Resource.Enabled);
+    }
+    private async void OnTrustPiProjectClicked(object sender, RoutedEventArgs e) => await ViewModel.ManagePiResourcesAsync("trust", enabled: true);
+    private async void OnUntrustPiProjectClicked(object sender, RoutedEventArgs e) => await ViewModel.ManagePiResourcesAsync("trust", enabled: false);
+    private async void OnSavePiModelClicked(object sender, RoutedEventArgs e) => await ViewModel.ManagePiResourcesAsync("saveModel");
+    private async void OnPiSetupTerminalClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Microsoft.UI.Xaml.Controls.Button { Tag: string action })
+        {
+            SettingsDialog.Hide();
+            await ViewModel.StartPiSetupTerminalAsync(action);
+        }
     }
 
     private void OnInsertExtensionTextClicked(object sender, RoutedEventArgs e)

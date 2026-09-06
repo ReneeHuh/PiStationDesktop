@@ -49,6 +49,8 @@ pwsh tests/PiStation.UiTests/Invoke-PiIntegrationSlice.ps1 -NoBuild
 
 ## Remaining work
 
+Historical list at this milestone. The [September 6 resource/setup follow-up](PI-RESOURCES-AND-SETUP-2026-09-06.md) implements the core of item 1 and adds actual Pi 0.85 and authenticated skill/resume coverage from item 3.
+
 1. Finish the native effective-resource/trust/error inventory and package/skill/prompt management. Configure project trust through Pi's CLI for now.
 2. Complete real session import/fork/export, plan workflows and subagent controls, including a real subagent extension driving the Agents panel.
 3. Validate the actual Pi 0.85.0 binary and authenticated providers. The reference source was inspected, but this milestone's installed-runtime execution used 0.84.4. Queue/compaction/browser/subagent/provider acceptance is not established by the offline fixture.

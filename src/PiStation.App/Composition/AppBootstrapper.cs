@@ -54,6 +54,8 @@ internal static class AppBootstrapper
             EnvironmentName = "Local",
             PiInstallation = piInstallation,
             Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
+            ManagementExtensionPath = launchOptions.FakePiScenario is null
+                ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-resources.ts") : null,
             AdditionalPiArguments = launchOptions.FakePiScenario is null
                 ? []
                 : ["--fake-pi-scenario", launchOptions.FakePiScenario],

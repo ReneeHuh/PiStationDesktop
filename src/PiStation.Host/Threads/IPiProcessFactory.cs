@@ -26,6 +26,11 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
         var additionalArguments = _options.AdditionalPiArguments.ToList();
         var environmentVariables = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var extensions = _options.Extensions;
+        if (_options.ManagementExtensionPath is { } managementPath)
+        {
+            additionalArguments.Add("--extension");
+            additionalArguments.Add(managementPath);
+        }
         foreach (var extension in extensions.Paths ?? [])
         {
             additionalArguments.Add("--extension");

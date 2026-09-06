@@ -19,8 +19,10 @@ public sealed class PiLocatorTests
         Assert.Equal(PiDiscoveryFailure.UnsupportedPiVersion, exception.Failure);
     }
 
-    [Fact]
-    public async Task PackageDiscoveryUsesBinPiAndPrefersCompatibleAdjacentNode()
+    [Theory]
+    [InlineData("pi.cmd")]
+    [InlineData("pi.ps1")]
+    public async Task PackageDiscoveryUsesBinPiAndPrefersCompatibleAdjacentNode(string launcherName)
     {
         using var temporaryDirectory = new TemporaryDirectory();
         var installDirectory = temporaryDirectory.CreateDirectory("installation");
@@ -30,7 +32,7 @@ public sealed class PiLocatorTests
             "@earendil-works",
             "pi-coding-agent");
         Directory.CreateDirectory(System.IO.Path.Combine(packageDirectory, "dist", "bundle"));
-        var command = System.IO.Path.Combine(installDirectory, "pi.cmd");
+        var command = System.IO.Path.Combine(installDirectory, launcherName);
         var adjacentNode = System.IO.Path.Combine(installDirectory, "node.exe");
         var pathDirectory = temporaryDirectory.CreateDirectory("path");
         var pathNode = System.IO.Path.Combine(pathDirectory, "node.exe");

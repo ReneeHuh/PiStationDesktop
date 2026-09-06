@@ -16,6 +16,7 @@ public sealed record HostOptions
     public IReadOnlyList<string> AdditionalPiArguments { get; init; } = [];
 
     public string? BrowserAutomationExtensionPath { get; init; }
+    public string? ManagementExtensionPath { get; init; }
 
     public string? BrowserAutomationRoot { get; init; }
 
