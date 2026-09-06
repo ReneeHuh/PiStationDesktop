@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:automation="using:Microsoft.UI.Xaml.Automation"
+    xmlns:viewModels="using:PiStation.App.ViewModels"
     xmlns:models="using:PiStation.Protocol.Models"
     xmlns:views="using:PiStation.App.Views">
 
@@ -18,9 +19,12 @@
             TrueValue="Unpin" />
         <views:BooleanChoiceConverter
             x:Key="ThreadStateTextConverter"
-            FalseValue="Ready"
-            TrueValue="Archived" />
+            FalseValue="Inbox"
+            TrueValue="Settled" />
+        <views:BooleanChoiceConverter x:Key="ThreadDraftTextConverter" FalseValue="" TrueValue="Draft" />
+        <views:ObjectPresenceToVisibilityConverter x:Key="ObjectPresenceToVisibilityConverter" />
         <views:RelativeTimeConverter x:Key="RelativeTimeConverter" />
+        <views:ProjectIconSourceConverter x:Key="ProjectIconSourceConverter" />
     </UserControl.Resources>
 
     <Border
@@ -168,7 +172,12 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Style="{StaticResource PiSectionLabelTextStyle}" Text="PROJECTS" />
+                        <ComboBox x:Name="InboxShelfSelector" SelectedIndex="0" SelectionChanged="OnInboxShelfChanged"
+                            automation:AutomationProperties.AutomationId="InboxShelfSelector" automation:AutomationProperties.Name="Task inbox"
+                            Style="{StaticResource PiComboBoxStyle}">
+                            <ComboBoxItem Content="Active" /><ComboBoxItem Content="Settled" />
+                            <ComboBoxItem Content="Snoozed" /><ComboBoxItem Content="Archived" />
+                        </ComboBox>
                         <TextBlock
                             Grid.Column="1"
                             FontSize="{StaticResource PiFontSizeCaption}"
@@ -179,41 +188,40 @@
                     <ListView
                         x:Name="ProjectSelector"
                         Grid.Row="1"
-                        MaxHeight="150"
+                        MaxHeight="300"
                         IsTabStop="False"
                         automation:AutomationProperties.AutomationId="ProjectSelector"
                         automation:AutomationProperties.Name="Projects"
                         ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
-                        ItemsSource="{x:Bind ViewModel.Workspace.Projects}"
-                        SelectedItem="{x:Bind ViewModel.Workspace.SelectedProject, Mode=OneWay}"
+                        ItemsSource="{x:Bind ViewModel.ProjectGroups}"
+
                         SelectionChanged="OnProjectSelectionChanged">
                         <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:ProjectDescriptor">
-                                <Grid
-                                    MinHeight="{StaticResource PiTwoLineRowHeight}"
-                                    ToolTipService.ToolTip="{x:Bind CanonicalPath}"
-                                    ColumnSpacing="7">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <FontIcon
-                                        VerticalAlignment="Center"
-                                        FontSize="12"
-                                        Foreground="{ThemeResource PiTextSecondaryBrush}"
-                                        Glyph="&#xE8B7;" />
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                        <TextBlock
-                                            FontWeight="SemiBold"
-                                            Text="{x:Bind DisplayName}"
-                                            TextTrimming="CharacterEllipsis" />
-                                        <TextBlock
-                                            FontSize="{StaticResource PiFontSizeCaption}"
-                                            Foreground="{ThemeResource PiTextMutedBrush}"
-                                            Text="{x:Bind CanonicalPath}"
-                                            TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                </Grid>
+                            <DataTemplate x:DataType="viewModels:ProjectGroupViewModel">
+                                <Expander IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch" Padding="0" BorderThickness="0" Background="Transparent">
+                                    <Expander.Header>
+                                        <StackPanel Spacing="2" ToolTipService.ToolTip="{x:Bind CanonicalPath}">
+                                            <Button Content="{x:Bind DisplayName}" Click="OnGroupedProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Select project" />
+                                            <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Summary, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </Expander.Header>
+                                    <ListView ItemsSource="{x:Bind Threads}" SelectionMode="None" IsItemClickEnabled="True"
+                                        ItemClick="OnGroupedThreadClicked" MaxHeight="260" ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="models:ThreadDescriptor">
+                                                <StackPanel Spacing="2" Padding="4,3">
+                                                    <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock Text="Pinned" Visibility="{x:Bind IsPinned}" FontSize="11" Foreground="{ThemeResource PiAccentBrush}" />
+                                                        <TextBlock Text="{x:Bind ActivityStatus}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" />
+                                                        <TextBlock Text="{x:Bind BranchName}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Expander>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
@@ -222,11 +230,33 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource PiSectionLabelTextStyle}" Text="THREADS" />
+                        <Button
+                            Grid.Column="1"
+                            automation:AutomationProperties.AutomationId="ThreadBulkActionsButton"
+                            automation:AutomationProperties.Name="Bulk thread actions"
+                            Content="Bulk"
+                            Style="{StaticResource PiToolbarButtonStyle}">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Click="OnBulkSettleClicked" Text="Settle selected" />
+                                    <MenuFlyoutItem Click="OnBulkUnsettleClicked" Text="Unsettle selected" />
+                                    <MenuFlyoutItem Click="OnBulkSnoozeClicked" Text="Snooze selected for one day" />
+                                    <MenuFlyoutItem Click="OnBulkUnsnoozeClicked" Text="Unsnooze selected" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Click="OnBulkPinClicked" Text="Pin selected" />
+                                    <MenuFlyoutItem Click="OnBulkUnpinClicked" Text="Unpin selected" />
+                                    <MenuFlyoutItem Click="OnBulkArchiveClicked" Text="Archive selected" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Click="OnBulkDeleteClicked" Text="Delete selected" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
                         <ToggleButton
                             x:Name="ArchivedThreadsToggle"
-                            Grid.Column="1"
+                            Grid.Column="2"
                             Width="26"
                             Height="26"
                             automation:AutomationProperties.AutomationId="ArchivedThreadsToggle"
@@ -256,7 +286,8 @@
                                 ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
                                 ItemsSource="{x:Bind ViewModel.Workspace.Threads}"
                                 SelectedItem="{x:Bind ViewModel.Workspace.SelectedThread, Mode=OneWay}"
-                                SelectionChanged="OnThreadSelectionChanged">
+                                SelectionChanged="OnThreadSelectionChanged"
+                                SelectionMode="Extended">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="models:ThreadDescriptor">
                                         <Grid
@@ -288,7 +319,7 @@
                                                     <TextBlock
                                                         FontSize="{StaticResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
-                                                        Text="{x:Bind IsArchived, Converter={StaticResource ThreadStateTextConverter}}" />
+                                                        Text="{x:Bind IsSettled, Converter={StaticResource ThreadStateTextConverter}}" />
                                                     <TextBlock
                                                         FontSize="{StaticResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
@@ -305,6 +336,20 @@
                                                         FontSize="{StaticResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="{x:Bind WorkspaceMode}" />
+                                                    <TextBlock
+                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        Foreground="{ThemeResource PiWaitingBrush}"
+                                                        Text="{x:Bind HasUnsentDraft, Converter={StaticResource ThreadDraftTextConverter}}" />
+                                                    <TextBlock
+                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        Foreground="{ThemeResource PiAccentBrush}"
+                                                        Text="Snoozed"
+                                                        Visibility="{x:Bind SnoozedUntilUtc, Converter={StaticResource ObjectPresenceToVisibilityConverter}}" />
+                                                    <TextBlock
+                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        Foreground="{ThemeResource PiAccentBrush}"
+                                                        Text="{x:Bind PullRequest.Number}"
+                                                        Visibility="{x:Bind PullRequest, Converter={StaticResource ObjectPresenceToVisibilityConverter}}" />
                                                 </StackPanel>
                                             </StackPanel>
 
@@ -386,6 +431,12 @@
                                                             Text="{x:Bind IsPinned, Converter={StaticResource ThreadPinActionTextConverter}}">
                                                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE718;" /></MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Click="OnMovePinnedThreadUpClicked" IsEnabled="{x:Bind IsPinned}" Tag="{x:Bind ThreadId.Value}" Text="Move pin up" />
+                                                        <MenuFlyoutItem Click="OnMovePinnedThreadDownClicked" IsEnabled="{x:Bind IsPinned}" Tag="{x:Bind ThreadId.Value}" Text="Move pin down" />
+                                                        <MenuFlyoutSeparator />
+                                                        <MenuFlyoutItem Click="OnToggleThreadSettledClicked" Tag="{x:Bind ThreadId.Value}" Text="Settle / unsettle" />
+                                                        <MenuFlyoutItem Click="OnToggleThreadSnoozeClicked" Tag="{x:Bind ThreadId.Value}" Text="Snooze / unsnooze" />
+                                                        <MenuFlyoutItem Click="OnRegenerateThreadTitleClicked" Tag="{x:Bind ThreadId.Value}" Text="Regenerate title" />
                                                         <MenuFlyoutSeparator />
                                                         <MenuFlyoutItem
                                                             automation:AutomationProperties.AutomationId="ToggleThreadArchiveMenuItem"
@@ -395,6 +446,8 @@
                                                             Text="{x:Bind IsArchived, Converter={StaticResource ThreadArchiveActionTextConverter}}">
                                                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7B8;" /></MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator />
+                                                        <MenuFlyoutItem Click="OnDeleteThreadClicked" Tag="{x:Bind ThreadId.Value}" Text="Delete" />
                                                     </MenuFlyout>
                                                 </Button.Flyout>
                                             </Button>

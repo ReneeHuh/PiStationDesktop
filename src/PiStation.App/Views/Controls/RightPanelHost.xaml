@@ -165,6 +165,7 @@
                             <RowDefinition Height="1" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="1.2*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <Grid ColumnSpacing="8">
@@ -407,7 +408,21 @@
                         <Border Grid.Row="4" Background="{ThemeResource PiDividerBrush}" />
 
                         <StackPanel Grid.Row="5" Spacing="2">
-                            <TextBlock Style="{StaticResource PiSectionLabelTextStyle}" Text="DIFF" />
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource PiSectionLabelTextStyle}" Text="DIFF" />
+                                <Button
+                                    x:Name="AddDiffSelectionToComposerButton"
+                                    Grid.Column="1"
+                                    automation:AutomationProperties.AutomationId="AddDiffSelectionToComposerButton"
+                                    Click="OnAddDiffSelectionToComposerClicked"
+                                    Content="Add selection"
+                                    Style="{StaticResource PiToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="Add selected diff lines to the composer" />
+                            </Grid>
                             <TextBlock
                                 x:Name="WorkbenchDiffPathText"
                                 automation:AutomationProperties.AutomationId="WorkbenchDiffPathText"
@@ -425,23 +440,15 @@
                                 TextWrapping="WrapWholeWords" />
                         </StackPanel>
 
-                        <TextBox
+                        <local:DiffView
                             x:Name="WorkbenchDiffPreview"
                             Grid.Row="6"
                             automation:AutomationProperties.AutomationId="WorkbenchDiffPreview"
                             automation:AutomationProperties.Name="Git diff content"
-                            AcceptsReturn="True"
-                            Background="{ThemeResource PiControlSurfaceBrush}"
-                            BorderBrush="{ThemeResource PiBorderBrush}"
-                            FontFamily="{StaticResource PiMonospaceFontFamily}"
-                            FontSize="{StaticResource PiFontSizeCaption}"
-                            IsReadOnly="True"
-                            Padding="10"
-                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                            ScrollViewer.VerticalScrollBarVisibility="Auto"
                             Text="{x:Bind ViewModel.WorkbenchChanges.DiffContent, Mode=OneWay}"
-                            TextWrapping="NoWrap"
                             Visibility="{x:Bind ViewModel.WorkbenchChanges.DiffContentVisibility, Mode=OneWay}" />
+                        <Button Grid.Row="7" HorizontalAlignment="Stretch" Click="OnHostingReviewClicked" Content="Pull requests…"
+                            automation:AutomationProperties.AutomationId="HostingReviewButton" Style="{StaticResource PiSecondaryButtonStyle}" />
                     </Grid>
 
                     <Grid
@@ -677,8 +684,8 @@
                         </Grid>
                     </Grid>
 
-                    <Grid
-                        x:Name="FileWorkbenchSurface"
+                        <Grid
+                            x:Name="FileWorkbenchSurface"
                         Padding="8"
                         automation:AutomationProperties.AutomationId="FileWorkbenchSurface"
                         automation:AutomationProperties.Name="Project files"
@@ -689,15 +696,22 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <Grid ColumnSpacing="6">
+                        <Grid ColumnSpacing="6" RowSpacing="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <ComboBox
                                 x:Name="WorkbenchFileSearchMode"
-                                Width="104"
                                 automation:AutomationProperties.AutomationId="WorkbenchFileSearchMode"
                                 automation:AutomationProperties.Name="File search mode"
                                 SelectedIndex="{x:Bind ViewModel.WorkbenchFiles.SearchModeIndex, Mode=OneWay}"
@@ -716,7 +730,7 @@
                                 TextChanged="OnFileSearchTextChanged" />
                             <Button
                                 x:Name="RefreshWorkbenchFilesButton"
-                                Grid.Column="5"
+                                Grid.Column="2"
                                 automation:AutomationProperties.AutomationId="RefreshWorkbenchFilesButton"
                                 automation:AutomationProperties.Name="Refresh project files"
                                 Click="OnRefreshFilesClicked"
@@ -724,8 +738,19 @@
                                 ToolTipService.ToolTip="Refresh files">
                                 <FontIcon FontSize="12" Glyph="&#xE72C;" />
                             </Button>
+                            <Button
+                                x:Name="OpenExternalReadOnlyFileButton"
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                automation:AutomationProperties.AutomationId="OpenExternalReadOnlyFileButton"
+                                automation:AutomationProperties.Name="Open a read-only file outside the workspace"
+                                Click="OnOpenExternalReadOnlyFileClicked"
+                                Content="Open file…"
+                                Style="{StaticResource PiToolbarButtonStyle}"
+                                ToolTipService.ToolTip="Open an external file read-only" />
                             <ToggleButton
-                                Grid.Column="2"
+                                Grid.Row="1"
+                                Grid.Column="1"
                                 automation:AutomationProperties.Name="Match case"
                                 Click="OnContentSearchOptionClicked"
                                 Content="Aa"
@@ -735,7 +760,8 @@
                                 ToolTipService.ToolTip="Match case"
                                 Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
                             <ToggleButton
-                                Grid.Column="3"
+                                Grid.Row="1"
+                                Grid.Column="2"
                                 automation:AutomationProperties.Name="Match whole word"
                                 Click="OnContentSearchOptionClicked"
                                 Content="ab"
@@ -745,7 +771,8 @@
                                 ToolTipService.ToolTip="Match whole word"
                                 Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
                             <ToggleButton
-                                Grid.Column="4"
+                                Grid.Row="1"
+                                Grid.Column="3"
                                 automation:AutomationProperties.Name="Use regular expression"
                                 Click="OnContentSearchOptionClicked"
                                 Content=".*"
@@ -767,16 +794,24 @@
                             Visibility="{x:Bind ViewModel.WorkbenchFiles.StatusVisibility, Mode=OneWay}" />
 
                         <Grid
+                            x:Name="FileWorkbenchLayoutGrid"
                             Grid.Row="2"
                             Margin="0,8,0,0"
-                            ColumnSpacing="8">
+                            ColumnSpacing="8"
+                            RowSpacing="8"
+                            SizeChanged="OnFileWorkbenchLayoutSizeChanged">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="1" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="240" />
+                                <ColumnDefinition x:Name="FileWorkbenchTreeColumn" Width="240" />
                                 <ColumnDefinition Width="1" />
-                                <ColumnDefinition Width="62*" />
+                                <ColumnDefinition x:Name="FileWorkbenchEditorColumn" Width="62*" />
                             </Grid.ColumnDefinitions>
 
-                            <Grid>
+                            <Grid x:Name="FileWorkbenchTreeHost">
                                 <TreeView
                                     x:Name="WorkspaceFileTree"
                                     automation:AutomationProperties.AutomationId="WorkspaceFileTree"
@@ -856,9 +891,9 @@
                                 </ListView>
                             </Grid>
 
-                            <Border Grid.Column="1" Background="{ThemeResource PiDividerBrush}" />
+                            <Border x:Name="FileWorkbenchDivider" Grid.Column="1" Background="{ThemeResource PiDividerBrush}" />
 
-                            <Grid Grid.Column="2">
+                            <Grid x:Name="FileWorkbenchEditorHost" Grid.Column="2">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -900,15 +935,12 @@
                                 <Grid
                                     Grid.Row="1"
                                     Margin="0,4"
-                                    ColumnSpacing="4"
+                                    RowSpacing="4"
                                     Visibility="{x:Bind ViewModel.WorkbenchFiles.DocumentVisibility, Mode=OneWay}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
                                     <TextBlock
                                         x:Name="WorkbenchFilePreviewPathText"
                                         VerticalAlignment="Center"
@@ -916,18 +948,36 @@
                                         FontFamily="{StaticResource PiMonospaceFontFamily}"
                                         Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.RelativePath, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis" />
-                                    <Button Grid.Column="1" automation:AutomationProperties.AutomationId="SaveWorkbenchFileButton" Click="OnSaveWorkbenchFileClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.CanSave, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)" Content="Save" />
-                                    <Button Grid.Column="2" automation:AutomationProperties.AutomationId="ReloadWorkbenchFileButton" Click="OnReloadWorkbenchFileClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Reload from disk"><FontIcon FontSize="12" Glyph="&#xE72C;" /></Button>
-                                    <Button Grid.Column="3" automation:AutomationProperties.AutomationId="OpenWorkbenchFileInEditorButton" Click="OnOpenWorkbenchFileInEditorClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Open in external editor" Content="Open in Editor" />
-                                    <ToggleButton
-                                        Grid.Column="4"
-                                        automation:AutomationProperties.AutomationId="WorkbenchMarkdownToggle"
-                                        IsChecked="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.ShowRenderedMarkdown, Mode=TwoWay}"
-                                        Style="{StaticResource PiIconToggleButtonStyle}"
-                                        ToolTipService.ToolTip="Toggle Markdown source/preview"
-                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.MarkdownToggleVisibility, Mode=OneWay}">
-                                        <FontIcon FontSize="12" Glyph="&#xE890;" />
-                                    </ToggleButton>
+                                    <Grid Grid.Row="1" RowSpacing="4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <ScrollViewer
+                                            HorizontalScrollBarVisibility="Auto"
+                                            HorizontalScrollMode="Enabled"
+                                            VerticalScrollBarVisibility="Disabled"
+                                            VerticalScrollMode="Disabled">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Button automation:AutomationProperties.AutomationId="SaveWorkbenchFileButton" Click="OnSaveWorkbenchFileClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.CanSave, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)" Content="Save" />
+                                                <Button automation:AutomationProperties.AutomationId="ReloadWorkbenchFileButton" Click="OnReloadWorkbenchFileClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.CanReloadFromWorkspace, Mode=OneWay}" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Reload from disk"><FontIcon FontSize="12" Glyph="&#xE72C;" /></Button>
+                                                <Button automation:AutomationProperties.AutomationId="OpenWorkbenchFileInEditorButton" Click="OnOpenWorkbenchFileInEditorClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.CanOpenInEditor, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Open in external editor" Content="Open in Editor" />
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                        <ScrollViewer
+                                            Grid.Row="1"
+                                            HorizontalScrollBarVisibility="Auto"
+                                            HorizontalScrollMode="Enabled"
+                                            VerticalScrollBarVisibility="Disabled"
+                                            VerticalScrollMode="Disabled">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Button automation:AutomationProperties.AutomationId="AddFileSelectionToComposerButton" Click="OnAddFileSelectionToComposerClicked" Content="Add selection" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Add selected file lines to the composer" />
+                                                <ToggleButton automation:AutomationProperties.AutomationId="WorkbenchMarkdownToggle" IsChecked="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.ShowRenderedContent, Mode=TwoWay}" Style="{StaticResource PiIconToggleButtonStyle}" ToolTipService.ToolTip="Toggle source and rendered preview" Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.RenderedToggleVisibility, Mode=OneWay}">
+                                                    <FontIcon FontSize="12" Glyph="&#xE890;" />
+                                                </ToggleButton>
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                    </Grid>
                                 </Grid>
 
                                 <TextBlock
@@ -966,6 +1016,28 @@
                                     <ScrollViewer Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.ImageVisibility, Mode=OneWay}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" ZoomMode="Enabled">
                                         <Image x:Name="WorkbenchFileImage" Margin="12" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1600" MaxHeight="1200" Stretch="Uniform" />
                                     </ScrollViewer>
+
+                                    <local:FilePreviewWebViewSurface
+                                        x:Name="WorkbenchRenderedFilePreview"
+                                        automation:AutomationProperties.AutomationId="WorkbenchRenderedFilePreview"
+                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.WebPreviewVisibility, Mode=OneWay}" />
+
+                                    <MediaPlayerElement
+                                        x:Name="WorkbenchFileMediaPreview"
+                                        automation:AutomationProperties.AutomationId="WorkbenchFileMediaPreview"
+                                        AreTransportControlsEnabled="True"
+                                        AutoPlay="False"
+                                        Stretch="Uniform"
+                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.MediaVisibility, Mode=OneWay}" />
+
+                                    <StackPanel
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Spacing="8"
+                                        Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.UnsupportedBinaryVisibility, Mode=OneWay}">
+                                        <FontIcon FontSize="28" Foreground="{ThemeResource PiTextMutedBrush}" Glyph="&#xE7C3;" />
+                                        <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="No safe in-app renderer is available for this binary file." TextAlignment="Center" TextWrapping="WrapWholeWords" />
+                                    </StackPanel>
                                 </Grid>
 
                                 <StackPanel Grid.RowSpan="4" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Visibility="{x:Bind ViewModel.WorkbenchFiles.EmptyDocumentVisibility, Mode=OneWay}">
@@ -1142,16 +1214,14 @@
                                 Visibility="{x:Bind ViewModel.WorkbenchPreview.LoadingProgressVisibility, Mode=OneWay}" />
                         </Grid>
 
-                        <Grid
+                        <ScrollViewer
                             Grid.Row="3"
-                            Padding="8,4"
-                            ColumnSpacing="6"
+                            HorizontalScrollBarVisibility="Auto"
+                            HorizontalScrollMode="Enabled"
+                            VerticalScrollBarVisibility="Disabled"
+                            VerticalScrollMode="Disabled"
                             Visibility="{x:Bind ViewModel.WorkbenchPreview.ViewportControlsVisibility, Mode=OneWay}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
+                            <StackPanel Padding="8,4" Orientation="Horizontal" Spacing="6">
                             <ComboBox
                                 x:Name="PreviewViewportSelector"
                                 Width="178"
@@ -1166,7 +1236,6 @@
                             </ComboBox>
                             <Button
                                 x:Name="RotatePreviewViewportButton"
-                                Grid.Column="1"
                                 automation:AutomationProperties.AutomationId="RotatePreviewViewportButton"
                                 automation:AutomationProperties.Name="Rotate preview device"
                                 Click="OnRotatePreviewViewportClicked"
@@ -1176,14 +1245,103 @@
                             </Button>
                             <TextBlock
                                 x:Name="PreviewViewportDescriptionText"
-                                Grid.Column="2"
                                 VerticalAlignment="Center"
-                                HorizontalAlignment="Right"
                                 automation:AutomationProperties.AutomationId="PreviewViewportDescriptionText"
                                 FontSize="11"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.WorkbenchPreview.ViewportDescription, Mode=OneWay}" />
-                        </Grid>
+                            <Rectangle Width="1" Height="24" Fill="{ThemeResource PiDividerBrush}" />
+                            <ComboBox
+                                x:Name="PreviewProfileSelector"
+                                Width="130"
+                                automation:AutomationProperties.AutomationId="PreviewProfileSelector"
+                                automation:AutomationProperties.Name="Browser profile"
+                                DisplayMemberPath="Name"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanChangeProfile, Mode=OneWay}"
+                                ItemsSource="{x:Bind ViewModel.WorkbenchPreview.BrowserProfiles, Mode=OneWay}"
+                                SelectedItem="{x:Bind ViewModel.WorkbenchPreview.SelectedProfile, Mode=OneWay}"
+                                SelectionChanged="OnPreviewProfileSelectionChanged" />
+                            <Button
+                                automation:AutomationProperties.AutomationId="AddPreviewProfileButton"
+                                Click="OnAddPreviewProfileClicked"
+                                Content="New profile"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                automation:AutomationProperties.AutomationId="SetDefaultPreviewProfileButton"
+                                Click="OnSetDefaultPreviewProfileClicked"
+                                Content="Make default"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                x:Name="PreviewRecentUrlsButton"
+                                automation:AutomationProperties.AutomationId="PreviewRecentUrlsButton"
+                                Content="Recent"
+                                Style="{StaticResource PiToolbarButtonStyle}">
+                                <Button.Flyout>
+                                    <MenuFlyout x:Name="PreviewRecentUrlsFlyout" Opening="OnPreviewRecentUrlsFlyoutOpening" />
+                                </Button.Flyout>
+                            </Button>
+                            <ComboBox
+                                x:Name="PreviewColorSchemeSelector"
+                                Width="96"
+                                automation:AutomationProperties.AutomationId="PreviewColorSchemeSelector"
+                                automation:AutomationProperties.Name="Preview page color scheme"
+                                SelectedIndex="{x:Bind ViewModel.WorkbenchPreview.ColorSchemeIndex, Mode=OneWay}"
+                                SelectionChanged="OnPreviewColorSchemeSelectionChanged">
+                                <x:String>System</x:String>
+                                <x:String>Light</x:String>
+                                <x:String>Dark</x:String>
+                            </ComboBox>
+                            <Button automation:AutomationProperties.AutomationId="PreviewZoomOutButton" Click="OnPreviewZoomOutClicked" Content="−" Style="{StaticResource PiToolbarButtonStyle}" />
+                            <TextBlock
+                                MinWidth="42"
+                                VerticalAlignment="Center"
+                                automation:AutomationProperties.AutomationId="PreviewZoomDescriptionText"
+                                Text="{x:Bind ViewModel.WorkbenchPreview.ZoomDescription, Mode=OneWay}"
+                                TextAlignment="Center" />
+                            <Button automation:AutomationProperties.AutomationId="PreviewZoomInButton" Click="OnPreviewZoomInClicked" Content="+" Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button automation:AutomationProperties.AutomationId="PreviewZoomResetButton" Click="OnPreviewZoomResetClicked" Content="Reset" Style="{StaticResource PiToolbarButtonStyle}" />
+                            <ToggleButton
+                                x:Name="PreviewDevToolsPolicyToggle"
+                                automation:AutomationProperties.AutomationId="PreviewDevToolsPolicyToggle"
+                                Click="OnPreviewDevToolsPolicyClicked"
+                                Content="Allow DevTools"
+                                Style="{StaticResource PiToolbarToggleButtonStyle}" />
+                            <Button
+                                x:Name="PreviewOpenDevToolsButton"
+                                automation:AutomationProperties.AutomationId="PreviewOpenDevToolsButton"
+                                Click="OnPreviewOpenDevToolsClicked"
+                                Content="DevTools"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                automation:AutomationProperties.AutomationId="PreviewImportCookiesButton"
+                                Click="OnPreviewImportCookiesClicked"
+                                Content="Import cookies…"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                x:Name="PreviewRecordingButton"
+                                automation:AutomationProperties.AutomationId="PreviewRecordingButton"
+                                Click="OnPreviewRecordingClicked"
+                                Content="{x:Bind ViewModel.WorkbenchPreview.RecordingLabel, Mode=OneWay}"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                x:Name="PreviewPictureInPictureButton"
+                                automation:AutomationProperties.AutomationId="PreviewPictureInPictureButton"
+                                Click="OnPreviewPictureInPictureClicked"
+                                Content="Picture in picture"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <ComboBox
+                                x:Name="PreviewAutomationPermissionSelector"
+                                Width="148"
+                                automation:AutomationProperties.AutomationId="PreviewAutomationPermissionSelector"
+                                automation:AutomationProperties.Name="Agent browser automation permission"
+                                SelectedIndex="{x:Bind ViewModel.WorkbenchPreview.AutomationPermissionIndex, Mode=OneWay}"
+                                SelectionChanged="OnPreviewAutomationPermissionSelectionChanged">
+                                <x:String>Agent access off</x:String>
+                                <x:String>Agent inspect only</x:String>
+                                <x:String>Agent interact</x:String>
+                            </ComboBox>
+                            </StackPanel>
+                        </ScrollViewer>
 
                         <Grid
                             Grid.Row="4"
@@ -1243,7 +1401,7 @@
                                                 MinHeight="240"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Top"
-                                                Background="White"
+                                                Background="{ThemeResource PiCanvasBrush}"
                                                 BorderBrush="{ThemeResource PiBorderStrongBrush}"
                                                 BorderThickness="1"
                                                 Visibility="{x:Bind SurfaceVisibility, Mode=OneWay}">
@@ -1400,6 +1558,149 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+                        </Grid>
+                    </Grid>
+
+                    <Grid
+                        x:Name="AgentsWorkbenchSurface"
+                        Padding="12"
+                        automation:AutomationProperties.AutomationId="AgentsWorkbenchSurface"
+                        automation:AutomationProperties.Name="Agents and workflows"
+                        RowSpacing="10"
+                        Visibility="{x:Bind ViewModel.Layout.AgentsPanelVisibility, Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Spacing="3">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Agents &amp; workflows" />
+                            <TextBlock
+                                x:Name="AgentActivitySummaryText"
+                                automation:AutomationProperties.AutomationId="AgentActivitySummaryText"
+                                automation:AutomationProperties.LiveSetting="Polite"
+                                FontSize="{StaticResource PiFontSizeCaption}"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="{x:Bind ViewModel.WorkbenchAgents.Summary, Mode=OneWay}"
+                                TextWrapping="WrapWholeWords" />
+                        </StackPanel>
+
+                        <Grid Grid.Row="1">
+                            <ListView
+                                x:Name="AgentActivityList"
+                                automation:AutomationProperties.AutomationId="AgentActivityList"
+                                automation:AutomationProperties.Name="Agent and workflow activity"
+                                ItemsSource="{x:Bind ViewModel.WorkbenchAgents.Activities, Mode=OneWay}"
+                                SelectionMode="None"
+                                Visibility="{x:Bind ViewModel.WorkbenchAgents.ActivityVisibility, Mode=OneWay}">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="IsTabStop" Value="False" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,0,0,8" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:AgentActivityRowViewModel">
+                                        <Border
+                                            Margin="{x:Bind IndentMargin, Mode=OneWay}"
+                                            Padding="10"
+                                            automation:AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
+                                            Style="{StaticResource PiElevatedSurfaceStyle}">
+                                            <StackPanel Spacing="6">
+                                                <Grid ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                                            Foreground="{ThemeResource PiTextMutedBrush}"
+                                                            Text="{x:Bind KindLabel, Mode=OneWay}" />
+                                                    </StackPanel>
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        Foreground="{ThemeResource PiAccentBrush}"
+                                                        Text="{x:Bind StateLabel, Mode=OneWay}" />
+                                                    <Button
+                                                        Grid.Column="2"
+                                                        automation:AutomationProperties.AutomationId="InterruptAgentButton"
+                                                        automation:AutomationProperties.Name="Interrupt agent or workflow"
+                                                        Click="OnInterruptAgentClicked"
+                                                        Content="Interrupt"
+                                                        IsEnabled="{x:Bind CanInterrupt, Mode=OneWay}"
+                                                        Style="{StaticResource PiToolbarButtonStyle}"
+                                                        ToolTipService.ToolTip="Interrupt this activity by stopping its Pi turn"
+                                                        Visibility="{x:Bind InterruptVisibility, Mode=OneWay}" />
+                                                </Grid>
+                                                <TextBlock
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                                    Text="{x:Bind CurrentActivity, Mode=OneWay}"
+                                                    TextWrapping="WrapWholeWords" />
+                                                <TextBlock
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                                    Text="{x:Bind Metrics, Mode=OneWay}" />
+                                                <TextBlock
+                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                                    Text="{x:Bind ModelSummary, Mode=OneWay}"
+                                                    TextWrapping="WrapWholeWords"
+                                                    Visibility="{x:Bind ModelVisibility, Mode=OneWay}" />
+                                                <TextBlock
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                                    Text="{x:Bind Task, Mode=OneWay}"
+                                                    TextWrapping="WrapWholeWords" />
+                                                <TextBlock
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                                    Text="{x:Bind ResultSummary, Mode=OneWay}"
+                                                    TextWrapping="WrapWholeWords"
+                                                    Visibility="{x:Bind ResultVisibility, Mode=OneWay}" />
+                                                <TextBlock
+                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    Foreground="{ThemeResource PiCriticalBrush}"
+                                                    Text="{x:Bind FailureSummary, Mode=OneWay}"
+                                                    TextWrapping="WrapWholeWords"
+                                                    Visibility="{x:Bind FailureVisibility, Mode=OneWay}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+
+                            <StackPanel
+                                Margin="24"
+                                MaxWidth="300"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10"
+                                Visibility="{x:Bind ViewModel.WorkbenchAgents.EmptyVisibility, Mode=OneWay}">
+                                <FontIcon
+                                    HorizontalAlignment="Center"
+                                    FontSize="26"
+                                    Foreground="{ThemeResource PiTextMutedBrush}"
+                                    Glyph="&#xE716;" />
+                                <TextBlock HorizontalAlignment="Center" Style="{StaticResource PiPanelHeaderTextStyle}" Text="No agent activity yet" />
+                                <TextBlock
+                                    x:Name="AgentEmptyStateText"
+                                    HorizontalAlignment="Center"
+                                    automation:AutomationProperties.AutomationId="AgentEmptyStateText"
+                                    Foreground="{ThemeResource PiTextSecondaryBrush}"
+                                    Text="Subagents and workflows started by Pi will appear here with live status, usage, and results."
+                                    TextAlignment="Center"
+                                    TextWrapping="WrapWholeWords" />
+                            </StackPanel>
                         </Grid>
                     </Grid>
                 </Grid>

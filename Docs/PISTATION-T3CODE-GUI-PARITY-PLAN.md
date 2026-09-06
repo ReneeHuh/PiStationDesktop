@@ -3,7 +3,7 @@
 Status: implementation complete — Stages 0–7 and side-by-side refinement complete  
 Target: PiStation Desktop packaged WinUI 3 application  
 Baseline: T3 Code `9159b808d35a88e74fc91e11070f3270cdb321f9`, reviewed 2026-09-02  
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 
 ## 1. Outcome
 
@@ -11,7 +11,7 @@ Rebuild PiStation's presentation layer so it has the density, hierarchy, and wor
 current T3 Code while remaining a native Windows application centered on Pi.
 
 This began as a GUI-first program. It created honest, testable places for later Git, files, terminal,
-preview, and agent-observability features; Files, Changes, and a first Terminal slice have since
+preview, and agent-observability features; Files, Changes, Terminal, Preview, and Agents have since
 filled those boundaries. A surface
 without behavior must be an explicit empty or unavailable state, never a control that silently does
 nothing.
@@ -177,11 +177,11 @@ communicate a real boundary.
 | App sidebar | Projects, threads, search, pin/archive | Dense hierarchy, project identity, status/preview/time | Remote environments, PR links, auto-settle |
 | Chat header | Active title and turn state | Breadcrumb, editable title, compact status and actions | Open-in, Git actions, project actions |
 | Timeline | Messages, reasoning, tools, interactions, errors, metrics | Continuous document and compact activity rows | Changed files, plans, task progress, citations |
-| Composer | Draft, attachments, model/reasoning, send/stop | Unified shell with internal toolbar and notices | Permission mode, commands, skills, prompt stash |
+| Composer | Draft, attachments, model/reasoning, send/stop | Unified shell with internal toolbar and notices | Commands, skills, stash, compaction, context chips, quote/cite, image paste/drop, and background delivery are implemented in protocol v21; permission mode remains capability-gated |
 | Workspace footer | Connection status | Checkout/branch/status rail below composer | Branch and worktree selector |
 | Right panel | None | Resizable tab host and empty states | Changes, files, terminal, preview, agents |
-| Settings | None as a first-class destination | Stable navigation entry and panel shell | Appearance, shortcuts, providers, connections |
-| Diagnostics | Recovery banners and test control | Compact banners plus detail affordance | Logs, environment diagnostics, updates |
+| Settings | First-class routed destination | Stable navigation for projects, Pi/runtime, source control, appearance, integrations, diagnostics, usage, and updates | Remote environment connection management remains later work |
+| Diagnostics | Recovery banners plus routed detail | Bounded logs, runtime/tool health, resource telemetry, usage/cost/quota, redacted export, and update state | Provider-specific quota APIs can enrich the current aggregate later |
 
 Placeholder policy:
 
@@ -388,7 +388,7 @@ Implementation status (2026-09-03): complete. `WorkspaceShell` now reserves a st
 host that docks at desktop widths and overlays only the conversation at compact widths. The
 resizable workbench exposes accessible Changes, Files, Terminal, Preview, and Agents tabs. At this
 stage each tab used an explicit unavailable explanation instead of simulated data; later product
-slices replaced Changes, Files, and Terminal with real behavior. The custom title bar adds a
+slices replaced Changes, Files, Terminal, Preview, and Agents with real behavior. The custom title bar adds a
 real thread-creation menu, selected-project folder launch, and panel toggle, while
 `WorkspaceStatusBar` reports local-project identity and an honest source-control-unavailable state.
 `ShellLayoutViewModel` persists sidebar collapse, panel visibility, selected tab, and clamped panel
@@ -532,19 +532,26 @@ Implement one reviewable slice at a time:
 7. Stage 6: settings and non-happy states. Complete.
 8. Stage 7: compatibility and final polish. Complete.
 
-The GUI parity implementation is complete. The first four post-parity product slices are also
-complete: Files is a searchable workbench with selection and bounded, project-confined text
+The GUI parity implementation is complete. The post-parity product slices are also connected:
+Files is a searchable workbench with selection and bounded, project-confined text
 previews, while Changes presents branch identity, staged/working-tree/untracked status, refresh,
 and bounded read-only diffs. Terminal manages bounded, host-owned PowerShell and Command Prompt
 sessions with resumable output and the complete start/input/stop/restart/close workbench lifecycle.
-Preview discovers browser-ready local servers and provides a restricted embedded WebView2 browser
-with address, history, reload/stop, external-open, error recovery, and per-project URL persistence.
-All four are covered from protocol through packaged UI automation. Terminal uses Windows ConPTY
+Preview discovers browser-ready local servers and provides restricted multi-tab WebView2 browsers
+with independent history, responsive viewports, zoom/color emulation, recent URLs, isolated profiles,
+bounded cookie import, explicit DevTools policy, screenshots, recording/PiP, one-use element
+annotations, permissioned Pi automation, and project/thread-scoped persistence. Files now also renders
+sandboxed HTML/PDF and audio/video, supports bounded read-only viewing outside the workspace, and can
+add selected source/diff ranges to the composer. Agents now projects persisted Pi structured-subagent and workflow
+events as a hierarchy with live state/current activity, elapsed time, tool/token usage, result/failure
+summaries, and parent-turn interruption. The original four product slices are covered from protocol
+through packaged UI automation; protocol, RPC, host, persistence, and projection tests cover the new
+active-turn queue and Agents foundations. Terminal uses Windows ConPTY
 with the T3-derived Ghostty WebAssembly renderer, real pseudoconsole resizes, OSC links, search,
 mouse reporting, and recursive split panes.
-The next product decision is whether to build Agents or deepen Preview with responsive viewports,
-zoom, page color preference, multiple tabs, screenshots, annotations, and later permissioned browser
-automation. A final human side-by-side review should accompany that selection.
+The remaining Preview depth is remote session ownership and proxying. Agent-level interruption remains
+parent-turn scoped until Pi exposes independent child handles. A final human side-by-side review
+should accompany the next visual refinement.
 
 ## 12. Reference paths
 

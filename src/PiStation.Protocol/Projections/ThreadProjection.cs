@@ -74,6 +74,96 @@ public enum QuestionInputKind
     Editor,
 }
 
+public enum QueuedMessageKind
+{
+    Steering,
+    FollowUp,
+}
+
+public enum QueueDeliveryMode
+{
+    OneAtATime,
+    All,
+}
+
+public enum QueueDeliveryState
+{
+    Empty,
+    Queued,
+    Delivering,
+    Cleared,
+}
+
+public enum AgentActivityKind
+{
+    Agent,
+    Workflow,
+}
+
+public enum AgentActivityState
+{
+    Pending,
+    Running,
+    Waiting,
+    Completed,
+    Failed,
+    Interrupted,
+}
+
+public enum ContextCompactionState
+{
+    Idle,
+    Running,
+    Completed,
+    Failed,
+    Interrupted,
+}
+
+public sealed record ContextCompactionProjection(
+    ContextCompactionState State,
+    string Reason,
+    long? TokensBefore,
+    long? EstimatedTokensAfter,
+    decimal? Cost,
+    string? Summary,
+    string? Error,
+    DateTimeOffset UpdatedUtc);
+
+public sealed record QueuedMessageProjection(
+    QueuedMessageKind Kind,
+    int Position,
+    string Text);
+
+public sealed record ThreadQueueProjection(
+    IReadOnlyList<QueuedMessageProjection> Messages,
+    QueueDeliveryMode SteeringMode,
+    QueueDeliveryMode FollowUpMode,
+    QueueDeliveryState DeliveryState,
+    int PendingMessageCount,
+    DateTimeOffset UpdatedUtc);
+
+public sealed record AgentActivityProjection(
+    string ActivityId,
+    TurnId? TurnId,
+    string? ParentActivityId,
+    AgentActivityKind Kind,
+    AgentActivityState State,
+    string Title,
+    string Task,
+    string CurrentActivity,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset UpdatedUtc,
+    DateTimeOffset? CompletedUtc,
+    int ToolCount,
+    TokenUsage? Usage,
+    string? Model,
+    string? ReasoningLevel,
+    string? ResultSummary,
+    string? FailureSummary,
+    int? Step,
+    int? AgentIndex,
+    bool CanInterrupt);
+
 public sealed record MessageProjection(
     string MessageId,
     MessageRole Role,
@@ -189,7 +279,11 @@ public sealed record ThreadProjection(
     string PiSessionId,
     string? PiSessionFile,
     string? LastEntryId,
-    ProtocolError? LastError)
+    ProtocolError? LastError,
+    ThreadQueueProjection? Queue = null,
+    IReadOnlyList<AgentActivityProjection>? AgentActivities = null,
+    ContextCompactionProjection? Compaction = null,
+    PiExtensionUiState? ExtensionUi = null)
 {
     [JsonIgnore]
     public IReadOnlyList<MessageProjection> Messages

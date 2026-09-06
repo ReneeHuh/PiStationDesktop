@@ -182,11 +182,18 @@ public sealed class WorkspaceGitCommandServiceTests
             """
             {
               "defaultThreadEnvMode": "worktree",
+              "iconPath": "brand.png",
+              "defaultModel": { "provider": "fake", "model": "fake-standard" },
+              "defaultThinkingLevel": "high",
+              "defaultRuntimeMode": "plan",
+              "autoPullDefaultBranch": true,
               "scripts": [
-                { "name": "Setup", "command": "dotnet restore", "icon": "configure", "runOnWorktreeCreate": true }
+                { "name": "Setup", "command": "dotnet restore", "icon": "configure", "runOnWorktreeCreate": true },
+                { "name": "Tests", "command": "dotnet test", "icon": "test" }
               ]
             }
             """);
+        await File.WriteAllBytesAsync(Path.Combine(projectRoot, "brand.png"), [137, 80, 78, 71]);
         var database = new HostDatabase(temporaryDirectory.CreateOptions());
         await database.InitializeAsync();
         var projects = new ProjectService(database);
@@ -196,7 +203,13 @@ public sealed class WorkspaceGitCommandServiceTests
         var reloaded = Assert.Single(await projects.ListAsync());
 
         Assert.Equal(ThreadWorkspaceMode.Worktree, project.DefaultWorkspaceMode);
-        Assert.Equal("dotnet restore", Assert.Single(project.Scripts!).Command);
+        Assert.Equal("dotnet restore", project.Scripts![0].Command);
+        Assert.Equal("dotnet test", project.Scripts[1].Command);
+        Assert.Equal(Path.Combine(projectRoot, "brand.png"), project.Icon);
+        Assert.Equal(new PiModelSelection("fake", "fake-standard"), project.DefaultModel);
+        Assert.Equal(PiThinkingLevel.High, project.DefaultThinkingLevel);
+        Assert.Equal("plan", project.DefaultRuntimeModeId);
+        Assert.True(project.AutoPullDefaultBranch);
         Assert.True(trusted.AreRepositoryScriptsTrusted);
         Assert.True(reloaded.AreRepositoryScriptsTrusted);
     }

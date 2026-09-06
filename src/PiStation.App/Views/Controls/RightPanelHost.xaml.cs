@@ -1,4 +1,8 @@
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -6,10 +10,15 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PiStation.App.Services;
 using PiStation.App.ViewModels;
 using PiStation.Protocol.Models;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
+using Windows.Graphics;
+using Windows.Media.Core;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI.Core;
@@ -18,6 +27,8 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class RightPanelHost : UserControl
 {
+    public event EventHandler? HostingReviewRequested;
+    private void OnHostingReviewClicked(object sender, RoutedEventArgs e) => HostingReviewRequested?.Invoke(this, EventArgs.Empty);
     private readonly HashSet<TerminalWebViewSurface> _terminalInitializationStarted = [];
     private readonly HashSet<PreviewWebViewSurface> _previewInitializationStarted = [];
     private readonly Dictionary<string, PreviewWebViewSurface> _previewSurfaces = new(StringComparer.Ordinal);
@@ -36,22 +47,47 @@ public sealed partial class RightPanelHost : UserControl
     private WorkbenchFileDocumentViewModel? _observedFileDocument;
     private WorkbenchFileDocumentViewModel? _revealedFileDocument;
     private int _handledFileRevealRequestId = -1;
+    private string? _activeMediaPreviewPath;
+    private Window? _previewPictureInPictureWindow;
+    private PreviewWebViewSurface? _previewPictureInPictureSurface;
+    private readonly BrowserAutomationInbox _browserAutomationInbox;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _browserAutomationTimer;
+    private bool _browserAutomationPolling;
 
     internal const string WorkspaceFileDragFormat = "application/x-pistation-workspace-file";
 
     public RightPanelHost(ShellViewModel viewModel)
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _browserAutomationInbox = new BrowserAutomationInbox(ViewModel.BrowserAutomationRoot);
         InitializeComponent();
+        _browserAutomationTimer = DispatcherQueue.CreateTimer();
+        _browserAutomationTimer.Interval = TimeSpan.FromMilliseconds(250);
+        _browserAutomationTimer.Tick += OnBrowserAutomationTimerTick;
+        Loaded += (_, _) =>
+        {
+            _browserAutomationTimer.Start();
+            _ = SynchronizeBrowserAutomationPermissionAsync();
+        };
+        Unloaded += (_, _) => _browserAutomationTimer.Stop();
+        ActualThemeChanged += (_, _) =>
+        {
+            if (_previewPictureInPictureSurface is { } pictureInPicture)
+            {
+                pictureInPicture.RequestedTheme = ActualTheme;
+            }
+        };
         RightPanelResizeHandle.Layout = ViewModel.Layout;
         ViewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
         ViewModel.WorkbenchTerminal.PropertyChanged += OnWorkbenchTerminalPropertyChanged;
         ViewModel.WorkbenchTerminal.SurfaceOutputChanged += OnTerminalSurfaceOutputChanged;
         ViewModel.WorkbenchFiles.PropertyChanged += OnWorkbenchFilesPropertyChanged;
+        ViewModel.WorkbenchPreview.PropertyChanged += OnWorkbenchPreviewPropertyChanged;
         ViewModel.Workspace.PropertyChanged += OnWorkspacePropertyChanged;
         ApplyPanelWidth();
         SynchronizeTabs();
         ConfigureTerminalPaneLayout();
+        SynchronizePreviewPolicy();
         UpdateWidthHelpText();
         AttachActiveFileDocument();
     }
@@ -135,6 +171,14 @@ public sealed partial class RightPanelHost : UserControl
         }
     }
 
+    private async void OnInterruptAgentClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: AgentActivityRowViewModel activity })
+        {
+            await ViewModel.InterruptAgentAsync(activity);
+        }
+    }
+
     private async void OnPreviewBrowserLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is not PreviewWebViewSurface surface ||
@@ -144,6 +188,11 @@ public sealed partial class RightPanelHost : UserControl
         }
 
         surface.SetNavigationContext(tab.TabId);
+        surface.Configure(
+            PreviewProfileDataPath(tab.ProfileId),
+            ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated,
+            tab.ZoomFactor,
+            tab.ColorScheme);
         _previewSurfaces[tab.TabId] = surface;
         surface.NavigationStarted -= OnPreviewNavigationStarted;
         surface.NavigationFinished -= OnPreviewNavigationFinished;
@@ -398,6 +447,479 @@ public sealed partial class RightPanelHost : UserControl
     private void OnRotatePreviewViewportClicked(object sender, RoutedEventArgs e) =>
         ViewModel.RotateWorkbenchPreviewViewport();
 
+    private void OnPreviewZoomOutClicked(object sender, RoutedEventArgs e) =>
+        ViewModel.AdjustWorkbenchPreviewZoom(-0.1);
+
+    private void OnPreviewZoomInClicked(object sender, RoutedEventArgs e) =>
+        ViewModel.AdjustWorkbenchPreviewZoom(0.1);
+
+    private void OnPreviewZoomResetClicked(object sender, RoutedEventArgs e) =>
+        ViewModel.ResetWorkbenchPreviewZoom();
+
+    private async void OnPreviewColorSchemeSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewColorSchemeSelector.SelectedIndex < 0 ||
+            PreviewColorSchemeSelector.SelectedIndex == ViewModel.WorkbenchPreview.ColorSchemeIndex)
+        {
+            return;
+        }
+
+        ViewModel.SetWorkbenchPreviewColorScheme(PreviewColorSchemeSelector.SelectedIndex);
+        if (ActivePreviewSurface is { } surface && ViewModel.WorkbenchPreview.ActiveTab is { } tab)
+        {
+            await surface.SetColorSchemeAsync(tab.ColorScheme);
+        }
+    }
+
+    private void OnPreviewProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewProfileSelector.SelectedItem is BrowserProfilePreference profile &&
+            !string.Equals(profile.Id, ViewModel.WorkbenchPreview.ActiveTab?.ProfileId, StringComparison.Ordinal))
+        {
+            ViewModel.SelectWorkbenchPreviewProfile(profile);
+        }
+    }
+
+    private async void OnAddPreviewProfileClicked(object sender, RoutedEventArgs e)
+    {
+        var input = new TextBox { PlaceholderText = "Profile name", MaxLength = 48 };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "New browser profile",
+            Content = input,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(input.Text))
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = ViewModel.AddWorkbenchPreviewProfile(input.Text);
+            if (ViewModel.WorkbenchPreview.CanChangeProfile)
+            {
+                ViewModel.SelectWorkbenchPreviewProfile(profile);
+            }
+        }
+        catch (Exception exception)
+        {
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"Profile unavailable: {exception.Message}");
+        }
+    }
+
+    private void OnSetDefaultPreviewProfileClicked(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.WorkbenchPreview.SelectedProfile is { } profile)
+        {
+            ViewModel.SetDefaultWorkbenchPreviewProfile(profile.Id);
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"{profile.Name} is the default browser profile");
+        }
+    }
+
+    private void OnPreviewRecentUrlsFlyoutOpening(object sender, object e)
+    {
+        PreviewRecentUrlsFlyout.Items.Clear();
+        foreach (var url in ViewModel.WorkbenchPreview.RecentUrls)
+        {
+            var item = new MenuFlyoutItem { Text = url };
+            item.Click += async (_, _) => await NavigatePreviewAsync(url);
+            PreviewRecentUrlsFlyout.Items.Add(item);
+        }
+
+        if (PreviewRecentUrlsFlyout.Items.Count == 0)
+        {
+            PreviewRecentUrlsFlyout.Items.Add(new MenuFlyoutItem { Text = "No recent addresses", IsEnabled = false });
+        }
+    }
+
+    private void OnPreviewDevToolsPolicyClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.Layout.PreviewDevToolsPolicy = PreviewDevToolsPolicyToggle.IsChecked == true
+            ? PreviewDevToolsPolicy.UserInitiated
+            : PreviewDevToolsPolicy.Disabled;
+        var allowed = ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated;
+        foreach (var surface in _previewSurfaces.Values)
+        {
+            surface.ApplyDevToolsPolicy(allowed);
+        }
+
+        PreviewOpenDevToolsButton.IsEnabled = allowed;
+    }
+
+    private void OnPreviewOpenDevToolsClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ActivePreviewSurface?.OpenDevTools();
+        }
+        catch (Exception exception)
+        {
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"DevTools unavailable: {exception.Message}");
+        }
+    }
+
+    private async void OnPreviewImportCookiesClicked(object sender, RoutedEventArgs e)
+    {
+        var window = (Application.Current as App)?.MainWindow;
+        var surface = ActivePreviewSurface;
+        if (window is null || surface is null)
+        {
+            return;
+        }
+
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".json");
+        picker.FileTypeFilter.Add(".txt");
+        picker.FileTypeFilter.Add(".cookies");
+        WinRT.Interop.InitializeWithWindow.Initialize(
+            picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(window));
+        if (await picker.PickSingleFileAsync() is not { } file)
+        {
+            return;
+        }
+
+        try
+        {
+            var properties = await file.GetBasicPropertiesAsync();
+            if (properties.Size > 2 * 1024 * 1024)
+            {
+                throw new InvalidOperationException("Cookie imports are limited to 2 MB.");
+            }
+
+            var imported = await surface.ImportCookiesAsync(await FileIO.ReadTextAsync(file));
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"Imported {imported} cookies into {ViewModel.WorkbenchPreview.SelectedProfile?.Name ?? "the active profile"}");
+        }
+        catch (Exception exception)
+        {
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"Cookie import failed: {exception.Message}");
+        }
+    }
+
+    private async void OnPreviewRecordingClicked(object sender, RoutedEventArgs e)
+    {
+        var surface = ActivePreviewSurface;
+        var tab = ViewModel.WorkbenchPreview.ActiveTab;
+        if (surface is null || tab is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!tab.IsRecording)
+            {
+                await surface.StartRecordingAsync();
+                ViewModel.WorkbenchPreview.SetRecording(true);
+                ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, "Recording preview • maximum 2 minutes");
+            }
+            else
+            {
+                ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, "Encoding preview recording…");
+                var path = await surface.StopRecordingAsync(ViewModel.PreviewCaptureRoot);
+                ViewModel.WorkbenchPreview.SetRecording(false);
+                ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Recording saved • {path}", path);
+            }
+        }
+        catch (Exception exception)
+        {
+            ViewModel.WorkbenchPreview.SetRecording(false);
+            ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Recording failed: {exception.Message}");
+        }
+    }
+
+    private async void OnPreviewPictureInPictureClicked(object sender, RoutedEventArgs e)
+    {
+        if (_previewPictureInPictureWindow is not null)
+        {
+            _previewPictureInPictureWindow.Close();
+            return;
+        }
+
+        var tab = ViewModel.WorkbenchPreview.ActiveTab;
+        if (tab is null || !WorkbenchPreviewViewModel.TryNormalizeAddress(tab.CurrentUrl, out var uri, out _))
+        {
+            return;
+        }
+
+        PreviewWebViewSurface? surface = null;
+        Window? window = null;
+        try
+        {
+            surface = new PreviewWebViewSurface { RequestedTheme = ActualTheme };
+            surface.Configure(
+                PreviewProfileDataPath(tab.ProfileId),
+                ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated,
+                tab.ZoomFactor,
+                tab.ColorScheme);
+            window = new Window
+            {
+                Title = $"Preview • {tab.DocumentTitle}",
+                Content = surface,
+            };
+            window.Closed += (_, _) =>
+            {
+                surface.Dispose();
+                _previewPictureInPictureSurface = null;
+                _previewPictureInPictureWindow = null;
+            };
+            _previewPictureInPictureWindow = window;
+            _previewPictureInPictureSurface = surface;
+            window.Activate();
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
+                WinRT.Interop.WindowNative.GetWindowHandle(window));
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            appWindow.Resize(new SizeInt32(520, 360));
+            if (appWindow.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.IsAlwaysOnTop = true;
+            }
+
+            await surface.NavigateAsync(uri);
+            ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, "Picture in picture opened");
+        }
+        catch (Exception exception)
+        {
+            if (ReferenceEquals(_previewPictureInPictureWindow, window))
+            {
+                _previewPictureInPictureWindow = null;
+                _previewPictureInPictureSurface = null;
+            }
+
+            window?.Close();
+            surface?.Dispose();
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                tab.TabId,
+                $"Picture in picture failed: {exception.Message}");
+        }
+    }
+
+    private void OnWorkbenchPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (ActivePreviewSurface is not { } surface || ViewModel.WorkbenchPreview.ActiveTab is not { } tab)
+        {
+            return;
+        }
+
+        if (e.PropertyName == nameof(WorkbenchPreviewViewModel.ZoomFactor))
+        {
+            surface.SetZoomFactor(tab.ZoomFactor);
+        }
+        else if (e.PropertyName == nameof(WorkbenchPreviewViewModel.ColorSchemeIndex))
+        {
+            _ = surface.SetColorSchemeAsync(tab.ColorScheme);
+        }
+    }
+
+    private string PreviewProfileDataPath(string profileId)
+    {
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(profileId)));
+        return Path.Combine(ViewModel.PreviewProfileRoot, key);
+    }
+
+    private async void OnPreviewAutomationPermissionSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewAutomationPermissionSelector.SelectedIndex < 0 ||
+            PreviewAutomationPermissionSelector.SelectedIndex == ViewModel.WorkbenchPreview.AutomationPermissionIndex)
+        {
+            return;
+        }
+
+        var permission = Enum.IsDefined(typeof(PreviewAutomationAccess), PreviewAutomationPermissionSelector.SelectedIndex)
+            ? (PreviewAutomationAccess)PreviewAutomationPermissionSelector.SelectedIndex
+            : PreviewAutomationAccess.Off;
+        ViewModel.SetWorkbenchPreviewAutomationPermission(permission);
+        await SynchronizeBrowserAutomationPermissionAsync();
+        ViewModel.SetWorkbenchPreviewCaptureStatus(
+            ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+            ViewModel.WorkbenchPreview.AutomationDescription);
+    }
+
+    private async Task SynchronizeBrowserAutomationPermissionAsync()
+    {
+        if (ViewModel.Workspace.SelectedThread is not { } thread)
+        {
+            return;
+        }
+
+        try
+        {
+            await _browserAutomationInbox.SetPermissionAsync(
+                thread.ThreadId.Value,
+                ViewModel.WorkbenchPreview.AutomationPermission);
+        }
+        catch (Exception exception)
+        {
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"Browser permission could not be saved: {exception.Message}");
+        }
+    }
+
+    private async void OnBrowserAutomationTimerTick(
+        Microsoft.UI.Dispatching.DispatcherQueueTimer sender,
+        object args)
+    {
+        if (_browserAutomationPolling || ViewModel.Workspace.SelectedThread is not { } thread)
+        {
+            return;
+        }
+
+        _browserAutomationPolling = true;
+        try
+        {
+            var request = await _browserAutomationInbox.ReadNextAsync(thread.ThreadId.Value);
+            if (request is not null)
+            {
+                await HandleBrowserAutomationRequestAsync(thread.ThreadId.Value, request);
+            }
+        }
+        catch (Exception exception)
+        {
+            ViewModel.SetWorkbenchPreviewCaptureStatus(
+                ViewModel.WorkbenchPreview.ActiveTab?.TabId,
+                $"Browser automation failed: {exception.Message}");
+        }
+        finally
+        {
+            _browserAutomationPolling = false;
+        }
+    }
+
+    private async Task HandleBrowserAutomationRequestAsync(
+        string threadId,
+        BrowserAutomationRequest request)
+    {
+        if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromMinutes(2))
+        {
+            await _browserAutomationInbox.CompleteAsync(
+                threadId,
+                request,
+                success: false,
+                error: "The browser request expired before it reached the preview.");
+            return;
+        }
+
+        var permission = ViewModel.WorkbenchPreview.AutomationPermission;
+        var mutating = request.Operation is "navigate" or "click" or "type";
+        if (permission == PreviewAutomationAccess.Off ||
+            (mutating && permission != PreviewAutomationAccess.Interact))
+        {
+            await _browserAutomationInbox.CompleteAsync(
+                threadId,
+                request,
+                success: false,
+                error: mutating ? "Browser interaction is not permitted." : "Browser automation is off.");
+            return;
+        }
+
+        var surface = ActivePreviewSurface;
+        var tab = ViewModel.WorkbenchPreview.ActiveTab;
+        if (surface is null || tab is null)
+        {
+            await _browserAutomationInbox.CompleteAsync(
+                threadId,
+                request,
+                success: false,
+                error: "Open a browser tab in Pi Station Preview before using browser automation.");
+            return;
+        }
+
+        try
+        {
+            object data = request.Operation switch
+            {
+                "status" => new
+                {
+                    tabId = tab.TabId,
+                    tab.DocumentTitle,
+                    url = tab.CurrentUrl,
+                    tab.IsLoading,
+                    zoomFactor = tab.ZoomFactor,
+                    colorScheme = tab.ColorScheme.ToString(),
+                    profile = ViewModel.WorkbenchPreview.SelectedProfile?.Name,
+                    permission = permission.ToString(),
+                },
+                "snapshot" => new
+                {
+                    url = tab.CurrentUrl,
+                    elements = JsonSerializer.Deserialize<JsonElement>(await surface.GetDomSnapshotAsync()),
+                },
+                "screenshot" => await CaptureAutomationScreenshotAsync(surface, tab),
+                "click" => JsonSerializer.Deserialize<JsonElement>(await surface.ClickElementAsync(
+                    RequireAutomationInput(request.Input, "selector", 1024))),
+                "type" => JsonSerializer.Deserialize<JsonElement>(await surface.TypeIntoElementAsync(
+                    RequireAutomationInput(request.Input, "selector", 1024),
+                    RequireAutomationInput(request.Input, "value", 8 * 1024, allowEmpty: true))),
+                "navigate" => await NavigateAutomationAsync(
+                    RequireAutomationInput(request.Input, "url", PreviewDiscoveryDefaults.MaximumUrlLength)),
+                _ => throw new InvalidOperationException($"Unknown browser operation '{request.Operation}'."),
+            };
+            await _browserAutomationInbox.CompleteAsync(threadId, request, success: true, data);
+        }
+        catch (Exception exception)
+        {
+            await _browserAutomationInbox.CompleteAsync(
+                threadId,
+                request,
+                success: false,
+                error: exception.Message);
+        }
+    }
+
+    private async Task<object> CaptureAutomationScreenshotAsync(
+        PreviewWebViewSurface surface,
+        WorkbenchPreviewTabViewModel tab)
+    {
+        var path = await SavePreviewCaptureAsync(
+            await surface.CapturePreviewPngAsync(),
+            ViewModel.PreviewCaptureRoot);
+        ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Agent screenshot saved • {path}", path);
+        return new { tabId = tab.TabId, url = tab.CurrentUrl, path };
+    }
+
+    private async Task<object> NavigateAutomationAsync(string url)
+    {
+        await NavigatePreviewAsync(url);
+        var tab = ViewModel.WorkbenchPreview.ActiveTab ??
+            throw new InvalidOperationException("The preview did not create a browser tab.");
+        return new { tabId = tab.TabId, url = tab.CurrentUrl };
+    }
+
+    private static string RequireAutomationInput(
+        JsonElement input,
+        string name,
+        int maximumLength,
+        bool allowEmpty = false)
+    {
+        if (!input.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException($"Browser operation requires '{name}'.");
+        }
+
+        var value = property.GetString() ?? string.Empty;
+        if ((!allowEmpty && string.IsNullOrWhiteSpace(value)) || value.Length > maximumLength)
+        {
+            throw new InvalidOperationException($"Browser input '{name}' is invalid or too long.");
+        }
+
+        return value;
+    }
+
     private void OnPreviewBrowserHostSizeChanged(object sender, SizeChangedEventArgs e) =>
         ViewModel.WorkbenchPreview.UpdateResponsiveViewport(
             Math.Max(240, e.NewSize.Width - 2),
@@ -562,10 +1084,17 @@ public sealed partial class RightPanelHost : UserControl
 
     private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(WorkspaceViewModel.SelectedProject) &&
-            ViewModel.Layout.SelectedPanel == WorkbenchPanelKind.Preview)
+        if (e.PropertyName is nameof(WorkspaceViewModel.SelectedProject) or
+            nameof(WorkspaceViewModel.SelectedThread))
         {
-            DispatcherQueue.TryEnqueue(async () => await NavigateToRestoredPreviewAsync());
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                await SynchronizeBrowserAutomationPermissionAsync();
+                if (ViewModel.Layout.SelectedPanel == WorkbenchPanelKind.Preview)
+                {
+                    await NavigateToRestoredPreviewAsync();
+                }
+            });
         }
     }
 
@@ -674,6 +1203,84 @@ public sealed partial class RightPanelHost : UserControl
         ViewModel.WorkbenchFiles.CloseDocument(document);
     }
 
+    private async void OnOpenExternalReadOnlyFileClicked(object sender, RoutedEventArgs e)
+    {
+        var window = (Application.Current as App)?.MainWindow;
+        if (window is null)
+        {
+            return;
+        }
+
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(
+            picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(window));
+        if (await picker.PickSingleFileAsync() is not { } file)
+        {
+            return;
+        }
+
+        var document = ViewModel.WorkbenchFiles.OpenExternalDocument(file.Path);
+        try
+        {
+            var properties = await file.GetBasicPropertiesAsync();
+            if (document.IsImage)
+            {
+                if (properties.Size > FileAssetDefaults.MaximumBytes)
+                {
+                    throw new InvalidOperationException($"The image exceeds the {FileAssetDefaults.MaximumBytes / (1024 * 1024)} MB preview limit.");
+                }
+
+                using var input = await file.OpenStreamForReadAsync();
+                using var memory = new MemoryStream();
+                await input.CopyToAsync(memory);
+                document.ApplyExternalImage(memory.ToArray(), checked((long)properties.Size));
+            }
+            else if (document.IsPdf || document.IsMedia)
+            {
+                if (properties.Size > FileAssetDefaults.MaximumBytes)
+                {
+                    throw new InvalidOperationException($"The file exceeds the {FileAssetDefaults.MaximumBytes / (1024 * 1024)} MB preview limit.");
+                }
+
+                document.ApplyExternalAsset(file.Path, checked((long)properties.Size));
+            }
+            else
+            {
+                using var input = await file.OpenStreamForReadAsync();
+                var maximum = FileReadDefaults.MaximumBytes;
+                var bytes = new byte[(int)Math.Min((ulong)maximum, properties.Size)];
+                var offset = 0;
+                while (offset < bytes.Length)
+                {
+                    var read = await input.ReadAsync(bytes.AsMemory(offset));
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    offset += read;
+                }
+
+                if (bytes.AsSpan(0, offset).Contains((byte)0))
+                {
+                    document.ApplyLoadFailure("This external binary file has no safe in-app renderer.");
+                    return;
+                }
+
+                var content = Encoding.UTF8.GetString(bytes, 0, offset).TrimStart('\uFEFF');
+                document.ApplyExternalText(content, checked((long)properties.Size), properties.Size > (ulong)offset);
+            }
+
+            await UpdateWorkspaceFilePreviewAsync();
+        }
+        catch (Exception exception)
+        {
+            document.ApplyLoadFailure($"Unable to open external file read-only: {exception.Message}");
+        }
+    }
+
     private async void OnSaveWorkbenchFileClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.SaveWorkbenchFileAsync();
 
@@ -707,6 +1314,41 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnOpenWorkbenchFileInEditorClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.OpenWorkbenchFileInEditorAsync();
+
+    private async void OnAddFileSelectionToComposerClicked(object sender, RoutedEventArgs e)
+    {
+        var document = ViewModel.WorkbenchFiles.ActiveDocument;
+        if (document is null || WorkbenchFileEditor.SelectionLength <= 0)
+        {
+            ViewModel.ComposerPower.Status = "Select one or more source lines before adding a file annotation";
+            return;
+        }
+
+        var content = WorkbenchFileEditor.Text ?? string.Empty;
+        var start = Math.Clamp(WorkbenchFileEditor.SelectionStart, 0, content.Length);
+        var length = Math.Clamp(WorkbenchFileEditor.SelectionLength, 0, content.Length - start);
+        await AddReviewSelectionAsync("file", document.RelativePath, content, start, length);
+    }
+
+    private async void OnAddDiffSelectionToComposerClicked(object sender, RoutedEventArgs e)
+    {
+        var content = WorkbenchDiffPreview.Text ?? string.Empty;
+        if (WorkbenchDiffPreview.SelectionLength <= 0)
+        {
+            ViewModel.ComposerPower.Status = "Select one or more diff lines before adding a diff annotation";
+            return;
+        }
+
+        var start = Math.Clamp(WorkbenchDiffPreview.SelectionStart, 0, content.Length);
+        var length = Math.Clamp(WorkbenchDiffPreview.SelectionLength, 0, content.Length - start);
+        if (WorkbenchDiffPreview.SelectedPath is not { } path)
+        {
+            ViewModel.ComposerPower.Status = "Select a range within one file to add review context";
+            return;
+        }
+        await AddReviewSelectionAsync("diff", path, content, start, length,
+            WorkbenchDiffPreview.SelectedStartLine, WorkbenchDiffPreview.SelectedEndLine);
+    }
 
     private void OnWorkspaceTreeItemDragStarting(UIElement sender, DragStartingEventArgs args)
     {
@@ -770,22 +1412,30 @@ public sealed partial class RightPanelHost : UserControl
 
         DispatcherQueue.TryEnqueue(async () =>
         {
-            await UpdateWorkspaceImageAsync();
+            await UpdateWorkspaceFilePreviewAsync();
             RevealActiveFileLine();
         });
     }
 
     private void OnActiveFileDocumentPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(WorkbenchFileDocumentViewModel.AssetContent))
+        if (e.PropertyName is nameof(WorkbenchFileDocumentViewModel.AssetContent) or
+            nameof(WorkbenchFileDocumentViewModel.LocalPreviewPath) or
+            nameof(WorkbenchFileDocumentViewModel.ShowRenderedContent))
         {
-            DispatcherQueue.TryEnqueue(async () => await UpdateWorkspaceImageAsync());
+            DispatcherQueue.TryEnqueue(async () => await UpdateWorkspaceFilePreviewAsync());
         }
 
         if (e.PropertyName is nameof(WorkbenchFileDocumentViewModel.Content) or
             nameof(WorkbenchFileDocumentViewModel.RevealRequestId) or
             nameof(WorkbenchFileDocumentViewModel.IsLoading))
         {
+            if (e.PropertyName == nameof(WorkbenchFileDocumentViewModel.Content) &&
+                ViewModel.WorkbenchFiles.ActiveDocument?.HtmlVisibility == Visibility.Visible)
+            {
+                DispatcherQueue.TryEnqueue(async () => await UpdateWorkspaceFilePreviewAsync());
+            }
+
             DispatcherQueue.TryEnqueue(RevealActiveFileLine);
         }
     }
@@ -822,11 +1472,79 @@ public sealed partial class RightPanelHost : UserControl
         _handledFileRevealRequestId = document.RevealRequestId;
     }
 
-    private async Task UpdateWorkspaceImageAsync()
+    private async Task UpdateWorkspaceFilePreviewAsync()
     {
         var document = ViewModel.WorkbenchFiles.ActiveDocument;
         var bytes = document?.AssetContent;
-        if (document is null || !document.IsImage || bytes is null)
+        if (document is null)
+        {
+            WorkbenchFileImage.Source = null;
+            WorkbenchFileMediaPreview.Source = null;
+            _activeMediaPreviewPath = null;
+            return;
+        }
+
+        if (document.IsHtml && document.ShowRenderedContent)
+        {
+            try
+            {
+                await WorkbenchRenderedFilePreview.ShowHtmlAsync(document.Content);
+            }
+            catch (Exception exception)
+            {
+                document.Status = $"HTML preview unavailable: {exception.Message}";
+            }
+        }
+
+        if ((document.IsPdf || document.IsMedia) &&
+            string.IsNullOrWhiteSpace(document.LocalPreviewPath) &&
+            bytes is not null)
+        {
+            try
+            {
+                document.LocalPreviewPath = await MaterializeReadOnlyPreviewAsync(document, bytes);
+            }
+            catch (Exception exception)
+            {
+                document.Status = $"Rendered preview unavailable: {exception.Message}";
+            }
+        }
+
+        if (document.IsPdf && document.LocalPreviewPath is { } pdfPath)
+        {
+            try
+            {
+                await WorkbenchRenderedFilePreview.ShowPdfAsync(pdfPath);
+            }
+            catch (Exception exception)
+            {
+                document.Status = $"PDF preview unavailable: {exception.Message}";
+            }
+        }
+
+        if (document.IsMedia && document.LocalPreviewPath is { } mediaPath &&
+            !string.Equals(_activeMediaPreviewPath, mediaPath, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var file = await StorageFile.GetFileFromPathAsync(mediaPath);
+                WorkbenchFileMediaPreview.Source = MediaSource.CreateFromStorageFile(file);
+                _activeMediaPreviewPath = mediaPath;
+            }
+            catch (Exception exception)
+            {
+                WorkbenchFileMediaPreview.Source = null;
+                _activeMediaPreviewPath = null;
+                document.Status = $"Media preview unavailable: {exception.Message}";
+            }
+        }
+        else if (!document.IsMedia)
+        {
+            WorkbenchFileMediaPreview.Source = null;
+            _activeMediaPreviewPath = null;
+        }
+
+        if (!document.IsImage || bytes is null)
         {
             WorkbenchFileImage.Source = null;
             return;
@@ -863,6 +1581,82 @@ public sealed partial class RightPanelHost : UserControl
             WorkbenchFileImage.Source = null;
         }
     }
+
+    private static async Task<string> MaterializeReadOnlyPreviewAsync(
+        WorkbenchFileDocumentViewModel document,
+        byte[] content)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "PiStationDesktop", "file-previews");
+        Directory.CreateDirectory(root);
+        var extension = Path.GetExtension(document.RelativePath);
+        var path = Path.Combine(root, $"{Guid.NewGuid():N}{extension}");
+        await File.WriteAllBytesAsync(path, content);
+        return path;
+    }
+
+    private async Task AddReviewSelectionAsync(
+        string kind,
+        string path,
+        string content,
+        int selectionStart,
+        int selectionLength,
+        int? sourceStartLine = null,
+        int? sourceEndLine = null)
+    {
+        const int maximumSelectionLength = 16_000;
+        var boundedLength = Math.Min(selectionLength, maximumSelectionLength);
+        var selected = content.Substring(selectionStart, boundedLength).TrimEnd();
+        if (selected.Length == 0)
+        {
+            ViewModel.ComposerPower.Status = "The selected range contains no text";
+            return;
+        }
+
+        var startLine = sourceStartLine ?? 1 + content.AsSpan(0, selectionStart).Count('\n');
+        var endLine = sourceEndLine ?? startLine + selected.AsSpan().Count('\n');
+        var range = startLine == endLine ? $"L{startLine}" : $"L{startLine}–L{endLine}";
+        var note = new TextBox
+        {
+            AcceptsReturn = true,
+            MinWidth = 320,
+            MinHeight = 72,
+            PlaceholderText = "Review note (optional)",
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Add {path} {range} to the composer?",
+            Content = note,
+            PrimaryButtonText = "Add annotation",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var escapedPath = EscapeReviewAttribute(path);
+        var noteText = note.Text.Trim();
+        var body = $"<review_comment filePath=\"{escapedPath}\" range=\"{range}\">\n" +
+                   (noteText.Length == 0 ? string.Empty : NeutralizeReviewTags(noteText) + "\n") +
+                   $"```{(kind == "diff" ? "diff" : Path.GetExtension(path).TrimStart('.'))}\n{selected}\n```\n" +
+                   "</review_comment>";
+        if (!ViewModel.ComposerPower.AddContext($"{kind}-annotation", $"{path} {range}", body,
+            ViewModel.Workspace.SelectedThread?.ThreadId, relativePath: path, startLine: startLine, endLine: endLine)) return;
+        ViewModel.ComposerPower.Status = $"Added {path} {range} to the composer";
+    }
+
+    private static string EscapeReviewAttribute(string value) => value
+        .Replace("&", "&amp;", StringComparison.Ordinal)
+        .Replace("\"", "&quot;", StringComparison.Ordinal)
+        .Replace("<", "&lt;", StringComparison.Ordinal)
+        .Replace(">", "&gt;", StringComparison.Ordinal);
+
+    private static string NeutralizeReviewTags(string value) => value
+        .Replace("<review_comment", "&lt;review_comment", StringComparison.OrdinalIgnoreCase)
+        .Replace("</review_comment", "&lt;/review_comment", StringComparison.OrdinalIgnoreCase);
 
     private async void OnRefreshChangesClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.RefreshWorkbenchChangesAsync();
@@ -1673,8 +2467,8 @@ public sealed partial class RightPanelHost : UserControl
         }
     }
 
-    private static Windows.UI.Color ResourceBrushColor(string key, Windows.UI.Color fallback) =>
-        Application.Current.Resources.TryGetValue(key, out var value) && value is SolidColorBrush brush
+    private Windows.UI.Color ResourceBrushColor(string key, Windows.UI.Color fallback) =>
+        ThemeResourceLookup.TryGet(this, key, out var value) && value is SolidColorBrush brush
             ? brush.Color
             : fallback;
 
@@ -1895,6 +2689,17 @@ public sealed partial class RightPanelHost : UserControl
         {
             ApplyTerminalWebTheme();
         }
+        else if (e.PropertyName == nameof(ShellLayoutViewModel.PreviewDevToolsPolicy))
+        {
+            SynchronizePreviewPolicy();
+        }
+    }
+
+    private void SynchronizePreviewPolicy()
+    {
+        var allowed = ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated;
+        PreviewDevToolsPolicyToggle.IsChecked = allowed;
+        PreviewOpenDevToolsButton.IsEnabled = allowed;
     }
 
     private void SynchronizeTabs()
@@ -1910,6 +2715,33 @@ public sealed partial class RightPanelHost : UserControl
     private void UpdateWidthHelpText() => AutomationProperties.SetHelpText(
         RightPanelResizeHandle,
         $"Workbench width {Math.Round(ViewModel.Layout.RightPanelWidth)} pixels");
+
+    private void OnFileWorkbenchLayoutSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // A narrow workbench cannot give the tree and editor useful side-by-side widths.
+        // Stack them so the tree remains discoverable and the editor gets the remaining space.
+        var compact = e.NewSize.Width < 560;
+        var rows = FileWorkbenchLayoutGrid.RowDefinitions;
+        rows[0].Height = compact ? new GridLength(180) : new GridLength(1, GridUnitType.Star);
+        rows[1].Height = compact ? new GridLength(1) : new GridLength(0);
+        rows[2].Height = compact ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+
+        Grid.SetRow(FileWorkbenchTreeHost, 0);
+        Grid.SetColumn(FileWorkbenchTreeHost, 0);
+        Grid.SetRow(FileWorkbenchDivider, compact ? 1 : 0);
+        Grid.SetColumn(FileWorkbenchDivider, compact ? 0 : 1);
+        Grid.SetRow(FileWorkbenchEditorHost, compact ? 2 : 0);
+        Grid.SetColumn(FileWorkbenchEditorHost, compact ? 0 : 2);
+        FileWorkbenchDivider.HorizontalAlignment = HorizontalAlignment.Stretch;
+        FileWorkbenchDivider.VerticalAlignment = VerticalAlignment.Stretch;
+
+        FileWorkbenchTreeColumn.Width = compact
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(240);
+        FileWorkbenchEditorColumn.Width = compact
+            ? new GridLength(0)
+            : new GridLength(62, GridUnitType.Star);
+    }
 
     private void ApplyPanelWidth() => Root.Width = _availableWidth is { } availableWidth
         ? Math.Min(ViewModel.Layout.RightPanelWidth, availableWidth)

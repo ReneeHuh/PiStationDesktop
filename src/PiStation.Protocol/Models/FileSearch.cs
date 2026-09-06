@@ -146,6 +146,6 @@ public static class FileReadDefaults
 
 public static class FileAssetDefaults
 {
-    public const int DefaultMaximumBytes = 8 * 1024 * 1024;
-    public const int MaximumBytes = 16 * 1024 * 1024;
+    public const int DefaultMaximumBytes = 64 * 1024 * 1024;
+    public const int MaximumBytes = 64 * 1024 * 1024;
 }

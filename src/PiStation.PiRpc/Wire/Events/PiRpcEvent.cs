@@ -50,6 +50,19 @@ public sealed record PiAutoRetryCompletedEvent(
     int Attempt,
     string? FinalError) : PiRpcEvent("auto_retry_end");
 
+public sealed record PiQueueUpdatedEvent(
+    IReadOnlyList<string> Steering,
+    IReadOnlyList<string> FollowUp) : PiRpcEvent("queue_update");
+
+public sealed record PiCompactionStartedEvent(string Reason) : PiRpcEvent("compaction_start");
+
+public sealed record PiCompactionCompletedEvent(
+    string Reason,
+    JsonElement? Result,
+    bool Aborted,
+    bool WillRetry,
+    string? ErrorMessage) : PiRpcEvent("compaction_end");
+
 public abstract record PiExtensionUiRequestEvent(
     string RequestId,
     string Method,
@@ -80,6 +93,13 @@ public sealed record PiEditorRequestedEvent(
     string? Prefill) : PiExtensionUiRequestEvent(RequestId, "editor", Title, null);
 
 public sealed record PiUnknownEvent(string EventType, JsonElement Payload) : PiRpcEvent(EventType);
+
+/// <summary>A host-requested marker queued after Pi confirms a command completed without a running agent turn.</summary>
+public sealed record PiIdlePromptCompletedEvent(string Tag) : PiRpcEvent("pistation_idle_prompt_completed");
+
+public sealed record PiExtensionUiUpdateEvent(string RequestId, string Method, string? Key = null,
+    string? Text = null, IReadOnlyList<string>? Lines = null, string? Placement = null, string? Severity = null)
+    : PiRpcEvent("extension_ui_request");
 
 public abstract record PiAssistantDelta(string Type, int ContentIndex);
 
@@ -119,7 +139,8 @@ public sealed record PiTokenUsage(
     long CacheReadTokens,
     long CacheWriteTokens,
     long? ReasoningTokens,
-    long TotalTokens)
+    long TotalTokens,
+    decimal? TotalCost = null)
 {
     public long ContextTokens => TotalTokens > 0
         ? TotalTokens

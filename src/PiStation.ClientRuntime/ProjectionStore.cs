@@ -1,4 +1,5 @@
 using PiStation.Protocol.Identifiers;
+using PiStation.Protocol.Models;
 using PiStation.Protocol.Projections;
 using PiStation.Protocol.Streaming;
 
@@ -143,6 +144,7 @@ internal static class ClientProjectionReducer
 {
     public static ThreadProjection Apply(ThreadProjection projection, ThreadEvent @event) => @event switch
     {
+        PiExtensionUiChangedEvent changed => projection with { ExtensionUi = (projection.ExtensionUi ?? PiExtensionUiState.Empty).Apply(changed.Update) },
         RuntimeStateChangedEvent changed => ApplyRuntimeStateChanged(projection, changed),
         TurnStartedEvent started => ApplyTurnStarted(projection, started),
         MessageStartedEvent started => projection with
@@ -217,6 +219,12 @@ internal static class ClientProjectionReducer
         },
         InteractionResolvedEvent resolved => ApplyInteractionResolved(projection, resolved),
         CheckpointCapturedEvent captured => ApplyCheckpointCaptured(projection, captured),
+        QueueStateChangedEvent changed => projection with { Queue = changed.Queue },
+        AgentActivityChangedEvent changed => projection with
+        {
+            AgentActivities = AddOrReplaceAgentActivity(projection.AgentActivities ?? [], changed.Activity),
+        },
+        ContextCompactionChangedEvent changed => projection with { Compaction = changed.Compaction },
         TurnSettledEvent settled => ApplyTurnSettled(projection, settled),
         RuntimeFailedEvent failed => ApplyRuntimeFailed(projection, failed),
         UnknownRuntimeEvent unknown => projection with
@@ -252,6 +260,7 @@ internal static class ClientProjectionReducer
         return projection with
         {
             RuntimeState = changed.State,
+            ExtensionUi = changed.State is ThreadRuntimeState.Starting or ThreadRuntimeState.Stopped ? PiExtensionUiState.Empty : projection.ExtensionUi,
             Timeline = timeline,
             LastError = changed.State == ThreadRuntimeState.Crashed ? projection.LastError : null,
         };
@@ -434,6 +443,28 @@ internal static class ClientProjectionReducer
         }
 
         return result;
+    }
+
+    private static AgentActivityProjection[] AddOrReplaceAgentActivity(
+        IReadOnlyList<AgentActivityProjection> activities,
+        AgentActivityProjection activity)
+    {
+        var result = activities.ToList();
+        var index = result.FindIndex(existing => existing.ActivityId == activity.ActivityId);
+        if (index < 0)
+        {
+            result.Add(activity);
+        }
+        else
+        {
+            result[index] = activity;
+        }
+
+        return result
+            .OrderBy(static item => item.StartedUtc)
+            .ThenBy(static item => item.AgentIndex ?? int.MaxValue)
+            .ThenBy(static item => item.ActivityId, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static ThreadProjection ApplyInteractionResolved(

@@ -21,7 +21,13 @@ internal sealed class FakePiServer : IDisposable
     private string? _pendingDialogPromptId;
     private string? _pendingInteractionPrompt;
     private bool _retryDelayWasAborted;
+    private bool _isStreaming;
+    private readonly List<string> _queuedSteering = [];
+    private readonly List<string> _queuedFollowUp = [];
+    private string _steeringMode = "all";
+    private string _followUpMode = "all";
     private string _thinkingLevel = "off";
+    private string? _sessionName;
 
     public FakePiServer(Stream input, Stream output, TextWriter error, FakePiArguments arguments)
     {
@@ -35,6 +41,23 @@ internal sealed class FakePiServer : IDisposable
 
     public async Task<int> RunAsync()
     {
+        if (_arguments.Scenario == "extension-ui")
+        {
+            foreach (var update in new[]
+            {
+                new JsonObject { ["method"] = "notify", ["message"] = "Extension connected", ["notifyType"] = "info" },
+                new JsonObject { ["method"] = "setStatus", ["statusKey"] = "probe", ["statusText"] = "Ready to review" },
+                new JsonObject { ["method"] = "setWidget", ["widgetKey"] = "above", ["widgetLines"] = new JsonArray("Review changes", "Run focused checks") },
+                new JsonObject { ["method"] = "setWidget", ["widgetKey"] = "below", ["widgetLines"] = new JsonArray("Extension footer"), ["widgetPlacement"] = "belowEditor" },
+                new JsonObject { ["method"] = "setTitle", ["title"] = "Review assistant" },
+                new JsonObject { ["method"] = "set_editor_text", ["text"] = "Review this project using $skill:fake-skill." },
+            })
+            {
+                update["type"] = "extension_ui_request";
+                update["id"] = Guid.NewGuid().ToString();
+                await _writer.WriteAsync(update, cancellationToken: _stop.Token).ConfigureAwait(false);
+            }
+        }
         if (_arguments.Scenario == "startup-crash")
         {
             await _error.WriteLineAsync("FakePi startup crash.").ConfigureAwait(false);
@@ -112,7 +135,16 @@ internal sealed class FakePiServer : IDisposable
         switch (type)
         {
             case "prompt":
-                await HandlePromptAsync(id, command["message"]?.GetValue<string>() ?? string.Empty, cancellationToken)
+                if (_arguments.Scenario == "extension-ui" && command["message"]?.GetValue<string>() == "/review")
+                {
+                    await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+                await HandlePromptAsync(
+                        id,
+                        command["message"]?.GetValue<string>() ?? string.Empty,
+                        command["streamingBehavior"]?.GetValue<string>(),
+                        cancellationToken)
                     .ConfigureAwait(false);
                 break;
             case "get_entries":
@@ -158,6 +190,71 @@ internal sealed class FakePiServer : IDisposable
                         Model("fake", "fake-standard", "Fake Standard", supportsReasoning: true),
                         Model("fake", "fake-fast", "Fake Fast", supportsReasoning: false)),
                 }), cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case "get_commands":
+                var skillDirectory = Path.Combine(_arguments.SessionDirectory, "skills", "fake-skill");
+                Directory.CreateDirectory(skillDirectory);
+                var skillPath = Path.Combine(skillDirectory, "SKILL.md");
+                if (!File.Exists(skillPath)) await File.WriteAllTextAsync(skillPath, "---\nname: fake-skill\ndescription: Test resource\n---\nFAKE_SKILL_INSTRUCTION: verify the actual prompt body.", cancellationToken).ConfigureAwait(false);
+                await _writer.WriteAsync(Response(id, type, new JsonObject
+                {
+                    ["commands"] = new JsonArray(
+                        new JsonObject
+                        {
+                            ["name"] = "review",
+                            ["description"] = "Review the current changes",
+                            ["source"] = "extension",
+                            ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "extensions", "review.ts"), ["source"] = "local", ["scope"] = "user", ["origin"] = "top-level" },
+                        },
+                        new JsonObject
+                        {
+                            ["name"] = "release-notes",
+                            ["description"] = "Draft release notes",
+                            ["source"] = "prompt",
+                            ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "prompts", "release-notes.md"), ["source"] = "local", ["scope"] = "project", ["origin"] = "top-level" },
+                        },
+                        new JsonObject
+                        {
+                            ["name"] = "skill:fake-skill",
+                            ["description"] = "Exercise the fake skill",
+                            ["source"] = "skill",
+                            ["sourceInfo"] = new JsonObject { ["path"] = skillPath, ["source"] = "local", ["scope"] = "user", ["origin"] = "top-level", ["baseDir"] = skillDirectory },
+                        }),
+                }), cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case "compact" when _arguments.Scenario != "command-timeout":
+                await _writer.WriteAsync(new JsonObject
+                {
+                    ["type"] = "compaction_start",
+                    ["reason"] = "manual",
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                var compactionResult = new JsonObject
+                {
+                    ["summary"] = "Fake compacted context summary.",
+                    ["firstKeptEntryId"] = null,
+                    ["tokensBefore"] = 1200,
+                    ["estimatedTokensAfter"] = 320,
+                    ["usage"] = new JsonObject
+                    {
+                        ["input"] = 1200,
+                        ["output"] = 80,
+                        ["cacheRead"] = 40,
+                        ["cacheWrite"] = 10,
+                        ["totalTokens"] = 1330,
+                        ["cost"] = new JsonObject { ["total"] = 0.0125m },
+                    },
+                };
+                await _writer.WriteAsync(new JsonObject
+                {
+                    ["type"] = "compaction_end",
+                    ["result"] = compactionResult.DeepClone(),
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _writer.WriteAsync(Response(id, type, compactionResult), cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case "set_session_name":
+                _sessionName = command["name"]?.GetValue<string>();
+                await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "set_model":
                 var provider = command["provider"]?.GetValue<string>();
@@ -213,11 +310,33 @@ internal sealed class FakePiServer : IDisposable
                 await QueueOutOfOrderAsync(id, type, cancellationToken).ConfigureAwait(false);
                 break;
             case "clear_queue":
+                var clearedSteering = _arguments.Scenario == "queue"
+                    ? _queuedSteering.ToArray()
+                    : ["queued steering"];
+                var clearedFollowUp = _arguments.Scenario == "queue"
+                    ? _queuedFollowUp.ToArray()
+                    : ["queued follow-up"];
+                _queuedSteering.Clear();
+                _queuedFollowUp.Clear();
                 await _writer.WriteAsync(Response(id, type, new JsonObject
                 {
-                    ["steering"] = new JsonArray("queued steering"),
-                    ["followUp"] = new JsonArray("queued follow-up"),
+                    ["steering"] = new JsonArray(clearedSteering
+                        .Select(static value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+                    ["followUp"] = new JsonArray(clearedFollowUp
+                        .Select(static value => (JsonNode?)JsonValue.Create(value)).ToArray()),
                 }), cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (_arguments.Scenario == "queue")
+                {
+                    await WriteQueueUpdateAsync(cancellationToken).ConfigureAwait(false);
+                }
+                break;
+            case "set_steering_mode":
+                _steeringMode = command["mode"]?.GetValue<string>() ?? _steeringMode;
+                await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case "set_follow_up_mode":
+                _followUpMode = command["mode"]?.GetValue<string>() ?? _followUpMode;
+                await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "abort":
                 await HandleAbortAsync(id, cancellationToken).ConfigureAwait(false);
@@ -236,8 +355,37 @@ internal sealed class FakePiServer : IDisposable
         }
     }
 
-    private async Task HandlePromptAsync(string id, string message, CancellationToken cancellationToken)
+    private async Task HandlePromptAsync(
+        string id,
+        string message,
+        string? streamingBehavior,
+        CancellationToken cancellationToken)
     {
+        if (_arguments.Scenario == "queue")
+        {
+            await _writer.WriteAsync(Response(id, "prompt"), cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (streamingBehavior == "steer")
+            {
+                _queuedSteering.Add(message);
+                await WriteQueueUpdateAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (streamingBehavior == "followUp")
+            {
+                _queuedFollowUp.Add(message);
+                await WriteQueueUpdateAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            _isStreaming = true;
+            await _writer.WriteAsync(new JsonObject { ["type"] = "agent_start" }, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            await _writer.WriteAsync(new JsonObject { ["type"] = "turn_start" }, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
         switch (_arguments.Scenario)
         {
             case "command-timeout":
@@ -420,6 +568,7 @@ internal sealed class FakePiServer : IDisposable
             .ConfigureAwait(false);
         await _writer.WriteAsync(new JsonObject { ["type"] = "turn_start" }, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        await WaitForUiToolGateAsync("input-ready", cancellationToken).ConfigureAwait(false);
         await Task.Delay(TimeSpan.FromMilliseconds(1200), cancellationToken).ConfigureAwait(false);
         JsonObject? finalMessage = null;
         foreach (var part in answers)
@@ -514,6 +663,7 @@ internal sealed class FakePiServer : IDisposable
         }, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (exposeIntermediateStates)
         {
+            await WaitForUiToolGateAsync("continue-tool", cancellationToken).ConfigureAwait(false);
             await Task.Delay(TimeSpan.FromMilliseconds(1500), cancellationToken).ConfigureAwait(false);
         }
 
@@ -584,6 +734,7 @@ internal sealed class FakePiServer : IDisposable
         if (exposeIntermediateStates)
         {
             await WriteMessageDeltaAsync("text_delta", textContentIndex, "Tool", cancellationToken).ConfigureAwait(false);
+            await WaitForUiToolGateAsync("complete-turn", cancellationToken).ConfigureAwait(false);
             await Task.Delay(TimeSpan.FromMilliseconds(1500), cancellationToken).ConfigureAwait(false);
             await WriteMessageDeltaAsync("text_delta", textContentIndex, " finished.", cancellationToken).ConfigureAwait(false);
         }
@@ -646,6 +797,24 @@ internal sealed class FakePiServer : IDisposable
             .ConfigureAwait(false);
     }
 
+    private async Task WaitForUiToolGateAsync(string gate, CancellationToken cancellationToken)
+    {
+        // Only the UI fixture opts into these gates. Keep each observable state
+        // stable until the external UI driver has asserted it and can advance.
+        var gateDirectory = Path.Combine(Environment.CurrentDirectory, ".pistation-ui-tool-gates");
+        if (_arguments.Scenario is not ("ui-tool" or "ui-input") || !Directory.Exists(gateDirectory))
+        {
+            return;
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        while (!File.Exists(Path.Combine(gateDirectory, gate)))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), timeout.Token).ConfigureAwait(false);
+        }
+    }
+
     private async Task HandleAbortAsync(string id, CancellationToken cancellationToken)
     {
         if (_arguments.Scenario == "stop-retry-delay" && !_retryDelayWasAborted)
@@ -654,15 +823,20 @@ internal sealed class FakePiServer : IDisposable
         }
 
         await _writer.WriteAsync(Response(id, "abort"), cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (_arguments.Scenario is "stop" or "stop-retry-delay")
+        if (_arguments.Scenario is "stop" or "stop-retry-delay" or "queue")
         {
-            await _writer.WriteAsync(new JsonObject
+            if (_arguments.Scenario is "stop" or "stop-retry-delay")
             {
-                ["type"] = "auto_retry_end",
-                ["success"] = false,
-                ["attempt"] = 1,
-                ["finalError"] = "aborted",
-            }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _writer.WriteAsync(new JsonObject
+                {
+                    ["type"] = "auto_retry_end",
+                    ["success"] = false,
+                    ["attempt"] = 1,
+                    ["finalError"] = "aborted",
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+
+            _isStreaming = false;
             await _writer.WriteAsync(new JsonObject
             {
                 ["type"] = "agent_end",
@@ -794,17 +968,28 @@ internal sealed class FakePiServer : IDisposable
                 _modelId == "fake-standard" ? "Fake Standard" : "Fake Fast",
                 _modelId == "fake-standard"),
             ["thinkingLevel"] = _thinkingLevel,
-            ["isStreaming"] = false,
+            ["isStreaming"] = _isStreaming,
             ["isCompacting"] = false,
-            ["steeringMode"] = "all",
-            ["followUpMode"] = "all",
+            ["steeringMode"] = _steeringMode,
+            ["followUpMode"] = _followUpMode,
             ["sessionFile"] = _session.SessionFile,
             ["sessionId"] = _arguments.SessionId,
+            ["sessionName"] = _sessionName,
             ["autoCompactionEnabled"] = true,
             ["messageCount"] = entries.Count,
-            ["pendingMessageCount"] = 0,
+            ["pendingMessageCount"] = _queuedSteering.Count + _queuedFollowUp.Count,
         }), cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    private Task WriteQueueUpdateAsync(CancellationToken cancellationToken) =>
+        _writer.WriteAsync(new JsonObject
+        {
+            ["type"] = "queue_update",
+            ["steering"] = new JsonArray(_queuedSteering
+                .Select(static value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+            ["followUp"] = new JsonArray(_queuedFollowUp
+                .Select(static value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+        }, cancellationToken: cancellationToken);
 
     private string[] AvailableThinkingLevels() => _modelId == "fake-standard"
         ? ["off", "minimal", "low", "medium", "high"]
@@ -925,7 +1110,11 @@ internal sealed class FakePiServer : IDisposable
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_arguments.SessionDirectory);
-        var record = new JsonObject { ["command"] = command };
+        var record = new JsonObject
+        {
+            ["command"] = command,
+            ["request"] = request.DeepClone(),
+        };
         if (command == "prompt")
         {
             record["message"] = request["message"]?.DeepClone();

@@ -1,6 +1,8 @@
 using ColorCode;
 using Markdig;
 using Markdig.Syntax;
+using Markdig.Extensions.Tables;
+using Markdig.Extensions.TaskLists;
 using Markdig.Syntax.Inlines;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -17,7 +19,7 @@ public sealed partial class MarkdownView : UserControl
     private const string CodeStyleKey = "PiMarkdownCodeTextStyle";
     private const string CompactButtonStyleKey = "PiCompactButtonStyle";
     private const string CodeBlockStyleKey = "PiMarkdownCodeBlockStyle";
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().Build();
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseTaskLists().UseAutoLinks().Build();
 
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(
         nameof(Text),
@@ -31,6 +33,10 @@ public sealed partial class MarkdownView : UserControl
         AutomationProperties.SetName(this, "Markdown message");
         ActualThemeChanged += OnActualThemeChanged;
     }
+
+    public event EventHandler<string>? WorkspaceLinkRequested;
+    public event EventHandler<string>? SelectionQuoteRequested;
+    public event EventHandler<string>? SelectionCiteRequested;
 
     public string Text
     {
@@ -75,10 +81,13 @@ public sealed partial class MarkdownView : UserControl
         }
     }
 
-    private static void RenderBlock(Markdig.Syntax.Block block, Panel parent, string source, int depth)
+    private void RenderBlock(Markdig.Syntax.Block block, Panel parent, string source, int depth)
     {
         switch (block)
         {
+            case Table table:
+                parent.Children.Add(CreateTable(table, source, depth));
+                break;
             case HeadingBlock heading:
                 parent.Children.Add(CreateRichText(
                     heading.Inline,
@@ -138,7 +147,7 @@ public sealed partial class MarkdownView : UserControl
         }
     }
 
-    private static RichTextBlock CreateRichText(
+    private RichTextBlock CreateRichText(
         ContainerInline? content,
         string source,
         double? fontSize = null,
@@ -158,18 +167,27 @@ public sealed partial class MarkdownView : UserControl
             textBlock.FontWeight = fontWeight.Value;
         }
 
+        EnableSelectionActions(textBlock);
         var paragraph = new Paragraph();
         AppendInlines(content, paragraph.Inlines, source);
         textBlock.Blocks.Add(paragraph);
         return textBlock;
     }
 
-    private static void AppendInlines(ContainerInline? container, InlineCollection target, string source)
+    private void AppendInlines(ContainerInline? container, InlineCollection target, string source)
     {
         for (var inline = container?.FirstChild; inline is not null; inline = inline.NextSibling)
         {
             switch (inline)
             {
+                case TaskList task:
+                    target.Add(new Run { Text = task.Checked ? "☑ " : "☐ " });
+                    break;
+                case AutolinkInline autoLink when TryCreateSafeUri(autoLink.IsEmail ? $"mailto:{autoLink.Url}" : autoLink.Url, out var autoUri):
+                    var autoHyperlink = new Hyperlink { NavigateUri = autoUri };
+                    autoHyperlink.Inlines.Add(new Run { Text = autoLink.Url });
+                    target.Add(autoHyperlink);
+                    break;
                 case LiteralInline literal:
                     target.Add(new Run { Text = literal.Content.ToString() });
                     break;
@@ -193,7 +211,24 @@ public sealed partial class MarkdownView : UserControl
                     target.Add(emphasisSpan);
                     break;
                 case LinkInline link when link.IsImage:
-                    target.Add(new Run { Text = $"[Image: {InlineText(link, source)}]" });
+                    var imageLink = new Hyperlink();
+                    imageLink.Inlines.Add(new Run { Text = $"Open image: {InlineText(link, source)}" });
+                    if (TryCreateSafeUri(link.Url, out var imageUri) && imageUri.Scheme is "http" or "https")
+                    {
+                        var picture = new Image
+                        {
+                            Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(imageUri),
+                            MaxWidth = 640, MaxHeight = 360,
+                            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+                        };
+                        AutomationProperties.SetName(picture, InlineText(link, source));
+                        target.Add(new InlineUIContainer { Child = picture });
+                    }
+                    else
+                    {
+                        imageLink.Click += (_, _) => WorkspaceLinkRequested?.Invoke(this, link.Url ?? string.Empty);
+                        target.Add(imageLink);
+                    }
                     break;
                 case LinkInline link when TryCreateSafeUri(link.Url, out var uri):
                     var hyperlink = new Hyperlink
@@ -205,7 +240,10 @@ public sealed partial class MarkdownView : UserControl
                     target.Add(hyperlink);
                     break;
                 case LinkInline link:
-                    AppendInlines(link, target, source);
+                    var workspaceLink = new Hyperlink();
+                    workspaceLink.Click += (_, _) => WorkspaceLinkRequested?.Invoke(this, link.Url ?? string.Empty);
+                    AppendInlines(link, workspaceLink.Inlines, source);
+                    target.Add(workspaceLink);
                     break;
                 case HtmlInline html:
                     target.Add(new Run { Text = html.Tag });
@@ -228,7 +266,7 @@ public sealed partial class MarkdownView : UserControl
         }
     }
 
-    private static Border CreateQuoteBlock(QuoteBlock quote, string source, int depth)
+    private Border CreateQuoteBlock(QuoteBlock quote, string source, int depth)
     {
         var contents = new StackPanel { Spacing = 6 };
         foreach (var child in quote)
@@ -246,7 +284,7 @@ public sealed partial class MarkdownView : UserControl
         };
     }
 
-    private static StackPanel CreateListBlock(ListBlock list, string source, int depth)
+    private StackPanel CreateListBlock(ListBlock list, string source, int depth)
     {
         var listPanel = new StackPanel
         {
@@ -285,7 +323,7 @@ public sealed partial class MarkdownView : UserControl
         return listPanel;
     }
 
-    private static Border CreateCodeBlock(string code, string? languageInfo)
+    private Border CreateCodeBlock(string code, string? languageInfo)
     {
         var normalizedCode = code.TrimEnd('\r', '\n');
         var language = NormalizeLanguage(languageInfo);
@@ -342,10 +380,11 @@ public sealed partial class MarkdownView : UserControl
         }
         else
         {
-            new RichTextBlockFormatter().FormatInlines(normalizedCode, colorLanguage, codeParagraph.Inlines);
+            SyntaxHighlighting.CreateFormatter(ActualTheme).FormatInlines(normalizedCode, colorLanguage, codeParagraph.Inlines);
         }
 
         codeText.Blocks.Add(codeParagraph);
+        EnableSelectionActions(codeText);
         var scroller = new ScrollViewer
         {
             MaxHeight = 420,
@@ -362,6 +401,58 @@ public sealed partial class MarkdownView : UserControl
         return container;
     }
 
+    private ScrollViewer CreateTable(Table table, string source, int depth)
+    {
+        var grid = new Grid();
+        var columns = table.OfType<TableRow>().Select(row => row.Count).DefaultIfEmpty().Max();
+        for (var column = 0; column < columns; column++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var rowIndex = 0;
+        foreach (var row in table.OfType<TableRow>())
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var column = 0;
+            foreach (var cell in row.OfType<TableCell>())
+            {
+                var content = new StackPanel { Spacing = 4, MinWidth = 64, MaxWidth = 480 };
+                foreach (var child in cell) RenderBlock(child, content, source, depth);
+                var border = new Border
+                {
+                    Padding = new Thickness(10, 6, 10, 6), Child = content,
+                    BorderThickness = new Thickness(0, 0, 1, 1),
+                    BorderBrush = Resource<Microsoft.UI.Xaml.Media.Brush>("PiBorderBrush"),
+                };
+                if (row.IsHeader) border.Background = Resource<Microsoft.UI.Xaml.Media.Brush>("PiControlSurfaceBrush");
+                Grid.SetRow(border, rowIndex);
+                Grid.SetColumn(border, column++);
+                grid.Children.Add(border);
+            }
+            rowIndex++;
+        }
+        return new ScrollViewer { Content = grid, HorizontalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled };
+    }
+
+    private void EnableSelectionActions(RichTextBlock textBlock)
+    {
+        textBlock.IsTextSelectionEnabled = true;
+        var menu = new MenuFlyout();
+        var copy = new MenuFlyoutItem { Text = "Copy selection" };
+        copy.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(textBlock.SelectedText)) return;
+            var package = new DataPackage();
+            package.SetText(textBlock.SelectedText);
+            Clipboard.SetContent(package);
+        };
+        var quote = new MenuFlyoutItem { Text = "Quote selection" };
+        quote.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(textBlock.SelectedText)) SelectionQuoteRequested?.Invoke(this, textBlock.SelectedText); };
+        var cite = new MenuFlyoutItem { Text = "Cite selection" };
+        cite.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(textBlock.SelectedText)) SelectionCiteRequested?.Invoke(this, textBlock.SelectedText); };
+        menu.Items.Add(copy); menu.Items.Add(quote); menu.Items.Add(cite);
+        textBlock.ContextFlyout = menu;
+    }
+
     private static void CopyCode(Button button, string code, string language)
     {
         var package = new DataPackage();
@@ -371,7 +462,7 @@ public sealed partial class MarkdownView : UserControl
         AutomationProperties.SetName(button, $"Copied {language} code");
     }
 
-    private static TextBlock CreatePlainText(string text) => new()
+    private TextBlock CreatePlainText(string text) => new()
     {
         Style = Resource<Style>("PiBodyTextStyle"),
         Text = text,
@@ -467,5 +558,5 @@ public sealed partial class MarkdownView : UserControl
         return source.Substring(span.Start, length);
     }
 
-    private static T Resource<T>(string key) => (T)Application.Current.Resources[key];
+    private T Resource<T>(string key) => ThemeResourceLookup.Get<T>(this, key);
 }

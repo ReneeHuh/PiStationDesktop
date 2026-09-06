@@ -20,6 +20,18 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     public Task<ProjectDescriptor> AddProject(AddProjectRequest request) =>
         _environment.AddProjectAsync(request, Context.ConnectionAborted);
 
+    public async Task RemoveProject(RemoveProjectRequest request)
+    {
+        try { await _environment.RemoveProjectAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ProjectDescriptor> UpdateProjectDefaults(UpdateProjectDefaultsRequest request)
+    {
+        try { return await _environment.UpdateProjectDefaultsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
     public async Task<ProjectDescriptor> SetProjectScriptsTrust(SetProjectScriptsTrustRequest request)
     {
         try
@@ -44,6 +56,93 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         {
             throw new HubException($"{exception.Code}: {exception.Message}");
         }
+    }
+
+    public async Task<ProjectSetupScriptResult> RunProjectScript(RunProjectScriptRequest request)
+    {
+        try { return await _environment.RunProjectScriptAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ComposerDiscoveryResult> GetComposerDiscovery(ThreadId threadId)
+    {
+        try { return await _environment.GetComposerDiscoveryAsync(threadId, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<PromptStash[]> ListPromptStashes(ProjectId projectId)
+    {
+        try { return [.. await _environment.ListPromptStashesAsync(projectId, Context.ConnectionAborted).ConfigureAwait(false)]; }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<PromptStash> SavePromptStash(SavePromptStashRequest request)
+    {
+        try { return await _environment.SavePromptStashAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task DeletePromptStash(DeletePromptStashRequest request)
+    {
+        try { await _environment.DeletePromptStashAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<SourceControlRepository> DetectSourceControl(DetectSourceControlRequest request)
+    {
+        try { return await _environment.DetectSourceControlAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ListPullRequestsResult> ListPullRequests(ListPullRequestsRequest request)
+    {
+        try { return await _environment.ListPullRequestsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<SourceControlOperationResult> CloneHostedRepository(CloneHostedRepositoryRequest request)
+    {
+        try { return await _environment.CloneHostedRepositoryAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<SourceControlOperationResult> PublishHostedRepository(PublishHostedRepositoryRequest request)
+    {
+        try { return await _environment.PublishHostedRepositoryAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<SourceControlOperationResult> CreatePullRequest(CreatePullRequestRequest request)
+    {
+        try { return await _environment.CreatePullRequestAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<SourceControlOperationResult> MutatePullRequest(MutatePullRequestRequest request)
+    {
+        try { return await _environment.MutatePullRequestAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<GeneratedSourceControlText> GenerateSourceControlText(GenerateSourceControlTextRequest request)
+    {
+        try { return await _environment.GenerateSourceControlTextAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public Task<DiagnosticsSnapshot> GetDiagnostics() =>
+        _environment.GetDiagnosticsAsync(Context.ConnectionAborted);
+
+    public Task<PiRuntimeSetupResult> ConfigurePiRuntime(ConfigurePiRuntimeRequest request) =>
+        _environment.ConfigurePiRuntimeAsync(request, Context.ConnectionAborted);
+
+    public async Task<HostingOperation[]> ListHostingOperations() =>
+        [.. await _environment.ListHostingOperationsAsync(Context.ConnectionAborted).ConfigureAwait(false)];
+
+    public async Task<ExportDiagnosticsResult> ExportDiagnostics(ExportDiagnosticsRequest request)
+    {
+        try { return await _environment.ExportDiagnosticsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
     }
 
     public async Task<SearchProjectFilesResult> SearchProjectFiles(SearchProjectFilesRequest request)
@@ -352,6 +451,30 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
 
     public Task<ThreadDescriptor> CreateThread(CreateThreadRequest request) =>
         _environment.CreateThreadAsync(request, Context.ConnectionAborted);
+
+    public async Task DeleteThread(DeleteThreadRequest request)
+    {
+        try { await _environment.DeleteThreadAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ApplyThreadBulkOperationResult> ApplyThreadBulkOperation(ApplyThreadBulkOperationRequest request)
+    {
+        try { return await _environment.ApplyThreadBulkOperationAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ThreadDescriptor[]> SetThreadPinnedOrder(SetThreadPinnedOrderRequest request)
+    {
+        try { return [.. await _environment.SetThreadPinnedOrderAsync(request, Context.ConnectionAborted).ConfigureAwait(false)]; }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ThreadDescriptor> LinkThreadPullRequest(LinkThreadPullRequestRequest request)
+    {
+        try { return await _environment.LinkThreadPullRequestAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
 
     public async Task<ThreadDraft> GetThreadDraft(ThreadId threadId)
     {

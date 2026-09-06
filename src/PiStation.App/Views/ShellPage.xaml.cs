@@ -12,6 +12,7 @@ using PiStation.App.Views.Controls;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Projections;
 using Windows.System;
+using Windows.Storage.Pickers;
 
 namespace PiStation.App.Views;
 
@@ -47,6 +48,7 @@ public sealed partial class ShellPage : Page
         _sidebar.SettingsRequested += OnSettingsRequested;
         _sidebar.CollapsedChanged += OnSidebarCollapsedChanged;
         _rightPanel = new RightPanelHost(ViewModel);
+        _rightPanel.HostingReviewRequested += OnHostingReviewRequested;
         _conversationTimeline = new ConversationTimeline(ViewModel);
         _composerSurface = new ComposerSurface(ViewModel);
         ShellLayout.Sidebar = _sidebar;
@@ -681,8 +683,286 @@ public sealed partial class ShellPage : Page
             KeybindingCommandSelector.SelectedIndex = 0;
         }
 
+        SynchronizeProjectSettings();
+        PublishProviderSelector.SelectedIndex = Math.Max(0, PublishProviderSelector.SelectedIndex);
+        if (SettingsNavigation.SelectedItem is null && SettingsNavigation.MenuItems.Count != 0)
+        {
+            SettingsNavigation.SelectedItem = SettingsNavigation.MenuItems[0];
+        }
+
+        ApplySettingsSection((SettingsNavigation.SelectedItem as NavigationViewItem)?.Tag as string ?? "Projects");
+
         _settingsOpen = true;
+        _ = ViewModel.RefreshSettingsAsync();
         await SettingsDialog.ShowAsync();
+    }
+
+    private void OnSettingsNavigationSelectionChanged(
+        NavigationView sender,
+        NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItemContainer?.Tag is string section)
+        {
+            ApplySettingsSection(section);
+        }
+    }
+
+    private void ApplySettingsSection(string section)
+    {
+        foreach (var element in SettingsShell.Children.OfType<FrameworkElement>())
+        {
+            element.Visibility = string.Equals(element.Tag as string, section, StringComparison.Ordinal)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+    }
+
+    private void SynchronizeProjectSettings()
+    {
+        var project = ViewModel.Workspace.SelectedProject;
+        ProjectDefaultWorkspaceModeSelector.SelectedIndex = project?.DefaultWorkspaceMode == ThreadWorkspaceMode.Worktree
+            ? 1
+            : 0;
+        ProjectAutoPullToggle.IsOn = project?.AutoPullDefaultBranch == true;
+        ProjectDefaultModelProviderInput.Text = project?.DefaultModel?.ProviderId ?? string.Empty;
+        ProjectDefaultModelIdInput.Text = project?.DefaultModel?.ModelId ?? string.Empty;
+        ProjectDefaultRuntimeModeInput.Text = project?.DefaultRuntimeModeId ?? string.Empty;
+        ProjectDefaultThinkingSelector.SelectedIndex = project?.DefaultThinkingLevel switch
+        {
+            PiThinkingLevel.Off => 1,
+            PiThinkingLevel.Minimal => 2,
+            PiThinkingLevel.Low => 3,
+            PiThinkingLevel.Medium => 4,
+            PiThinkingLevel.High => 5,
+            _ => 0,
+        };
+        if (project is not null && string.IsNullOrWhiteSpace(PublishRepositoryInput.Text))
+        {
+            PublishRepositoryInput.Text = project.DisplayName;
+        }
+    }
+
+    private async void OnSaveProjectDefaultsClicked(object sender, RoutedEventArgs e)
+    {
+        var mode = ProjectDefaultWorkspaceModeSelector.SelectedItem is ComboBoxItem { Tag: string value } &&
+            Enum.TryParse<ThreadWorkspaceMode>(value, out var parsed)
+                ? parsed
+                : ThreadWorkspaceMode.Local;
+        var defaultModel = string.IsNullOrWhiteSpace(ProjectDefaultModelProviderInput.Text) ||
+            string.IsNullOrWhiteSpace(ProjectDefaultModelIdInput.Text)
+                ? null
+                : new PiModelSelection(
+                    ProjectDefaultModelProviderInput.Text.Trim(),
+                    ProjectDefaultModelIdInput.Text.Trim());
+        var defaultThinking = ProjectDefaultThinkingSelector.SelectedItem is ComboBoxItem { Tag: string thinkingText } &&
+            Enum.TryParse<PiThinkingLevel>(thinkingText, out var thinking)
+                ? thinking
+                : (PiThinkingLevel?)null;
+        await ViewModel.UpdateSelectedProjectDefaultsAsync(
+            mode,
+            ProjectAutoPullToggle.IsOn,
+            defaultModel,
+            defaultThinking,
+            ProjectDefaultRuntimeModeInput.Text);
+    }
+
+    private async void OnRemoveProjectClicked(object sender, RoutedEventArgs e)
+    {
+        var project = ViewModel.Workspace.SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        SettingsDialog.Hide();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Remove {project.DisplayName}?",
+            Content = "Pi Station threads and local metadata for this project will be removed. The project folder and Git repository will not be deleted.",
+            PrimaryButtonText = "Remove project",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await ViewModel.RemoveSelectedProjectAsync();
+            _sidebar.SynchronizeSelection();
+        }
+
+        await OpenSettingsAsync();
+    }
+
+    private async void OnRefreshSettingsClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.RefreshSettingsAsync();
+
+    private async void OnExportDiagnosticsClicked(object sender, RoutedEventArgs e)
+    {
+        var window = (Application.Current as App)?.MainWindow;
+        if (window is null)
+        {
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = $"pistation-diagnostics-{DateTimeOffset.Now:yyyyMMdd-HHmmss}",
+        };
+        picker.FileTypeChoices.Add("JSON", [".json"]);
+        WinRT.Interop.InitializeWithWindow.Initialize(
+            picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(window));
+        if (await picker.PickSaveFileAsync() is { } file)
+        {
+            await ViewModel.ExportDiagnosticsAsync(file.Path);
+        }
+    }
+
+    private async void OnCloneRepositoryClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.CloneHostedRepositoryAsync(CloneRemoteInput.Text, CloneDestinationInput.Text);
+
+    private async void OnPublishRepositoryClicked(object sender, RoutedEventArgs e)
+    {
+        if (PublishProviderSelector.SelectedItem is ComboBoxItem { Tag: string providerText } &&
+            Enum.TryParse<SourceControlProvider>(providerText, out var provider))
+        {
+            await ViewModel.PublishSelectedProjectAsync(
+                provider,
+                PublishOwnerInput.Text,
+                PublishRepositoryInput.Text,
+                PublishPrivateCheckBox.IsChecked == true);
+        }
+    }
+
+    private async void OnGeneratePullRequestTextClicked(object sender, RoutedEventArgs e)
+    {
+        var generated = await ViewModel.GenerateSourceControlTextAsync(forPullRequest: true);
+        if (generated is not null)
+        {
+            PullRequestTitleInput.Text = generated.Title;
+            PullRequestBodyInput.Text = generated.Body;
+        }
+    }
+
+    private async void OnCreatePullRequestClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.CreatePullRequestAsync(
+            PullRequestTitleInput.Text,
+            PullRequestBodyInput.Text,
+            PullRequestDraftCheckBox.IsChecked == true);
+
+    private async void OnLinkPullRequestClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolvePullRequest(sender) is { } pullRequest)
+        {
+            await ViewModel.LinkPullRequestAsync(pullRequest);
+        }
+    }
+
+    private async void OnCommentPullRequestClicked(object sender, RoutedEventArgs e) =>
+        await PromptAndMutatePullRequestAsync(sender, PullRequestMutationKind.Comment, "Comment on pull request", "Comment");
+
+    private async void OnLabelPullRequestClicked(object sender, RoutedEventArgs e) =>
+        await PromptAndMutatePullRequestAsync(sender, PullRequestMutationKind.AddLabel, "Add pull-request label", "Label");
+
+    private async void OnReviewerPullRequestClicked(object sender, RoutedEventArgs e) =>
+        await PromptAndMutatePullRequestAsync(sender, PullRequestMutationKind.AddReviewer, "Add reviewer", "Username or email");
+
+    private async void OnRequestChangesPullRequestClicked(object sender, RoutedEventArgs e) =>
+        await PromptAndMutatePullRequestAsync(sender, PullRequestMutationKind.RequestChanges, "Request changes", "Review summary");
+
+    private async void OnApprovePullRequestClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolvePullRequest(sender) is { } pullRequest)
+        {
+            await ViewModel.MutatePullRequestAsync(pullRequest, PullRequestMutationKind.Approve);
+        }
+    }
+
+    private async void OnMergePullRequestClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolvePullRequest(sender) is not { } pullRequest)
+        {
+            return;
+        }
+
+        SettingsDialog.Hide();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Merge PR {pullRequest.Number}?",
+            Content = pullRequest.Title,
+            PrimaryButtonText = "Merge",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await ViewModel.MutatePullRequestAsync(pullRequest, PullRequestMutationKind.Merge);
+        }
+
+        await OpenSettingsAsync();
+    }
+
+    private async void OnClosePullRequestClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolvePullRequest(sender) is { } pullRequest)
+        {
+            await ViewModel.MutatePullRequestAsync(
+                pullRequest,
+                pullRequest.State == PullRequestState.Closed
+                    ? PullRequestMutationKind.Reopen
+                    : PullRequestMutationKind.Close);
+        }
+    }
+
+    private async Task PromptAndMutatePullRequestAsync(
+        object sender,
+        PullRequestMutationKind mutation,
+        string title,
+        string placeholder)
+    {
+        if (ResolvePullRequest(sender) is not { } pullRequest)
+        {
+            return;
+        }
+
+        SettingsDialog.Hide();
+        var input = new TextBox
+        {
+            PlaceholderText = placeholder,
+            AcceptsReturn = mutation is PullRequestMutationKind.Comment or PullRequestMutationKind.RequestChanges,
+            TextWrapping = TextWrapping.Wrap,
+            MinWidth = 360,
+        };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = title,
+            Content = input,
+            PrimaryButtonText = "Apply",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(input.Text))
+        {
+            await ViewModel.MutatePullRequestAsync(pullRequest, mutation, input.Text.Trim());
+        }
+
+        await OpenSettingsAsync();
+    }
+
+    private PullRequestDescriptor? ResolvePullRequest(object sender)
+    {
+        if ((sender as FrameworkElement)?.DataContext is PullRequestDescriptor pullRequest)
+        {
+            return pullRequest;
+        }
+
+        var number = (sender as FrameworkElement)?.Tag as string;
+        return string.IsNullOrWhiteSpace(number)
+            ? null
+            : ViewModel.Settings.PullRequests.FirstOrDefault(
+                candidate => candidate.Number.Equals(number, StringComparison.Ordinal));
     }
 
     private async void OnAddProjectConfirmed(object sender, RoutedEventArgs e)

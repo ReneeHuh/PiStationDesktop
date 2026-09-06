@@ -155,6 +155,24 @@ public sealed class ThreadMetadataStore
         }
     }
 
+    internal void Remove(ThreadId threadId)
+    {
+        ThreadDescriptor? removed;
+        lock (_gate)
+        {
+            if (!_threads.Remove(threadId, out removed))
+            {
+                return;
+            }
+        }
+
+        var removedThread = removed!;
+
+        Changed?.Invoke(
+            this,
+            new ThreadMetadataChangedEventArgs(removedThread.ProjectId, removedThread.ThreadId, null));
+    }
+
     internal void Clear()
     {
         ThreadDescriptor[] removed;
@@ -178,9 +196,5 @@ public sealed class ThreadMetadataStore
         current.Revision == candidate.Revision && current.UpdatedUtc > candidate.UpdatedUtc;
 
     private static ThreadDescriptor[] OrderThreads(IEnumerable<ThreadDescriptor> threads) =>
-        [.. threads
-            .OrderBy(static thread => thread.IsArchived)
-            .ThenByDescending(static thread => thread.IsPinned)
-            .ThenByDescending(static thread => thread.UpdatedUtc)
-            .ThenBy(static thread => thread.ThreadId.Value, StringComparer.Ordinal)];
+        [.. ThreadOrdering.Apply(threads)];
 }

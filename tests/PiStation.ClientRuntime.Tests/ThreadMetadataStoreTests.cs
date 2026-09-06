@@ -7,6 +7,21 @@ namespace PiStation.ClientRuntime.Tests;
 public sealed class ThreadMetadataStoreTests
 {
     [Fact]
+    public void ExplicitPinnedOrderAndSettlementSurviveClientCacheRefresh()
+    {
+        var store = new ThreadMetadataStore();
+        var first = CreateThread(ThreadId.Parse("first"), "First", updatedMinute: 1, isPinned: true) with { PinnedOrder = 0 };
+        var second = CreateThread(ThreadId.Parse("second"), "Second", updatedMinute: 9, isPinned: true) with { PinnedOrder = 1 };
+        var active = CreateThread(ThreadId.Parse("active"), "Active", updatedMinute: 2);
+        var settled = CreateThread(ThreadId.Parse("settled"), "Settled", updatedMinute: 8) with { IsSettled = true };
+        foreach (var thread in new[] { settled, second, active, first }) store.Apply(thread);
+        Assert.Equal([first.ThreadId, second.ThreadId, active.ThreadId, settled.ThreadId], store.GetProjectThreads(first.ProjectId).Select(static item => item.ThreadId));
+        store.Apply(first with { PinnedOrder = 1, Revision = 1 });
+        store.Apply(second with { PinnedOrder = 0, Revision = 1 });
+        Assert.Equal([second.ThreadId, first.ThreadId, active.ThreadId, settled.ThreadId], store.GetProjectThreads(first.ProjectId).Select(static item => item.ThreadId));
+    }
+
+    [Fact]
     public void StoreRejectsOlderRevisionsAndOlderEqualRevisionSnapshots()
     {
         var store = new ThreadMetadataStore();
@@ -63,6 +78,31 @@ public sealed class ThreadMetadataStoreTests
             [pinned.ThreadId, active.ThreadId, archived.ThreadId],
             store.GetProjectThreads(projectId, includeArchived: true)
                 .Select(static thread => thread.ThreadId));
+    }
+
+    [Fact]
+    public void RemovingThreadRaisesChangedEventWithNullMetadata()
+    {
+        var store = new ThreadMetadataStore();
+        var thread = CreateThread(ThreadId.Parse("thread-delete"), "Delete me");
+        ThreadMetadataChangedEventArgs? changed = null;
+        store.Changed += (_, args) =>
+        {
+            if (args.ThreadId == thread.ThreadId)
+            {
+                changed = args;
+            }
+        };
+
+        store.Apply(thread);
+        changed = null;
+        store.Remove(thread.ThreadId);
+
+        Assert.NotNull(changed);
+        Assert.Equal(thread.ProjectId, changed!.ProjectId);
+        Assert.Equal(thread.ThreadId, changed.ThreadId);
+        Assert.Null(changed.Thread);
+        Assert.Null(store.GetCurrent(thread.ThreadId));
     }
 
     private static ThreadDescriptor CreateThread(

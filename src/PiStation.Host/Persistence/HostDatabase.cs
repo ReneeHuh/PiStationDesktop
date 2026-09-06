@@ -5,10 +5,11 @@ using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Receipts;
 using PiStation.Protocol.Serialization;
+using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host.Persistence;
 
-public sealed class HostDatabase
+public sealed partial class HostDatabase
 {
     private readonly string _connectionString;
     private readonly HostOptions _options;
@@ -58,6 +59,12 @@ public sealed class HostDatabase
                     DefaultWorkspaceMode TEXT NOT NULL DEFAULT 'Local',
                     ScriptsJson TEXT NOT NULL DEFAULT '[]',
                     AreRepositoryScriptsTrusted INTEGER NOT NULL DEFAULT 0 CHECK (AreRepositoryScriptsTrusted IN (0, 1)),
+                    Icon TEXT NULL,
+                    DefaultModelProvider TEXT NULL,
+                    DefaultModelId TEXT NULL,
+                    DefaultThinkingLevel TEXT NULL,
+                    DefaultRuntimeModeId TEXT NULL,
+                    AutoPullDefaultBranch INTEGER NOT NULL DEFAULT 0 CHECK (AutoPullDefaultBranch IN (0, 1)),
                     CreatedUtc TEXT NOT NULL
                 );
 
@@ -82,6 +89,45 @@ public sealed class HostDatabase
                 );
 
                 CREATE INDEX IF NOT EXISTS IX_Threads_ProjectId ON Threads(ProjectId);
+
+                CREATE TABLE IF NOT EXISTS ThreadInboxMetadata (
+                    ThreadId TEXT PRIMARY KEY NOT NULL,
+                    IsSettled INTEGER NOT NULL DEFAULT 0 CHECK (IsSettled IN (0, 1)),
+                    SnoozedUntilUtc TEXT NULL,
+                    PinnedOrder INTEGER NULL,
+                    TitleKind TEXT NOT NULL DEFAULT 'Placeholder',
+                    PullRequestJson TEXT NULL,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS PromptStashes (
+                    StashId TEXT PRIMARY KEY NOT NULL,
+                    ProjectId TEXT NOT NULL,
+                    ThreadId TEXT NULL,
+                    Title TEXT NOT NULL,
+                    StashText TEXT NOT NULL,
+                    CreatedUtc TEXT NOT NULL,
+                    UpdatedUtc TEXT NOT NULL,
+                    FOREIGN KEY (ProjectId) REFERENCES Projects(ProjectId) ON DELETE CASCADE,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE SET NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_PromptStashes_ProjectUpdated
+                ON PromptStashes(ProjectId, UpdatedUtc DESC);
+
+                CREATE TABLE IF NOT EXISTS UsageEvents (
+                    UsageEventId INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ThreadId TEXT NOT NULL,
+                    Provider TEXT NOT NULL,
+                    Model TEXT NOT NULL,
+                    InputTokens INTEGER NOT NULL,
+                    OutputTokens INTEGER NOT NULL,
+                    CacheTokens INTEGER NOT NULL,
+                    TotalTokens INTEGER NOT NULL,
+                    EstimatedCost TEXT NOT NULL,
+                    CreatedUtc TEXT NOT NULL,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
 
                 CREATE TABLE IF NOT EXISTS ThreadPiConfigurations (
                     ThreadId TEXT PRIMARY KEY NOT NULL,
@@ -163,6 +209,21 @@ public sealed class HostDatabase
                 CREATE INDEX IF NOT EXISTS IX_ThreadCheckpoints_ThreadTurn
                 ON ThreadCheckpoints(ThreadId, TurnCount);
 
+                CREATE TABLE IF NOT EXISTS ThreadAgentEvents (
+                    EventId INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ThreadId TEXT NOT NULL,
+                    TurnId TEXT NULL,
+                    TurnCount INTEGER NOT NULL CHECK (TurnCount >= 0),
+                    EventJson TEXT NOT NULL,
+                    CreatedUtc TEXT NOT NULL,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_ThreadAgentEvents_ThreadEvent
+                ON ThreadAgentEvents(ThreadId, EventId);
+
+                CREATE TABLE IF NOT EXISTS HostingOperations (OperationId TEXT PRIMARY KEY NOT NULL, RequestHash TEXT NOT NULL, OperationJson TEXT NOT NULL);
+
                 CREATE TABLE IF NOT EXISTS WorkspaceCommandReceipts (
                     ClientId TEXT NOT NULL,
                     CommandId TEXT NOT NULL,
@@ -184,10 +245,27 @@ public sealed class HostDatabase
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        await RecoverHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
         await EnsureProjectConfigurationColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadCheckpointColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadLifecycleColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadWorkspaceColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "ThreadDrafts", "ContextJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "UsageEvents", "CostKnown", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "PromptStashes", "ContextJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "PromptStashes", "AttachmentsJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
+        await using (var seedInbox = connection.CreateCommand())
+        {
+            seedInbox.CommandText = """
+                INSERT OR IGNORE INTO ThreadInboxMetadata
+                    (ThreadId, IsSettled, SnoozedUntilUtc, PinnedOrder, TitleKind, PullRequestJson)
+                SELECT ThreadId, 0, NULL, NULL,
+                       CASE WHEN Title GLOB 'Thread [0-9]*' THEN 'Placeholder' ELSE 'Manual' END,
+                       NULL
+                FROM Threads;
+                """;
+            await seedInbox.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await using (var lifecycleIndex = connection.CreateCommand())
         {
             lifecycleIndex.CommandText = """
@@ -256,6 +334,11 @@ public sealed class HostDatabase
         string displayName,
         ThreadWorkspaceMode defaultWorkspaceMode = ThreadWorkspaceMode.Local,
         IReadOnlyList<ProjectScript>? scripts = null,
+        string? icon = null,
+        PiModelSelection? defaultModel = null,
+        PiThinkingLevel? defaultThinkingLevel = null,
+        string? defaultRuntimeModeId = null,
+        bool autoPullDefaultBranch = false,
         CancellationToken cancellationToken = default)
     {
         var created = new ProjectDescriptor(
@@ -265,14 +348,24 @@ public sealed class HostDatabase
             displayName,
             DateTimeOffset.UtcNow,
             defaultWorkspaceMode,
-            scripts ?? []);
+            scripts ?? [],
+            false,
+            icon,
+            defaultModel,
+            defaultThinkingLevel,
+            defaultRuntimeModeId,
+            autoPullDefaultBranch);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (var insert = connection.CreateCommand())
         {
             insert.CommandText = """
                 INSERT OR IGNORE INTO Projects
-                    (ProjectId, CanonicalPath, DisplayName, DefaultWorkspaceMode, ScriptsJson, CreatedUtc)
-                VALUES ($projectId, $path, $name, $workspaceMode, $scriptsJson, $createdUtc);
+                    (ProjectId, CanonicalPath, DisplayName, DefaultWorkspaceMode, ScriptsJson,
+                     Icon, DefaultModelProvider, DefaultModelId, DefaultThinkingLevel,
+                     DefaultRuntimeModeId, AutoPullDefaultBranch, CreatedUtc)
+                VALUES ($projectId, $path, $name, $workspaceMode, $scriptsJson,
+                        $icon, $modelProvider, $modelId, $thinkingLevel,
+                        $runtimeModeId, $autoPull, $createdUtc);
                 """;
             insert.Parameters.AddWithValue("$projectId", created.ProjectId.Value);
             insert.Parameters.AddWithValue("$path", canonicalPath);
@@ -281,6 +374,12 @@ public sealed class HostDatabase
             insert.Parameters.AddWithValue(
                 "$scriptsJson",
                 JsonSerializer.Serialize((scripts ?? []).ToArray(), ProtocolJsonContext.Default.ProjectScriptArray));
+            insert.Parameters.AddWithValue("$icon", (object?)icon ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$modelProvider", (object?)defaultModel?.ProviderId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$modelId", (object?)defaultModel?.ModelId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$thinkingLevel", (object?)defaultThinkingLevel?.ToString() ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$runtimeModeId", (object?)defaultRuntimeModeId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$autoPull", autoPullDefaultBranch ? 1 : 0);
             insert.Parameters.AddWithValue("$createdUtc", FormatDate(created.CreatedUtc));
             await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -288,7 +387,9 @@ public sealed class HostDatabase
         await using var select = connection.CreateCommand();
         select.CommandText = """
             SELECT ProjectId, CanonicalPath, DisplayName, CreatedUtc,
-                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted
+                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted,
+                   Icon, DefaultModelProvider, DefaultModelId, DefaultThinkingLevel,
+                   DefaultRuntimeModeId, AutoPullDefaultBranch
             FROM Projects WHERE CanonicalPath = $path COLLATE NOCASE;
             """;
         select.Parameters.AddWithValue("$path", canonicalPath);
@@ -306,7 +407,9 @@ public sealed class HostDatabase
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT ProjectId, CanonicalPath, DisplayName, CreatedUtc,
-                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted
+                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted,
+                   Icon, DefaultModelProvider, DefaultModelId, DefaultThinkingLevel,
+                   DefaultRuntimeModeId, AutoPullDefaultBranch
             FROM Projects ORDER BY DisplayName, ProjectId;
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -326,7 +429,9 @@ public sealed class HostDatabase
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT ProjectId, CanonicalPath, DisplayName, CreatedUtc,
-                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted
+                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted,
+                   Icon, DefaultModelProvider, DefaultModelId, DefaultThinkingLevel,
+                   DefaultRuntimeModeId, AutoPullDefaultBranch
             FROM Projects WHERE ProjectId = $projectId;
             """;
         command.Parameters.AddWithValue("$projectId", projectId.Value);
@@ -338,19 +443,37 @@ public sealed class HostDatabase
         ProjectId projectId,
         ThreadWorkspaceMode defaultWorkspaceMode,
         IReadOnlyList<ProjectScript> scripts,
+        string? icon = null,
+        PiModelSelection? defaultModel = null,
+        PiThinkingLevel? defaultThinkingLevel = null,
+        string? defaultRuntimeModeId = null,
+        bool autoPullDefaultBranch = false,
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE Projects
-            SET DefaultWorkspaceMode = $workspaceMode, ScriptsJson = $scriptsJson
+            SET DefaultWorkspaceMode = $workspaceMode,
+                ScriptsJson = $scriptsJson,
+                Icon = $icon,
+                DefaultModelProvider = $modelProvider,
+                DefaultModelId = $modelId,
+                DefaultThinkingLevel = $thinkingLevel,
+                DefaultRuntimeModeId = $runtimeModeId,
+                AutoPullDefaultBranch = $autoPull
             WHERE ProjectId = $projectId;
             """;
         command.Parameters.AddWithValue("$workspaceMode", defaultWorkspaceMode.ToString());
         command.Parameters.AddWithValue(
             "$scriptsJson",
             JsonSerializer.Serialize(scripts.ToArray(), ProtocolJsonContext.Default.ProjectScriptArray));
+        command.Parameters.AddWithValue("$icon", (object?)icon ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelProvider", (object?)defaultModel?.ProviderId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelId", (object?)defaultModel?.ModelId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$thinkingLevel", (object?)defaultThinkingLevel?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$runtimeModeId", (object?)defaultRuntimeModeId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$autoPull", autoPullDefaultBranch ? 1 : 0);
         command.Parameters.AddWithValue("$projectId", projectId.Value);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
         {
@@ -381,7 +504,9 @@ public sealed class HostDatabase
         await using var select = connection.CreateCommand();
         select.CommandText = """
             SELECT ProjectId, CanonicalPath, DisplayName, CreatedUtc,
-                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted
+                   DefaultWorkspaceMode, ScriptsJson, AreRepositoryScriptsTrusted,
+                   Icon, DefaultModelProvider, DefaultModelId, DefaultThinkingLevel,
+                   DefaultRuntimeModeId, AutoPullDefaultBranch
             FROM Projects WHERE ProjectId = $projectId;
             """;
         select.Parameters.AddWithValue("$projectId", projectId.Value);
@@ -441,6 +566,17 @@ public sealed class HostDatabase
         command.Parameters.AddWithValue("$branchName", (object?)record.BranchName ?? DBNull.Value);
         command.Parameters.AddWithValue("$worktreePath", (object?)record.WorktreePath ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await using var inbox = connection.CreateCommand();
+        inbox.CommandText = """
+            INSERT INTO ThreadInboxMetadata
+                (ThreadId, IsSettled, SnoozedUntilUtc, PinnedOrder, TitleKind, PullRequestJson)
+            VALUES ($threadId, 0, NULL, NULL, $titleKind, NULL);
+            """;
+        inbox.Parameters.AddWithValue("$threadId", record.ThreadId.Value);
+        inbox.Parameters.AddWithValue(
+            "$titleKind",
+            title.StartsWith("Thread ", StringComparison.Ordinal) ? ThreadTitleKind.Placeholder.ToString() : ThreadTitleKind.Manual.ToString());
+        await inbox.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return record;
     }
 
@@ -559,6 +695,29 @@ public sealed class HostDatabase
             update.Parameters.AddWithValue("$expectedRevision", expectedRevision);
             var wasUpdated = await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
 
+            if (wasUpdated && isPinned is not null)
+            {
+                await using var pinOrder = connection.CreateCommand();
+                pinOrder.CommandText = isPinned.Value
+                    ? """
+                      UPDATE ThreadInboxMetadata
+                      SET PinnedOrder = COALESCE(PinnedOrder, (
+                          SELECT COALESCE(MAX(metadata.PinnedOrder), -1) + 1
+                          FROM ThreadInboxMetadata metadata
+                          INNER JOIN Threads candidate ON candidate.ThreadId = metadata.ThreadId
+                          WHERE candidate.ProjectId = (
+                              SELECT ProjectId FROM Threads WHERE ThreadId = $threadId
+                          )
+                            AND candidate.IsPinned = 1
+                            AND candidate.ThreadId <> $threadId
+                      ))
+                      WHERE ThreadId = $threadId;
+                      """
+                    : "UPDATE ThreadInboxMetadata SET PinnedOrder = NULL WHERE ThreadId = $threadId;";
+                pinOrder.Parameters.AddWithValue("$threadId", threadId.Value);
+                await pinOrder.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             await using var read = connection.CreateCommand();
             read.CommandText = """
                 SELECT ThreadId, ProjectId, PiSessionId, PiSessionFile, Title,
@@ -655,6 +814,336 @@ public sealed class HostDatabase
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task DeleteProjectAsync(ProjectId projectId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM Projects WHERE ProjectId = $projectId;";
+        command.Parameters.AddWithValue("$projectId", projectId.Value);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new KeyNotFoundException($"Project '{projectId}' was not found.");
+        }
+    }
+
+    public async Task<ThreadDescriptor> EnrichThreadDescriptorAsync(
+        HostThreadRecord thread,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT IsSettled, SnoozedUntilUtc, PinnedOrder, TitleKind, PullRequestJson,
+                   EXISTS(
+                       SELECT 1 FROM ThreadDrafts d
+                       WHERE d.ThreadId = $threadId
+                         AND (length(trim(d.DraftText)) > 0 OR d.ContextJson <> '[]' OR EXISTS(
+                             SELECT 1 FROM DraftAttachments a WHERE a.DraftId = d.DraftId
+                         ))
+                   )
+            FROM ThreadInboxMetadata
+            WHERE ThreadId = $threadId;
+            """;
+        command.Parameters.AddWithValue("$threadId", thread.ThreadId.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return thread.ToDescriptor(EnvironmentId);
+        }
+
+        PullRequestLink? pullRequest = null;
+        if (!reader.IsDBNull(4))
+        {
+            pullRequest = JsonSerializer.Deserialize(
+                reader.GetString(4),
+                ProtocolJsonContext.Default.PullRequestLink);
+        }
+
+        var inbox = new HostThreadInboxRecord(
+            thread.ThreadId,
+            reader.GetInt64(0) != 0,
+            reader.IsDBNull(1) ? null : ParseDate(reader.GetString(1)),
+            reader.IsDBNull(2) ? null : reader.GetInt64(2),
+            Enum.TryParse<ThreadTitleKind>(reader.GetString(3), out var titleKind)
+                ? titleKind
+                : ThreadTitleKind.Placeholder,
+            pullRequest);
+        return thread.ToDescriptor(EnvironmentId, inbox, reader.GetInt64(5) != 0);
+    }
+
+    public async Task<ThreadMetadataUpdateResult> UpdateThreadInboxAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        bool? isSettled = null,
+        DateTimeOffset? snoozedUntilUtc = null,
+        bool updateSnooze = false,
+        long? pinnedOrder = null,
+        bool updatePinnedOrder = false,
+        ThreadTitleKind? titleKind = null,
+        PullRequestLink? pullRequest = null,
+        bool updatePullRequest = false,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        bool wasUpdated;
+        await using (var revision = connection.CreateCommand())
+        {
+            revision.Transaction = transaction;
+            revision.CommandText = """
+                UPDATE Threads
+                SET Revision = Revision + 1, UpdatedUtc = $updatedUtc
+                WHERE ThreadId = $threadId AND Revision = $expectedRevision;
+                """;
+            revision.Parameters.AddWithValue("$updatedUtc", FormatDate(DateTimeOffset.UtcNow));
+            revision.Parameters.AddWithValue("$threadId", threadId.Value);
+            revision.Parameters.AddWithValue("$expectedRevision", expectedRevision);
+            wasUpdated = await revision.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+        }
+
+        if (wasUpdated)
+        {
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE ThreadInboxMetadata
+                SET IsSettled = COALESCE($isSettled, IsSettled),
+                    SnoozedUntilUtc = CASE WHEN $updateSnooze = 1 THEN $snoozedUntilUtc ELSE SnoozedUntilUtc END,
+                    PinnedOrder = CASE WHEN $updatePinnedOrder = 1 THEN $pinnedOrder ELSE PinnedOrder END,
+                    TitleKind = COALESCE($titleKind, TitleKind),
+                    PullRequestJson = CASE WHEN $updatePullRequest = 1 THEN $pullRequestJson ELSE PullRequestJson END
+                WHERE ThreadId = $threadId;
+                """;
+            update.Parameters.AddWithValue("$isSettled", isSettled is null ? DBNull.Value : isSettled.Value ? 1 : 0);
+            update.Parameters.AddWithValue("$updateSnooze", updateSnooze ? 1 : 0);
+            update.Parameters.AddWithValue("$snoozedUntilUtc", snoozedUntilUtc is null ? DBNull.Value : FormatDate(snoozedUntilUtc.Value));
+            update.Parameters.AddWithValue("$updatePinnedOrder", updatePinnedOrder ? 1 : 0);
+            update.Parameters.AddWithValue("$pinnedOrder", pinnedOrder is null ? DBNull.Value : pinnedOrder.Value);
+            update.Parameters.AddWithValue("$titleKind", titleKind is null ? DBNull.Value : titleKind.Value.ToString());
+            update.Parameters.AddWithValue(
+                "$pullRequestJson",
+                pullRequest is null
+                    ? DBNull.Value
+                    : JsonSerializer.Serialize(pullRequest, ProtocolJsonContext.Default.PullRequestLink));
+            update.Parameters.AddWithValue("$updatePullRequest", updatePullRequest ? 1 : 0);
+            update.Parameters.AddWithValue("$threadId", threadId.Value);
+            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        var thread = await GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false);
+        return new ThreadMetadataUpdateResult(thread, wasUpdated);
+    }
+
+    public async Task SetThreadSettlementAutomaticallyAsync(
+        ThreadId threadId,
+        bool isSettled,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE ThreadInboxMetadata SET IsSettled = $isSettled WHERE ThreadId = $threadId;
+            """;
+        command.Parameters.AddWithValue("$isSettled", isSettled ? 1 : 0);
+        command.Parameters.AddWithValue("$threadId", threadId.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SetThreadTitleKindAsync(
+        ThreadId threadId,
+        ThreadTitleKind titleKind,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ThreadInboxMetadata SET TitleKind = $titleKind WHERE ThreadId = $threadId;";
+        command.Parameters.AddWithValue("$titleKind", titleKind.ToString());
+        command.Parameters.AddWithValue("$threadId", threadId.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> ApplyThreadBulkOperationAsync(
+        ApplyThreadBulkOperationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = request.ThreadIds.Distinct().Take(200).ToArray();
+        if (ids.Length == 0)
+        {
+            return 0;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var affected = 0;
+        foreach (var id in ids)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.Parameters.AddWithValue("$threadId", id.Value);
+            command.Parameters.AddWithValue("$projectId", request.ProjectId.Value);
+            command.Parameters.AddWithValue("$updatedUtc", FormatDate(DateTimeOffset.UtcNow));
+            if (request.Operation == ThreadBulkOperation.Delete)
+            {
+                command.CommandText = "DELETE FROM Threads WHERE ThreadId = $threadId AND ProjectId = $projectId;";
+            }
+            else if (request.Operation is ThreadBulkOperation.Archive or ThreadBulkOperation.Restore or
+                     ThreadBulkOperation.Pin or ThreadBulkOperation.Unpin)
+            {
+                command.CommandText = request.Operation switch
+                {
+                    ThreadBulkOperation.Archive => "UPDATE Threads SET IsArchived = 1, Revision = Revision + 1, UpdatedUtc = $updatedUtc WHERE ThreadId = $threadId AND ProjectId = $projectId;",
+                    ThreadBulkOperation.Restore => "UPDATE Threads SET IsArchived = 0, Revision = Revision + 1, UpdatedUtc = $updatedUtc WHERE ThreadId = $threadId AND ProjectId = $projectId;",
+                    ThreadBulkOperation.Pin => "UPDATE Threads SET IsPinned = 1, Revision = Revision + 1, UpdatedUtc = $updatedUtc WHERE ThreadId = $threadId AND ProjectId = $projectId;",
+                    _ => "UPDATE Threads SET IsPinned = 0, Revision = Revision + 1, UpdatedUtc = $updatedUtc WHERE ThreadId = $threadId AND ProjectId = $projectId;",
+                };
+            }
+            else
+            {
+                command.CommandText = "UPDATE Threads SET Revision = Revision + 1, UpdatedUtc = $updatedUtc WHERE ThreadId = $threadId AND ProjectId = $projectId;";
+            }
+
+            var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            if (changed == 0 || request.Operation == ThreadBulkOperation.Delete)
+            {
+                affected += changed;
+                continue;
+            }
+
+            await using var inbox = connection.CreateCommand();
+            inbox.Transaction = transaction;
+            inbox.Parameters.AddWithValue("$threadId", id.Value);
+            inbox.Parameters.AddWithValue("$snoozedUntil", request.SnoozedUntilUtc is null
+                ? DBNull.Value
+                : FormatDate(request.SnoozedUntilUtc.Value));
+            inbox.CommandText = request.Operation switch
+            {
+                ThreadBulkOperation.Settle => "UPDATE ThreadInboxMetadata SET IsSettled = 1 WHERE ThreadId = $threadId;",
+                ThreadBulkOperation.Unsettle => "UPDATE ThreadInboxMetadata SET IsSettled = 0 WHERE ThreadId = $threadId;",
+                ThreadBulkOperation.Snooze => "UPDATE ThreadInboxMetadata SET SnoozedUntilUtc = $snoozedUntil WHERE ThreadId = $threadId;",
+                ThreadBulkOperation.Unsnooze => "UPDATE ThreadInboxMetadata SET SnoozedUntilUtc = NULL WHERE ThreadId = $threadId;",
+                ThreadBulkOperation.Pin => """
+                    UPDATE ThreadInboxMetadata
+                    SET PinnedOrder = COALESCE(PinnedOrder, (
+                        SELECT COALESCE(MAX(metadata.PinnedOrder), -1) + 1
+                        FROM ThreadInboxMetadata metadata
+                        INNER JOIN Threads candidate ON candidate.ThreadId = metadata.ThreadId
+                        WHERE candidate.ProjectId = $projectId
+                          AND candidate.IsPinned = 1
+                          AND candidate.ThreadId <> $threadId
+                    ))
+                    WHERE ThreadId = $threadId;
+                    """,
+                ThreadBulkOperation.Unpin => "UPDATE ThreadInboxMetadata SET PinnedOrder = NULL WHERE ThreadId = $threadId;",
+                _ => "SELECT 1;",
+            };
+            inbox.Parameters.AddWithValue("$projectId", request.ProjectId.Value);
+            await inbox.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            affected++;
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return affected;
+    }
+
+    public async Task SetThreadPinnedOrderAsync(
+        SetThreadPinnedOrderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var order = 0L;
+        foreach (var id in request.ThreadIdsInOrder.Distinct().Take(200))
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE ThreadInboxMetadata SET PinnedOrder = $order
+                WHERE ThreadId = $threadId AND EXISTS(
+                    SELECT 1 FROM Threads WHERE ThreadId = $threadId AND ProjectId = $projectId AND IsPinned = 1
+                );
+                """;
+            command.Parameters.AddWithValue("$order", order++);
+            command.Parameters.AddWithValue("$threadId", id.Value);
+            command.Parameters.AddWithValue("$projectId", request.ProjectId.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task AppendUsageAsync(
+        ThreadId threadId,
+        string provider,
+        string model,
+        long inputTokens,
+        long outputTokens,
+        long cacheTokens,
+        long totalTokens,
+        decimal? estimatedCost,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO UsageEvents
+                (ThreadId, Provider, Model, InputTokens, OutputTokens, CacheTokens,
+                 TotalTokens, EstimatedCost, CostKnown, CreatedUtc)
+            VALUES
+                ($threadId, $provider, $model, $input, $output, $cache, $total, $cost, $costKnown, $createdUtc);
+            """;
+        command.Parameters.AddWithValue("$threadId", threadId.Value);
+        command.Parameters.AddWithValue("$provider", provider);
+        command.Parameters.AddWithValue("$model", model);
+        command.Parameters.AddWithValue("$input", inputTokens);
+        command.Parameters.AddWithValue("$output", outputTokens);
+        command.Parameters.AddWithValue("$cache", cacheTokens);
+        command.Parameters.AddWithValue("$total", totalTokens);
+        command.Parameters.AddWithValue("$cost", (estimatedCost ?? 0).ToString(CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$costKnown", estimatedCost is null ? 0 : 1);
+        command.Parameters.AddWithValue("$createdUtc", FormatDate(DateTimeOffset.UtcNow));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<UsageSummary> GetUsageSummaryAsync(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = new List<UsageBreakdown>();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Provider, Model, SUM(InputTokens), SUM(OutputTokens), SUM(CacheTokens),
+                   SUM(TotalTokens), CASE WHEN MIN(CostKnown) = 1 THEN SUM(CAST(EstimatedCost AS REAL)) ELSE NULL END
+            FROM UsageEvents
+            WHERE CreatedUtc >= $fromUtc AND CreatedUtc <= $toUtc
+            GROUP BY Provider, Model
+            ORDER BY SUM(TotalTokens) DESC;
+            """;
+        command.Parameters.AddWithValue("$fromUtc", FormatDate(fromUtc));
+        command.Parameters.AddWithValue("$toUtc", FormatDate(toUtc));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(new UsageBreakdown(
+                reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3),
+                reader.GetInt64(4), reader.GetInt64(5), reader.IsDBNull(6) ? null : Convert.ToDecimal(reader.GetDouble(6), CultureInfo.InvariantCulture)));
+        }
+
+        return new UsageSummary(
+            fromUtc,
+            toUtc,
+            rows.Sum(static row => row.TotalTokens),
+            rows.Count == 0 || rows.Any(static row => row.EstimatedCost is null) ? null : rows.Sum(static row => row.EstimatedCost),
+            rows,
+            "Provider-managed",
+            "Pi providers do not expose a portable quota API; open the provider dashboard for authoritative limits.");
+    }
+
     public async Task<IReadOnlyList<ThreadCheckpoint>> ListThreadCheckpointsAsync(
         ThreadId threadId,
         CancellationToken cancellationToken = default)
@@ -694,6 +1183,99 @@ public sealed class HostDatabase
         }
 
         return checkpoints;
+    }
+
+    public async Task<IReadOnlyList<AgentActivityChangedEvent>> ListThreadAgentEventsAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var events = new List<AgentActivityChangedEvent>();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EventJson
+            FROM ThreadAgentEvents
+            WHERE ThreadId = $threadId
+            ORDER BY EventId;
+            """;
+        command.Parameters.AddWithValue("$threadId", threadId.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var @event = JsonSerializer.Deserialize(
+                reader.GetString(0),
+                ProtocolJsonContext.Default.AgentActivityChangedEvent);
+            if (@event is not null)
+            {
+                events.Add(@event);
+            }
+        }
+
+        return events;
+    }
+
+    public async Task AppendThreadAgentEventAsync(
+        ThreadId threadId,
+        TurnId? turnId,
+        int turnCount,
+        AgentActivityChangedEvent @event,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = (SqliteTransaction)transaction;
+            insert.CommandText = """
+                INSERT INTO ThreadAgentEvents (ThreadId, TurnId, TurnCount, EventJson, CreatedUtc)
+                VALUES ($threadId, $turnId, $turnCount, $eventJson, $createdUtc);
+                """;
+            insert.Parameters.AddWithValue("$threadId", threadId.Value);
+            insert.Parameters.AddWithValue("$turnId", (object?)turnId?.Value ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$turnCount", Math.Max(0, turnCount));
+            insert.Parameters.AddWithValue(
+                "$eventJson",
+                JsonSerializer.Serialize(@event, ProtocolJsonContext.Default.AgentActivityChangedEvent));
+            insert.Parameters.AddWithValue("$createdUtc", FormatDate(DateTimeOffset.UtcNow));
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (var prune = connection.CreateCommand())
+        {
+            prune.Transaction = (SqliteTransaction)transaction;
+            prune.CommandText = """
+                DELETE FROM ThreadAgentEvents
+                WHERE ThreadId = $threadId
+                  AND EventId NOT IN (
+                      SELECT EventId
+                      FROM ThreadAgentEvents
+                      WHERE ThreadId = $threadId
+                      ORDER BY EventId DESC
+                      LIMIT 2000
+                  );
+                """;
+            prune.Parameters.AddWithValue("$threadId", threadId.Value);
+            await prune.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteThreadAgentEventsAfterTurnAsync(
+        ThreadId threadId,
+        int turnCount,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM ThreadAgentEvents
+            WHERE ThreadId = $threadId AND TurnCount > $turnCount;
+            """;
+        command.Parameters.AddWithValue("$threadId", threadId.Value);
+        command.Parameters.AddWithValue("$turnCount", Math.Max(0, turnCount));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpsertThreadCheckpointAsync(
@@ -874,22 +1456,30 @@ public sealed class HostDatabase
             ?? throw new KeyNotFoundException($"Thread '{threadId}' was not found.");
     }
 
+    public Task<DraftUpdateResult> UpdateThreadDraftAsync(
+        ThreadId threadId, DraftId draftId, long expectedRevision, string text,
+        CancellationToken cancellationToken = default) =>
+        UpdateThreadDraftAsync(threadId, draftId, expectedRevision, text, null, cancellationToken);
+
     public async Task<DraftUpdateResult> UpdateThreadDraftAsync(
         ThreadId threadId,
         DraftId draftId,
         long expectedRevision,
         string text,
+        IReadOnlyList<ComposerContext>? context,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
+        ComposerContextDefaults.Validate(context);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var update = connection.CreateCommand();
         update.CommandText = """
             UPDATE ThreadDrafts
-            SET DraftText = $text, Revision = Revision + 1, UpdatedUtc = $updatedUtc
+            SET DraftText = $text, ContextJson = $context, Revision = Revision + 1, UpdatedUtc = $updatedUtc
             WHERE ThreadId = $threadId AND DraftId = $draftId AND Revision = $expectedRevision;
             """;
         update.Parameters.AddWithValue("$text", text);
+        update.Parameters.AddWithValue("$context", JsonSerializer.Serialize((context ?? []).ToArray(), ProtocolJsonContext.Default.ComposerContextArray));
         update.Parameters.AddWithValue("$updatedUtc", FormatDate(DateTimeOffset.UtcNow));
         update.Parameters.AddWithValue("$threadId", threadId.Value);
         update.Parameters.AddWithValue("$draftId", draftId.Value);
@@ -1149,7 +1739,7 @@ public sealed class HostDatabase
             update.Transaction = transaction;
             update.CommandText = """
                 UPDATE ThreadDrafts
-                SET DraftText = '', Revision = Revision + 1, UpdatedUtc = $updatedUtc
+                SET DraftText = '', ContextJson = '[]', Revision = Revision + 1, UpdatedUtc = $updatedUtc
                 WHERE ThreadId = $threadId AND DraftId = $draftId AND Revision = $expectedRevision;
                 """;
             update.Parameters.AddWithValue("$updatedUtc", FormatDate(DateTimeOffset.UtcNow));
@@ -1458,7 +2048,8 @@ public sealed class HostDatabase
             header.Value.Text,
             header.Value.Revision,
             header.Value.UpdatedUtc,
-            attachments);
+            attachments,
+            JsonSerializer.Deserialize(header.Value.ContextJson, ProtocolJsonContext.Default.ComposerContextArray) ?? []);
     }
 
     private async Task<IReadOnlyList<DraftAttachment>> ReadDraftAttachmentsAsync(
@@ -1497,7 +2088,7 @@ public sealed class HostDatabase
         return attachments;
     }
 
-    private static async Task<(DraftId DraftId, string Text, long Revision, DateTimeOffset UpdatedUtc)?>
+    private static async Task<(DraftId DraftId, string Text, long Revision, DateTimeOffset UpdatedUtc, string ContextJson)?>
         ReadDraftHeaderAsync(
             SqliteConnection connection,
             SqliteTransaction? transaction,
@@ -1507,14 +2098,14 @@ public sealed class HostDatabase
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT DraftId, DraftText, Revision, UpdatedUtc
+            SELECT DraftId, DraftText, Revision, UpdatedUtc, ContextJson
             FROM ThreadDrafts
             WHERE ThreadId = $threadId;
             """;
         command.Parameters.AddWithValue("$threadId", threadId.Value);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? (DraftId.Parse(reader.GetString(0)), reader.GetString(1), reader.GetInt64(2), ParseDate(reader.GetString(3)))
+            ? (DraftId.Parse(reader.GetString(0)), reader.GetString(1), reader.GetInt64(2), ParseDate(reader.GetString(3)), reader.GetString(4))
             : null;
     }
 
@@ -1581,17 +2172,34 @@ public sealed class HostDatabase
         }
     }
 
-    private ProjectDescriptor ReadProject(SqliteDataReader reader) => new(
-        EnvironmentId,
-        ProjectId.Parse(reader.GetString(0)),
-        reader.GetString(1),
-        reader.GetString(2),
-        ParseDate(reader.GetString(3)),
-        Enum.TryParse<ThreadWorkspaceMode>(reader.GetString(4), out var workspaceMode)
-            ? workspaceMode
-            : ThreadWorkspaceMode.Local,
-        JsonSerializer.Deserialize(reader.GetString(5), ProtocolJsonContext.Default.ProjectScriptArray) ?? [],
-        reader.GetInt64(6) != 0);
+    private ProjectDescriptor ReadProject(SqliteDataReader reader)
+    {
+        var provider = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var modelId = reader.IsDBNull(9) ? null : reader.GetString(9);
+        var model = provider is not null && modelId is not null
+            ? new PiModelSelection(provider, modelId)
+            : null;
+        var thinking = !reader.IsDBNull(10) &&
+                       Enum.TryParse<PiThinkingLevel>(reader.GetString(10), out var parsedThinking)
+            ? parsedThinking
+            : (PiThinkingLevel?)null;
+        return new ProjectDescriptor(
+            EnvironmentId,
+            ProjectId.Parse(reader.GetString(0)),
+            reader.GetString(1),
+            reader.GetString(2),
+            ParseDate(reader.GetString(3)),
+            Enum.TryParse<ThreadWorkspaceMode>(reader.GetString(4), out var workspaceMode)
+                ? workspaceMode
+                : ThreadWorkspaceMode.Local,
+            JsonSerializer.Deserialize(reader.GetString(5), ProtocolJsonContext.Default.ProjectScriptArray) ?? [],
+            reader.GetInt64(6) != 0,
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            model,
+            thinking,
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.GetInt64(12) != 0);
+    }
 
     private static async Task EnsureProjectConfigurationColumnsAsync(
         SqliteConnection connection,
@@ -1613,6 +2221,12 @@ public sealed class HostDatabase
                      ("DefaultWorkspaceMode", "TEXT NOT NULL DEFAULT 'Local'"),
                      ("ScriptsJson", "TEXT NOT NULL DEFAULT '[]'"),
                      ("AreRepositoryScriptsTrusted", "INTEGER NOT NULL DEFAULT 0"),
+                     ("Icon", "TEXT NULL"),
+                     ("DefaultModelProvider", "TEXT NULL"),
+                     ("DefaultModelId", "TEXT NULL"),
+                     ("DefaultThinkingLevel", "TEXT NULL"),
+                     ("DefaultRuntimeModeId", "TEXT NULL"),
+                     ("AutoPullDefaultBranch", "INTEGER NOT NULL DEFAULT 0"),
                  })
         {
             if (columns.Contains(name))
@@ -1749,10 +2363,39 @@ public sealed class HostDatabase
         }
     }
 
+    private static async Task EnsureColumnAsync(
+        SqliteConnection connection, string table, string name, string declaration, CancellationToken cancellationToken)
+    {
+        await using (var read = connection.CreateCommand())
+        {
+            read.CommandText = $"PRAGMA table_info({table});";
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.GetString(1) == name) return;
+            }
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {name} {declaration};";
+        await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static string EscapeLikePattern(string value) => value
         .Replace("\\", "\\\\", StringComparison.Ordinal)
         .Replace("%", "\\%", StringComparison.Ordinal)
         .Replace("_", "\\_", StringComparison.Ordinal);
+
+    private static string CreatePromptStashTitle(string text)
+    {
+        var normalized = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Length == 0)
+        {
+            return "Untitled prompt";
+        }
+
+        return normalized.Length <= 60 ? normalized : $"{normalized[..57]}…";
+    }
 
     private static bool IsTerminal(CommandReceiptState state) => state is
         CommandReceiptState.Completed or

@@ -14,6 +14,71 @@ internal sealed class ProjectSetupScriptRunner(
     private readonly HostDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
     private readonly TerminalSessionRegistry _terminals = terminals ?? throw new ArgumentNullException(nameof(terminals));
 
+    public async Task<ProjectSetupScriptResult> RunNamedAsync(
+        RunProjectScriptRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var project = await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+            ?? throw new HostOperationException(
+                ProtocolErrorCodes.ProjectNotFound,
+                $"Project '{request.ProjectId}' was not found.");
+        var script = project.Scripts?.FirstOrDefault(candidate => candidate.Id == request.ScriptId)
+            ?? throw new HostOperationException(
+                ProtocolErrorCodes.ProjectScriptNotFound,
+                $"Project script '{request.ScriptId}' was not found.");
+        if (!project.AreRepositoryScriptsTrusted)
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.SetupScriptUntrusted,
+                "Repository scripts are not trusted. Review t3.json and trust this project before running scripts.");
+        }
+
+        HostThreadRecord? thread = null;
+        if (request.ThreadId is { } threadId)
+        {
+            thread = await _database.GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false)
+                ?? throw new HostOperationException(
+                    ProtocolErrorCodes.ThreadNotFound,
+                    $"Thread '{threadId}' was not found.");
+            if (thread.ProjectId != project.ProjectId)
+            {
+                throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, "The thread belongs to another project.");
+            }
+        }
+
+        try
+        {
+            var terminal = await _terminals.StartAsync(
+                new StartTerminalSessionRequest(
+                    project.ProjectId,
+                    TerminalShellKind.PowerShell,
+                    ThreadId: thread?.ThreadId),
+                cancellationToken).ConfigureAwait(false);
+            var root = EscapePowerShellLiteral(project.CanonicalPath);
+            var workspace = EscapePowerShellLiteral(thread?.WorktreePath ?? project.CanonicalPath);
+            var command = $"$env:T3CODE_PROJECT_ROOT='{root}'; $env:T3CODE_WORKTREE_PATH='{workspace}'; {script.Command}; if ($?) {{ exit 0 }} elseif ($LASTEXITCODE) {{ exit $LASTEXITCODE }} else {{ exit 1 }}\r";
+            await _terminals.WriteAsync(
+                new WriteTerminalInputRequest(terminal.TerminalSessionId, command),
+                cancellationToken).ConfigureAwait(false);
+            return new ProjectSetupScriptResult(
+                SetupScriptState.Running,
+                script.Id,
+                script.Name,
+                terminal.TerminalSessionId,
+                $"{script.Name} started in {terminal.Name}.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return new ProjectSetupScriptResult(
+                SetupScriptState.Failed,
+                script.Id,
+                script.Name,
+                null,
+                $"{script.Name} could not start: {exception.Message}");
+        }
+    }
+
     public async Task<ProjectSetupScriptResult> RunAsync(
         RunProjectSetupScriptRequest request,
         CancellationToken cancellationToken)

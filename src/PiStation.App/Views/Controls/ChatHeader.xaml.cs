@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
 using PiStation.App.ViewModels;
 using PiStation.Protocol.Models;
 using Windows.Storage;
@@ -24,6 +25,66 @@ public sealed partial class ChatHeader : UserControl
 
     private void OnCommandPaletteClicked(object sender, RoutedEventArgs e) =>
         CommandPaletteRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnAddActionFlyoutOpening(object? sender, object e)
+    {
+        var markerIndex = AddActionFlyout.Items.IndexOf(ProjectScriptsSeparator);
+        while (AddActionFlyout.Items.Count > markerIndex + 1)
+        {
+            AddActionFlyout.Items.RemoveAt(AddActionFlyout.Items.Count - 1);
+        }
+
+        var scripts = ViewModel.Workspace.SelectedProject?.Scripts ?? [];
+        ProjectScriptsSeparator.Visibility = scripts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var script in scripts)
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = $"Run {script.Name}",
+                Tag = script,
+                Icon = new FontIcon { Glyph = "\uE768" },
+            };
+            AutomationProperties.SetAutomationId(item, $"RunProjectScript-{script.Id}");
+            AutomationProperties.SetName(item, $"Run project script {script.Name}");
+            item.Click += OnRunProjectScriptClicked;
+            AddActionFlyout.Items.Add(item);
+        }
+    }
+
+    private async void OnRunProjectScriptClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: ProjectScript script })
+        {
+            return;
+        }
+
+        var project = ViewModel.Workspace.SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        if (!project.AreRepositoryScriptsTrusted)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = $"Trust and run {script.Name}?",
+                Content = $"{script.Command}\n\nThis command comes from the repository's t3.json.",
+                PrimaryButtonText = "Trust and run",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            await ViewModel.TrustSelectedProjectScriptsAsync();
+        }
+
+        await ViewModel.RunProjectScriptAsync(script);
+    }
 
     private async void OnNewLocalThreadClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.CreateThreadInWorkspaceAsync(ThreadWorkspaceMode.Local);

@@ -18,6 +18,7 @@ $projectPath = Join-Path $dataRoot 'recovery-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -35,9 +36,13 @@ function Invoke-CheckedNative {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {

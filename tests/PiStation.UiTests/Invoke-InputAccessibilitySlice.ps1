@@ -18,6 +18,7 @@ $projectPath = Join-Path $dataRoot 'input-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -36,9 +37,13 @@ function Invoke-CheckedNative {
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
 
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -54,12 +59,19 @@ function Wait-UiValue {
         $arguments += @('--property', $Property)
     }
 
-    Invoke-Ui @arguments | Out-Null
+    try {
+        Invoke-Ui @arguments | Out-Null
+    }
+    catch {
+        $propertySuffix = if ([string]::IsNullOrWhiteSpace($Property)) { '' } else { "; property='$Property'" }
+        throw "Timed out waiting for selector='$Selector', value='$Value'$propertySuffix. $($_.Exception.Message)"
+    }
 }
 
 function Invoke-TransportDropDiagnostic {
     Invoke-Ui 'invoke' 'SettingsButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'invoke' 'SettingsDiagnosticsNavItem' | Out-Null
     Invoke-Ui 'wait-for' 'SimulateTransportDropButton' '--timeout' '5000' | Out-Null
     Invoke-Ui 'invoke' 'SimulateTransportDropButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--gone' '--timeout' '5000' | Out-Null
@@ -75,19 +87,6 @@ function Get-UiProperty {
     return [string]$result.properties.$Property
 }
 
-function Assert-UiProperty {
-    param(
-        [Parameter(Mandatory)][string] $Selector,
-        [Parameter(Mandatory)][string] $Property,
-        [Parameter(Mandatory)][string] $Expected
-    )
-
-    $actual = Get-UiProperty -Selector $Selector -Property $Property
-    if ($actual -ne $Expected) {
-        throw "Expected $Selector.$Property to be '$Expected'; found '$actual'."
-    }
-}
-
 function Assert-AccessibleElement {
     param(
         [Parameter(Mandatory)][string] $Selector,
@@ -97,11 +96,20 @@ function Assert-AccessibleElement {
         [string] $IsKeyboardFocusable = 'True'
     )
 
-    Assert-UiProperty -Selector $Selector -Property 'AutomationId' -Expected $Selector
-    Assert-UiProperty -Selector $Selector -Property 'Name' -Expected $Name
-    Assert-UiProperty -Selector $Selector -Property 'ControlType' -Expected $ControlType
-    Assert-UiProperty -Selector $Selector -Property 'IsEnabled' -Expected $IsEnabled
-    Assert-UiProperty -Selector $Selector -Property 'IsKeyboardFocusable' -Expected $IsKeyboardFocusable
+    $snapshot = Invoke-Ui 'get-property' $Selector | ConvertFrom-Json
+    $expected = [ordered]@{
+        AutomationId = $Selector
+        Name = $Name
+        ControlType = $ControlType
+        IsEnabled = $IsEnabled
+        IsKeyboardFocusable = $IsKeyboardFocusable
+    }
+    foreach ($property in $expected.Keys) {
+        $actual = [string]$snapshot.properties.$property
+        if ($actual -ne $expected[$property]) {
+            throw "Expected $Selector.$property to be '$($expected[$property])'; found '$actual'."
+        }
+    }
 }
 
 function Assert-KeyboardFocus {
@@ -174,6 +182,8 @@ function Assert-TailIsNotVisible {
 New-Item -ItemType Directory -Path (Join-Path $projectPath 'src') -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $projectPath 'src\SearchTarget.cs') `
     -Value 'class SearchTarget;' -Encoding utf8NoBOM
+$uiGatePath = Join-Path $projectPath '.pistation-ui-tool-gates'
+New-Item -ItemType Directory -Path $uiGatePath -Force | Out-Null
 
 try {
     if (-not $NoBuild) {
@@ -246,7 +256,7 @@ try {
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'keyboard-focus.png') '--focus' | Out-Null
 
     Invoke-Ui 'send-keys' 'enter' '--target' 'NewThreadButton' '--via' 'post-message' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Assert-AccessibleElement -Selector 'ProjectSelector' -Name 'Projects' -ControlType 'List' `
         -IsKeyboardFocusable 'False'
@@ -268,6 +278,12 @@ try {
     }
 
     $expectedPrompt = "$multilineValue`nLong payload: " + ('x' * 2048)
+    # The first prompt replaces the placeholder title. Mirror the host's
+    # whitespace normalization and 72-character generated-title bound.
+    $expectedThreadTitle = ($expectedPrompt -replace '\s+', ' ').Trim()
+    if ($expectedThreadTitle.Length -gt 72) {
+        $expectedThreadTitle = $expectedThreadTitle.Substring(0, 69).TrimEnd() + '…'
+    }
     Invoke-Ui 'set-value' 'PromptInput' $expectedPrompt | Out-Null
     $actualPrompt = (Get-UiProperty -Selector 'PromptInput' -Property 'Value') -replace "`r`n?", "`n"
     if ($actualPrompt -ne $expectedPrompt) {
@@ -279,8 +295,13 @@ try {
     Wait-FakePiCommandCount -Command 'prompt' -Count 1
     Wait-UiValue -Selector 'StopTurnButton' -Value 'True' -Property 'IsEnabled'
     Wait-UiValue -Selector 'SendPromptButton' -Value 'False' -Property 'IsEnabled'
-    Wait-UiValue -Selector 'AttachFilesButton' -Value 'False' -Property 'IsEnabled'
+    # A running turn permits preparing attachments for the next draft.
+    Wait-UiValue -Selector 'AttachFilesButton' -Value 'True' -Property 'IsEnabled'
     Wait-UiValue -Selector 'PromptInput' -Value '' -Property 'Value'
+
+    # Hold the fixture after turn_start so native property and accessibility
+    # assertions observe the running state before the transcript is emitted.
+    New-Item -ItemType File -Path (Join-Path $uiGatePath 'input-ready') -Force | Out-Null
 
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle' -Timeout 30000
     Wait-UiValue -Selector 'StopTurnButton' -Value 'False' -Property 'IsEnabled'
@@ -315,7 +336,7 @@ try {
     Invoke-Ui 'set-value' 'ThreadRenameInput' 'This rename must be cancelled' | Out-Null
     Invoke-Ui 'send-keys' 'esc' '--target' 'ThreadRenameInput' '--via' 'post-message' | Out-Null
     Invoke-Ui 'wait-for' 'ThreadRenameInput' '--gone' '--timeout' '5000' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '5000' | Out-Null
+    Wait-TestThread -Title $expectedThreadTitle -Timeout 5000
 
     Invoke-Ui 'set-value' 'PromptInput' '@SearchTarget' | Out-Null
     Invoke-Ui 'send-keys' 'end' '--target' 'PromptInput' '--via' 'post-message' | Out-Null

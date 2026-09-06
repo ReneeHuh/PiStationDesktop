@@ -18,6 +18,7 @@ $projectPath = Join-Path $dataRoot 'fixture-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -70,9 +71,13 @@ function Stop-TestApp {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -111,7 +116,7 @@ try {
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
 
     Invoke-Ui 'set-value' 'PromptInput' '@SearchTarget' | Out-Null
@@ -126,14 +131,14 @@ try {
     Invoke-Ui 'set-value' 'PromptInput' 'Draft for thread one' | Out-Null
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 2' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 2' -Timeout 15000
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
 
     Invoke-Ui 'set-value' 'PromptInput' 'Draft for thread two' | Out-Null
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
-    Invoke-Ui 'invoke' 'Thread 1' | Out-Null
+    Select-TestThread -Title 'Thread 1'
     Wait-UiValue -Selector 'PromptInput' -Value 'Draft for thread one' -Property 'Value'
-    Invoke-Ui 'invoke' 'Thread 2' | Out-Null
+    Select-TestThread -Title 'Thread 2'
     Wait-UiValue -Selector 'PromptInput' -Value 'Draft for thread two' -Property 'Value'
 
     Stop-TestApp
@@ -141,8 +146,8 @@ try {
     Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'fixture-project' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 2' '--timeout' '10000' | Out-Null
-    Invoke-Ui 'invoke' 'Thread 2' | Out-Null
+    Wait-TestThread -Title 'Thread 2' -Timeout 10000
+    Select-TestThread -Title 'Thread 2'
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
     Wait-UiValue -Selector 'PromptInput' -Value 'Draft for thread two' -Property 'Value'
 

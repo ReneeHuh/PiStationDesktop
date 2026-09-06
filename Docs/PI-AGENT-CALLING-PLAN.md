@@ -1,6 +1,6 @@
 # Pi Station Desktop — Pi Calling Plan
 
-Status (2026-09-02): **Phases 0–3 and the first vertical slice are implemented and validated.**
+Status (2026-09-04): **Phases 0–3, the first vertical slice, and protocol-v20 active-turn queues are implemented and validated.**
 Phase 4 has not started. Phase 5 is partially implemented through bounded local operation,
 recovery states, diagnostics, and deterministic failure tests; remote and sustained load work
 remain.
@@ -329,8 +329,12 @@ command union and translate it inside the host.
 | Application command | Pi operation | Network completion meaning |
 | --- | --- | --- |
 | `ThreadStartTurn` | `prompt` | Pi accepted the prompt; turn remains active. |
-| `ThreadQueueSteering` | `prompt` with `streamingBehavior: steer` | Queued if still active; otherwise promoted to a fresh turn. |
-| `ThreadQueueFollowUp` | `prompt` with `streamingBehavior: followUp` | Queued if still active; otherwise promoted to a fresh turn. |
+| `ThreadQueueSteering` | `prompt` with `streamingBehavior: steer` | Queued only while a turn is active and Pi reports streaming; a supplied expected turn must still match. |
+| `ThreadQueueFollowUp` | `prompt` with `streamingBehavior: followUp` | Queued only while a turn is active and Pi reports streaming; a supplied expected turn must still match. |
+| `ThreadClearQueue` | `clear_queue` | Previously queued steering/follow-up messages are returned and the projection becomes cleared. |
+| `ThreadRefreshQueue` | `get_state` | Pending count and effective delivery modes are reconciled. |
+| `ThreadSetQueueDeliveryMode` | `set_steering_mode` or `set_follow_up_mode` | The selected explicit mode is applied and reconciled. |
+| `ThreadInterruptAgent` | parent-turn `clear_queue` plus `abort` | Pi aborts the parent turn and the structured subagent extension propagates cancellation to children. |
 | `ThreadStopTurn` | `clear_queue`, then `abort` | Stop initiated; settlement arrives as an event. |
 | `ThreadSetModel` | `set_model` | Model mutation accepted and projection updated. |
 | `ThreadSetThinkingLevel` | `set_thinking_level` | Thinking mutation accepted. |
@@ -348,11 +352,11 @@ Use the `get_commands` catalog and its `source` information to classify slash in
   on `agent_settled`.
 - Unknown slash text uses `ThreadStartTurn` and is treated as an ordinary prompt.
 
-`ThreadQueueSteering` and `ThreadQueueFollowUp` are delivery preferences, not unconditional queue
-insertion. Pi checks its actual streaming state when it dispatches `prompt`: it queues while active
-and starts a fresh prompt if settlement won the race. This avoids the dedicated `steer`/`follow_up`
-idle behavior, which can enqueue without starting a run. If a caller requires strict behavior, it
-supplies `ExpectedTurnId`; the host rejects `TurnAlreadySettled` instead of promoting the input.
+`ThreadQueueSteering` and `ThreadQueueFollowUp` are explicit active-turn operations, not unconditional
+queue insertion. The host validates a supplied `ExpectedTurnId`, requires a current turn, and confirms
+Pi still reports `isStreaming` immediately before dispatch. This avoids the dedicated `steer`/`follow_up` idle
+behavior, which can enqueue without starting a run. If settlement wins the race, the host rejects
+the command instead of silently promoting it to a fresh turn.
 
 The host validates command availability against thread state. For example, an initial prompt may
 start a stopped runtime, while a model change cannot race with hydration or shutdown.
@@ -374,7 +378,8 @@ versioned application event union.
 | `tool_execution_start` | `ToolStarted` |
 | `tool_execution_update` | `ToolOutputReplaced` |
 | `tool_execution_end` | `ToolCompleted` |
-| `queue_update` | `QueueReplaced` |
+| `queue_update` | `QueueStateChanged` |
+| structured subagent tool start/update/end | persisted `AgentActivityChanged` records |
 | `compaction_start/end` | `CompactionChanged`, including `willRetry` |
 | `auto_retry_start/end` | `RetryChanged` |
 | `summarization_retry_scheduled/attempt_start/finished` | `SummarizationRetryChanged` |
@@ -890,7 +895,8 @@ Exit criteria:
 - Pi session JSONL is the conversation authority.
 - New durable threads receive and persist a known Pi `--session-id` before process launch.
 - The first supported Pi compatibility range begins at `0.84.4`.
-- SQLite stores host metadata and command receipts, not token-by-token streams.
+- SQLite stores host metadata, command receipts, checkpoints, and bounded agent/workflow activity
+  events, not token-by-token assistant streams.
 - Typed application commands cross the network; raw Pi commands do not.
 - Local and remote clients use the same environment protocol.
 - The host continues work after clients disconnect.
@@ -898,9 +904,8 @@ Exit criteria:
   service is deferred.
 - Direct LAN and private VPN/Tailscale access first; no managed relay.
 - Vanilla Pi RPC first; application-specific extension bridge only when demonstrated necessary.
-- V1 preserves and projects Pi's reported `steeringMode` and `followUpMode`; it does not silently
-  overwrite the user's shared Pi settings. A later visible setting may call Pi's persistent mode
-  setters deliberately.
+- Protocol v20 preserves and projects Pi's reported `steeringMode` and `followUpMode`; visible queue
+  controls call Pi's setters only after an explicit user action.
 
 ## 20. First vertical slice
 

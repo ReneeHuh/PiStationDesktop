@@ -1,4 +1,6 @@
 using System.Globalization;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 
@@ -13,6 +15,14 @@ public sealed class DraftAttachmentViewModel(DraftAttachment attachment)
     public string FileName => Attachment.FileName;
 
     public string Detail => $"{FormatBytes(Attachment.ByteLength)} • {Attachment.MediaType}";
+
+    public bool IsImage => Attachment.MediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+
+    public Visibility PreviewVisibility => IsImage ? Visibility.Visible : Visibility.Collapsed;
+
+    public BitmapImage? PreviewUri => IsImage && Path.IsPathFullyQualified(Attachment.ServerPath)
+        ? new BitmapImage(new Uri(Attachment.ServerPath))
+        : null;
 
     private static string FormatBytes(long bytes)
     {

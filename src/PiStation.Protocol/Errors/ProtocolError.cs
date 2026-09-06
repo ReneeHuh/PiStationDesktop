@@ -21,6 +21,13 @@ public static class ProtocolErrorCodes
     public const string PiConfigurationInvalid = "PiConfigurationInvalid";
     public const string PiConfigurationUnsupported = "PiConfigurationUnsupported";
     public const string ProjectNotFound = "ProjectNotFound";
+    public const string ProjectBusy = "ProjectBusy";
+    public const string ProjectScriptNotFound = "ProjectScriptNotFound";
+    public const string SourceControlUnavailable = "SourceControlUnavailable";
+    public const string SourceControlAuthenticationRequired = "SourceControlAuthenticationRequired";
+    public const string SourceControlOperationFailed = "SourceControlOperationFailed";
+    public const string PromptStashInvalid = "PromptStashInvalid";
+    public const string PromptStashNotFound = "PromptStashNotFound";
     public const string FileSearchInvalid = "FileSearchInvalid";
     public const string FileSearchUnavailable = "FileSearchUnavailable";
     public const string FileContentSearchInvalid = "FileContentSearchInvalid";

@@ -13,8 +13,9 @@ internal static class AppBootstrapper
         DispatcherQueue dispatcherQueue,
         bool enableUiTestFaultControls = false,
         string? layoutSettingsPath = null,
-        string? previewCaptureRoot = null) =>
-        new(dispatcherQueue, enableUiTestFaultControls, layoutSettingsPath, previewCaptureRoot);
+        string? previewCaptureRoot = null,
+        string? browserAutomationRoot = null) =>
+        new(dispatcherQueue, enableUiTestFaultControls, layoutSettingsPath, previewCaptureRoot, browserAutomationRoot);
 
     public static async Task<AppRuntime> StartAsync(
         ShellViewModel viewModel,
@@ -25,16 +26,41 @@ internal static class AppBootstrapper
         ArgumentNullException.ThrowIfNull(launchOptions);
         launchOptions.Log("Starting embedded environment.");
 
-        var piInstallation = await ResolvePiAsync(launchOptions, cancellationToken).ConfigureAwait(false);
+        PiInstallation? piInstallation = null;
+        PiStation.Protocol.Models.PiRuntimeConfiguration configuration;
+        string? settingsError = null;
+        try { configuration = PiRuntimeSettingsStore.Load(launchOptions.DataRoot); }
+        catch (Exception exception) when (exception is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            configuration = new(null, new());
+            settingsError = $"Pi settings could not be loaded: {exception.Message}";
+        }
+        var configuredPath = launchOptions.PiExecutable ?? configuration.ExecutablePath;
+        viewModel.ReportPiExtensions(configuration.Extensions);
+        try
+        {
+            piInstallation = await ResolvePiAsync(launchOptions with { PiExecutable = configuredPath }, cancellationToken).ConfigureAwait(false);
+            viewModel.ReportPiSetup(configuredPath, $"Pi {piInstallation.PiVersion} is ready.");
+        }
+        catch (PiDiscoveryException exception)
+        {
+            viewModel.ReportPiSetup(configuredPath, $"Pi needs setup: {exception.Message} Open Settings → Pi and runtime.", requiresSetup: true);
+        }
         launchOptions.Log("Pi runtime resolved; starting loopback host.");
+        if (settingsError is not null) viewModel.ReportPiSetup(configuredPath, settingsError, requiresSetup: piInstallation is null);
         var hostOptions = new HostOptions
         {
             ApplicationDataRoot = launchOptions.DataRoot,
             EnvironmentName = "Local",
             PiInstallation = piInstallation,
+            Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
             AdditionalPiArguments = launchOptions.FakePiScenario is null
                 ? []
                 : ["--fake-pi-scenario", launchOptions.FakePiScenario],
+            BrowserAutomationExtensionPath = launchOptions.FakePiScenario is null
+                ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-browser.ts")
+                : null,
+            BrowserAutomationRoot = Path.Combine(launchOptions.DataRoot, "browser-automation"),
             JournalEventLimit = launchOptions.UiTestJournalEventLimit ?? 512,
         };
         var host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, cancellationToken: cancellationToken)

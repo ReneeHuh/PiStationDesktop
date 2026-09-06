@@ -52,7 +52,9 @@ public static class PiPromptFormatter
         IReadOnlyList<PiPromptAttachment> attachments) =>
         CreateDisplayMessage(message, attachments.Select(static attachment => attachment.FileName));
 
-    public static string NormalizePersistedMessage(string message)
+    public static string NormalizePersistedMessage(string message) => PiSkillPromptExpander.RemoveExpansion(NormalizeAttachments(message));
+
+    private static string NormalizeAttachments(string message)
     {
         ArgumentNullException.ThrowIfNull(message);
         var start = message.LastIndexOf(ManifestStart, StringComparison.Ordinal);
@@ -94,7 +96,7 @@ public static class PiPromptFormatter
                 names.Add(fileName);
             }
 
-            return CreateDisplayMessage(message[..start], names);
+            return CreateDisplayMessage(PiSkillPromptExpander.RemoveExpansion(message[..start]), names);
         }
         catch (Exception exception) when (exception is System.Text.Json.JsonException or InvalidOperationException)
         {

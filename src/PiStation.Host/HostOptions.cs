@@ -9,9 +9,19 @@ public sealed record HostOptions
 
     public string EnvironmentName { get; init; } = "Local";
 
-    public PiInstallation? PiInstallation { get; init; }
+    public PiInstallation? PiInstallation { get; set; }
+
+    public PiExtensionConfiguration Extensions { get; set; } = new();
 
     public IReadOnlyList<string> AdditionalPiArguments { get; init; } = [];
+
+    public string? BrowserAutomationExtensionPath { get; init; }
+
+    public string? BrowserAutomationRoot { get; init; }
+
+    public TimeSpan IdleRuntimeTimeout { get; init; } = TimeSpan.FromMinutes(30);
+
+    public TimeSpan IdleRuntimeSweepInterval { get; init; } = TimeSpan.FromMinutes(1);
 
     public int JournalEventLimit { get; init; } = 512;
 
@@ -50,7 +60,20 @@ public sealed record HostOptions
     public void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ApplicationDataRoot);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(IdleRuntimeTimeout, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(IdleRuntimeSweepInterval, TimeSpan.Zero);
         ArgumentException.ThrowIfNullOrWhiteSpace(EnvironmentName);
+        if (BrowserAutomationExtensionPath is not null && !File.Exists(BrowserAutomationExtensionPath))
+        {
+            throw new FileNotFoundException(
+                "The Pi Station browser extension could not be found.",
+                BrowserAutomationExtensionPath);
+        }
+
+        if (BrowserAutomationExtensionPath is not null && string.IsNullOrWhiteSpace(BrowserAutomationRoot))
+        {
+            throw new ArgumentException("Browser automation requires a bridge root.");
+        }
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(JournalEventLimit);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(JournalByteLimit);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(SubscriberCapacity);

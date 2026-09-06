@@ -1,9 +1,9 @@
 # PiStation Desktop — Preview Panel Plan
 
-Status: First release implemented; optional stages 6–7 deferred  
+Status: First release and selected stages 6–7 enhancements implemented
 Target: Protocol v15 and the packaged WinUI workbench  
 Reference baseline: T3 Code `9159b808d35a88e74fc91e11070f3270cdb321f9`  
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 ## Implementation result
 
@@ -17,9 +17,18 @@ Stages 1–5 are complete:
 - T3-style browser chrome, local-server empty state, loading, and recoverable failure UI;
 - packaged navigation and relaunch coverage plus a 24-state visual contract.
 
-Stages 6–7 remain intentionally optional: viewport presets, zoom, page color preference, recent
-URLs, multi-tab support, screenshots, recording, picture-in-picture, element annotations, and
-permissioned agent browser automation.
+Selected stage 6–7 enhancements are also complete:
+
+- project/thread-scoped multi-tab sessions with independent live WebView2 history;
+- responsive, desktop, tablet, and phone viewport presets plus rotation;
+- human-triggered PNG screenshots with reveal/open feedback;
+- one-use element picking that appends bounded DOM context to the composer and uploads the capture
+  through the existing attachment path.
+
+The P2 browser-tooling slice is also complete: per-tab zoom and system/light/dark color emulation,
+recent URLs, isolated profiles with bounded cookie import, an explicit DevTools policy, local MP4
+recording, picture-in-picture, and a per-thread inspect/interact permission gate for Pi browser tools.
+Server-owned remote preview sessions and proxying remain deferred.
 
 ## 1. Outcome
 
@@ -31,13 +40,16 @@ Add a useful, secure Preview panel to PiStationDesktop that follows the visual a
 - show clear empty, discovery, loading, loaded, and failure states;
 - behave correctly in the existing docked and narrow overlay layouts;
 - remember the last Preview URL for each project;
-- keep browser automation, screenshots, recording, and element picking out of the first release.
+- retain multiple scoped tabs, provide responsive viewports, and support human-triggered screenshots
+  and element-to-prompt annotations;
+- provide user-controlled zoom, color emulation, profiles, cookie import, recording, picture-in-picture,
+  and permissioned Pi browser automation while keeping remote proxying out of the current scope.
 
 The first release is a development preview, not a general-purpose web browser.
 
 ## 2. Architectural decision
 
-Use a project-scoped, client-owned browser surface.
+Use project/thread-scoped, client-owned browser surfaces.
 
 ```text
 Environment host
@@ -45,22 +57,26 @@ Environment host
              │ protocol v15
              ▼
 WorkbenchPreviewViewModel
-  ├─ owns project Preview state and persistence
-  └─ directs PreviewWebViewSurface
+  ├─ owns scoped Preview tab state and persistence
+  └─ directs one PreviewWebViewSurface per live tab
              │
              ▼
 WebView2 browser process
 ```
 
-The host discovers candidate local servers. The WinUI client owns WebView2 creation, navigation history, loading state, and rendering. No browser bytes or navigation commands need to travel through SignalR in this release.
+The host discovers candidate local servers. The WinUI client owns WebView2 creation, per-tab
+navigation history, loading state, responsive sizing, screenshots, element-pick tokens, and
+rendering. Browser bytes and navigation commands do not travel through SignalR.
 
-This deliberately differs from T3's thread-scoped, multi-tab preview manager. PiStation currently has one local packaged client and project-scoped workbench panels, so server-owned tab synchronization would add complexity without a current consumer. The contracts can be extended to multi-tab or remote scenarios later.
+This retains T3's useful multi-tab interaction model while keeping ownership client-side for the
+single local packaged client. State is scoped to the selected project/thread and persisted in local
+layout settings. Server-owned synchronization remains a later requirement for remote clients.
 
-## 3. First-release scope
+## 3. Current scope
 
 ### Included
 
-- One retained Preview browser per selected project.
+- Multiple retained Preview tabs per selected project/thread.
 - Manual HTTP/HTTPS URL entry.
 - URL normalization: an address without a scheme is treated as HTTP.
 - Local development-server discovery from the environment host.
@@ -73,15 +89,20 @@ This deliberately differs from T3's thread-scoped, multi-tab preview manager. Pi
 - Per-project persistence of the last successfully requested URL.
 - Cancellation and stale-result protection when the project changes or the host disconnects.
 - Existing docked, compact, and overlay workbench behavior.
+- Responsive/desktop/tablet/phone viewport presets and rotation.
+- Human-triggered PNG capture and reveal/open feedback.
+- One-use element-to-prompt selection with bounded DOM metadata and screenshot attachment.
+- Per-tab zoom, system/light/dark page-color emulation, and a bounded recent-address list.
+- Isolated named WebView2 profiles and explicit, bounded JSON/Netscape cookie import.
+- DevTools disabled by default and available only after the user enables its explicit policy.
+- Local MP4 recording with a two-minute cap and a user-opened picture-in-picture window.
+- Per-thread Pi browser permission with separate off, inspect-only, and interact states.
 - Keyboard and accessibility metadata for all new controls.
 
 ### Explicitly deferred
 
-- Multiple Preview tabs and server-owned Preview sessions.
+- Server-owned or remotely synchronized Preview sessions.
 - Remote preview proxying, port forwarding, or tunneling.
-- Screenshots, video recording, and picture-in-picture.
-- Element picking and element-to-prompt annotations.
-- Agent-driven browser automation.
 - Password storage, downloads, browser extensions, or a general browser history UI.
 - Arbitrary URL schemes or local-file browsing.
 - Terminal-process-to-port correlation. It can be added after basic discovery is reliable.
@@ -298,7 +319,8 @@ Treat previewed pages as untrusted content.
 - Cancel downloads in the first release and display a short explanation.
 - Handle popup/new-window requests deterministically: ordinary HTTP/HTTPS targets navigate in the same Preview; unsupported targets are blocked.
 - Open External must use the same normalized HTTP/HTTPS validation path.
-- Disable DevTools in release builds until an explicit Preview developer-tools setting is implemented.
+- Keep DevTools disabled by default; enable both the API and toolbar command only after the user opts
+  into the persisted `UserInitiated` policy.
 
 ## 10. XAML integration
 
@@ -373,27 +395,21 @@ Exit condition: packaged verification passes with zero build warnings and Previe
 
 ### Stage 6 — Small browser enhancements
 
-After the base feature is stable, add independently:
+Implementation status: **complete for the requested local browser refinements**. Responsive viewport
+presets, rotation, scoped tabs, zoom, system/light/dark emulation, deliberate DevTools access, named
+profiles, bounded cookie import, and recent URLs are connected and persisted. Remaining independent
+candidates are:
 
 - visible-empty-state discovery polling;
-- responsive viewport presets and freeform sizing;
-- the T3 zoom ladder;
-- system/light/dark page color preference;
-- a deliberate DevTools command;
-- recently used URLs;
-- multiple tabs, only if usage demonstrates the need.
+- freeform viewport sizing beyond the shipped presets.
 
 ### Stage 7 — Advanced preview tools
 
-Plan and review these as separate security-sensitive features:
-
-- screenshots;
-- recording;
-- picture-in-picture;
-- element inspection and prompt annotations;
-- agent browser automation through a permissioned host/client bridge.
-
-None of these should be hidden inside the base Preview implementation.
+Implementation status: **complete for local tools**. Human screenshots, one-use element inspection,
+MP4 recording, picture-in-picture, and the permissioned Pi bridge are explicit toolbar workflows.
+The bridge targets only the active Preview tab, requires the desktop client to be running, validates
+and bounds every file-backed request, and distinguishes inspect-only operations from navigation,
+click, and typing. Remote proxying and server-owned synchronized sessions remain future work.
 
 ## 12. Test plan
 
@@ -433,6 +449,10 @@ Serve deterministic routes such as `/`, `/second`, and an intentionally failed t
 - Invalid schemes, permissions, downloads, and popups follow policy.
 - Navigation and browser-process failures present recoverable UI.
 - The system browser seam receives the expected validated URL without launching during tests.
+- Zoom, color scheme, recent URLs, profile selection, DevTools policy, and agent permission persist.
+- Cookie imports are bounded and isolated to the selected profile.
+- Recording writes an MP4 and cleans its temporary frame directory.
+- Inspect-only agent permission rejects navigation, click, and type requests.
 - All automation IDs and accessible names exist.
 - Empty, discovered, loaded, loading, and failure visual states remain correct at docked and overlay widths.
 - High contrast and increased text scale remain usable.
@@ -457,18 +477,33 @@ The first Preview release is complete when all of the following are true:
 - The current address can be opened externally.
 - Empty, loading, loaded, navigation-failure, and browser-process-failure states are understandable and recoverable.
 - The last valid Preview URL is restored independently for each project after relaunch.
+- Multiple tabs retain independent addresses/history in the current project/thread scope.
+- Viewport presets and rotation resize only the selected Preview tab.
+- Screenshot capture writes a PNG and exposes a deliberate reveal/open action.
+- Element selection requires a one-use token and adds bounded DOM context plus a screenshot attachment
+  to the composer without enabling general host integration.
+- Zoom, page-color emulation, recents, and profile identity restore independently with each tab.
+- DevTools require a deliberate opt-in; cookie import, recording, and picture-in-picture are explicit
+  user actions.
+- Pi browser tools are unavailable by default and enforce the current thread's inspect/interact grant.
 - Project switching, cancellation, disconnects, and stale asynchronous results do not leak state across projects.
 - Unsupported schemes, privileged WebView integrations, permission requests, and downloads are blocked by policy.
 - The panel remains usable in docked and narrow overlay layouts.
 - The packaged build and full regression suite pass with no warnings.
 
-## 14. Recommended first implementation slice
+## 14. Implemented delivery sequence
 
-Start with a vertical discovery slice:
+The feature was delivered from the original vertical discovery slice:
 
 1. land protocol v15 and `preview.discover`;
 2. implement and test the bounded host scanner;
 3. show real discovered-server rows in the existing Preview panel;
-4. keep selection temporarily disabled or routed to a small callback seam until the WebView surface lands.
+4. route selection through a small callback seam until the WebView surface lands;
+5. add scoped multi-tab persistence and responsive viewports;
+6. add human-triggered screenshots and one-use element annotations;
+7. add persisted browser refinements, recording/PiP, isolated profiles, cookie import, and the
+   permissioned Pi extension bridge.
 
-This proves the new host boundary and produces visible UI progress without mixing network discovery, browser lifetime, and persistence into one change. The second slice can then connect a selected server and manual address to the secure WebView2 surface.
+This sequence proved the host boundary first, then connected navigation and persistence, and finally
+added client-owned review tools without widening the host credential surface. The later agent bridge
+uses an explicit trusted extension and a separate bounded, per-thread permission inbox.

@@ -32,10 +32,16 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     private bool _hasProject;
     private bool _isDiscovering;
     private WorkbenchPreviewTabViewModel? _activeTab;
+    private string _defaultProfileId = "default";
+    private PreviewAutomationAccess _automationPermission;
 
     public ObservableCollection<DiscoveredPreviewServer> DiscoveredServers { get; } = [];
 
     public ObservableCollection<WorkbenchPreviewTabViewModel> Tabs { get; } = [];
+
+    public ObservableCollection<string> RecentUrls { get; } = [];
+
+    public ObservableCollection<BrowserProfilePreference> BrowserProfiles { get; } = [];
 
     public WorkbenchPreviewTabViewModel? ActiveTab
     {
@@ -208,23 +214,76 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         ? Visibility.Collapsed
         : Visibility.Visible;
 
+    public double ZoomFactor => ActiveTab?.ZoomFactor ?? 1;
+
+    public string ZoomDescription => $"{Math.Round(ZoomFactor * 100)}%";
+
+    public int ColorSchemeIndex => (int)(ActiveTab?.ColorScheme ?? PreviewColorScheme.System);
+
+    public BrowserProfilePreference? SelectedProfile => BrowserProfiles.FirstOrDefault(profile =>
+        string.Equals(profile.Id, ActiveTab?.ProfileId, StringComparison.Ordinal));
+
+    public bool CanChangeProfile => ActiveTab is { CurrentUrl.Length: 0 };
+
+    public bool IsRecording => ActiveTab?.IsRecording == true;
+
+    public string RecordingLabel => IsRecording ? "Stop recording" : "Start recording";
+
+    public int AutomationPermissionIndex => (int)_automationPermission;
+
+    public PreviewAutomationAccess AutomationPermission => _automationPermission;
+
+    public string AutomationDescription => _automationPermission switch
+    {
+        PreviewAutomationAccess.Inspect => "Agent browser access: inspect only",
+        PreviewAutomationAccess.Interact => "Agent browser access: inspect and interact",
+        _ => "Agent browser access: off",
+    };
+
     internal void Reset(
         bool hasProject,
         PreviewWorkspacePreference? savedWorkspace = null,
-        string? legacySavedUrl = null)
+        string? legacySavedUrl = null,
+        IReadOnlyList<BrowserProfilePreference>? browserProfiles = null,
+        string defaultProfileId = "default",
+        PreviewAutomationAccess automationPermission = PreviewAutomationAccess.Off)
     {
         ActiveTab = null;
         Tabs.Clear();
         HasProject = hasProject;
         IsDiscovering = false;
         DiscoveredServers.Clear();
+        RecentUrls.Clear();
+        BrowserProfiles.Clear();
+        foreach (var profile in browserProfiles ?? [new BrowserProfilePreference("default", "Default")])
+        {
+            if (!BrowserProfiles.Any(candidate => candidate.Id == profile.Id))
+            {
+                BrowserProfiles.Add(profile);
+            }
+        }
+
+        if (BrowserProfiles.Count == 0)
+        {
+            BrowserProfiles.Add(new BrowserProfilePreference("default", "Default"));
+        }
+
+        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId)
+            ? defaultProfileId
+            : BrowserProfiles[0].Id;
+        _automationPermission = Enum.IsDefined(automationPermission)
+            ? automationPermission
+            : PreviewAutomationAccess.Off;
         _blankAddressText = string.Empty;
 
         if (hasProject && savedWorkspace is not null)
         {
             foreach (var preference in savedWorkspace.Tabs.Take(MaximumTabs))
             {
-                var tab = WorkbenchPreviewTabViewModel.FromPreference(preference);
+                var tab = WorkbenchPreviewTabViewModel.FromPreference(
+                    preference,
+                    BrowserProfiles,
+                    _defaultProfileId);
                 if (tab is not null)
                 {
                     Tabs.Add(tab);
@@ -234,11 +293,15 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
             ActiveTab = Tabs.FirstOrDefault(tab =>
                 string.Equals(tab.TabId, savedWorkspace.ActiveTabId, StringComparison.Ordinal)) ??
                 Tabs.LastOrDefault();
+            foreach (var recentUrl in savedWorkspace.RecentUrls ?? [])
+            {
+                AddRecentUrl(recentUrl);
+            }
         }
 
         if (hasProject && Tabs.Count == 0 && TryNormalizeAddress(legacySavedUrl, out var legacyUri, out _))
         {
-            var migrated = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"));
+            var migrated = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"), _defaultProfileId);
             migrated.Restore(legacyUri.AbsoluteUri, legacyUri.Host, PreviewViewportPreset.Responsive, 0, 0);
             Tabs.Add(migrated);
             ActiveTab = migrated;
@@ -250,6 +313,11 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
                 : "Looking for local development servers…"
             : "Select a workspace to discover local servers";
         RaiseTabCollectionProperties();
+        OnPropertyChanged(nameof(BrowserProfiles));
+        OnPropertyChanged(nameof(RecentUrls));
+        OnPropertyChanged(nameof(AutomationPermissionIndex));
+        OnPropertyChanged(nameof(AutomationPermission));
+        OnPropertyChanged(nameof(AutomationDescription));
     }
 
     internal WorkbenchPreviewTabViewModel AddTab(string? initialUrl = null)
@@ -260,7 +328,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
             return ActiveTab ?? throw new InvalidOperationException("The preview tab limit was reached.");
         }
 
-        var tab = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"));
+        var tab = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"), _defaultProfileId);
         if (TryNormalizeAddress(initialUrl, out var uri, out _))
         {
             tab.Restore(uri.AbsoluteUri, uri.Host, PreviewViewportPreset.Responsive, 0, 0);
@@ -294,7 +362,8 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
 
     internal PreviewWorkspacePreference CreatePreference() => new(
         ActiveTab?.TabId,
-        Tabs.Select(static tab => tab.CreatePreference()).ToArray());
+        Tabs.Select(static tab => tab.CreatePreference()).ToArray(),
+        RecentUrls.ToArray());
 
     internal void BeginDiscovery()
     {
@@ -347,6 +416,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
 
         tab = ActiveTab ?? AddTab();
         tab.PrepareNavigation(normalized);
+        AddRecentUrl(normalized.AbsoluteUri);
         uri = normalized;
         return true;
     }
@@ -390,6 +460,66 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     internal void ApplyViewportPreset(int index) => ActiveTab?.ApplyViewportPreset(index);
 
     internal void RotateViewport() => ActiveTab?.RotateViewport();
+
+    internal void AdjustZoom(double delta) => ActiveTab?.SetZoom(ZoomFactor + delta);
+
+    internal void ResetZoom() => ActiveTab?.SetZoom(1);
+
+    internal void SetColorScheme(int index)
+    {
+        if (ActiveTab is { } tab)
+        {
+            tab.SetColorScheme(Enum.IsDefined(typeof(PreviewColorScheme), index)
+                ? (PreviewColorScheme)index
+                : PreviewColorScheme.System);
+        }
+    }
+
+    internal void SelectProfile(BrowserProfilePreference profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (CanChangeProfile && BrowserProfiles.Contains(profile))
+        {
+            ActiveTab?.SetProfile(profile.Id);
+        }
+    }
+
+    internal void ReplaceProfiles(IReadOnlyList<BrowserProfilePreference> profiles, string defaultProfileId)
+    {
+        BrowserProfiles.Clear();
+        foreach (var profile in profiles)
+        {
+            BrowserProfiles.Add(profile);
+        }
+
+        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId)
+            ? defaultProfileId
+            : BrowserProfiles.FirstOrDefault()?.Id ?? "default";
+        OnPropertyChanged(nameof(BrowserProfiles));
+        RaiseActiveTabProperties();
+    }
+
+    internal void SetAutomationPermission(PreviewAutomationAccess permission)
+    {
+        var normalized = Enum.IsDefined(permission) ? permission : PreviewAutomationAccess.Off;
+        if (_automationPermission == normalized)
+        {
+            return;
+        }
+
+        _automationPermission = normalized;
+        OnPropertyChanged(nameof(AutomationPermissionIndex));
+        OnPropertyChanged(nameof(AutomationPermission));
+        OnPropertyChanged(nameof(AutomationDescription));
+    }
+
+    internal void SetRecording(bool recording)
+    {
+        if (ActiveTab is { } tab)
+        {
+            tab.IsRecording = recording;
+        }
+    }
 
     internal void UpdateResponsiveViewport(double width, double height)
     {
@@ -474,6 +604,29 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     private void OnActiveTabPropertyChanged(object? sender, PropertyChangedEventArgs e) =>
         RaiseActiveTabProperties();
 
+    private void AddRecentUrl(string? url)
+    {
+        if (!TryNormalizeAddress(url, out var uri, out _))
+        {
+            return;
+        }
+
+        var existing = RecentUrls.FirstOrDefault(candidate =>
+            string.Equals(candidate, uri.AbsoluteUri, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            RecentUrls.Remove(existing);
+        }
+
+        RecentUrls.Insert(0, uri.AbsoluteUri);
+        while (RecentUrls.Count > 20)
+        {
+            RecentUrls.RemoveAt(RecentUrls.Count - 1);
+        }
+
+        OnPropertyChanged(nameof(RecentUrls));
+    }
+
     private void RaiseTabCollectionProperties()
     {
         OnPropertyChanged(nameof(Tabs));
@@ -512,6 +665,13 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         OnPropertyChanged(nameof(FailureVisibility));
         OnPropertyChanged(nameof(EmptyStateVisibility));
         OnPropertyChanged(nameof(BrowserVisibility));
+        OnPropertyChanged(nameof(ZoomFactor));
+        OnPropertyChanged(nameof(ZoomDescription));
+        OnPropertyChanged(nameof(ColorSchemeIndex));
+        OnPropertyChanged(nameof(SelectedProfile));
+        OnPropertyChanged(nameof(CanChangeProfile));
+        OnPropertyChanged(nameof(IsRecording));
+        OnPropertyChanged(nameof(RecordingLabel));
     }
 }
 
@@ -534,11 +694,16 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
     private int _viewportHeight;
     private double _responsiveWidth = 240;
     private double _responsiveHeight = 240;
+    private double _zoomFactor = 1;
+    private PreviewColorScheme _colorScheme;
+    private string _profileId;
+    private bool _isRecording;
 
-    public WorkbenchPreviewTabViewModel(string tabId)
+    public WorkbenchPreviewTabViewModel(string tabId, string profileId = "default")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tabId);
         TabId = tabId;
+        _profileId = string.IsNullOrWhiteSpace(profileId) ? "default" : profileId.Trim();
     }
 
     public string TabId { get; }
@@ -663,14 +828,32 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         ? $"Responsive • {Math.Round(_responsiveWidth)} × {Math.Round(_responsiveHeight)}"
         : $"{_viewportPreset} • {_viewportWidth} × {_viewportHeight}";
 
-    internal static WorkbenchPreviewTabViewModel? FromPreference(PreviewTabPreference preference)
+    public double ZoomFactor => _zoomFactor;
+
+    public PreviewColorScheme ColorScheme => _colorScheme;
+
+    public string ProfileId => _profileId;
+
+    public bool IsRecording
+    {
+        get => _isRecording;
+        internal set => SetProperty(ref _isRecording, value);
+    }
+
+    internal static WorkbenchPreviewTabViewModel? FromPreference(
+        PreviewTabPreference preference,
+        IReadOnlyList<BrowserProfilePreference> profiles,
+        string defaultProfileId)
     {
         if (preference is null || string.IsNullOrWhiteSpace(preference.TabId))
         {
             return null;
         }
 
-        var tab = new WorkbenchPreviewTabViewModel(preference.TabId.Trim());
+        var profileId = profiles.Any(profile => profile.Id == preference.ProfileId)
+            ? preference.ProfileId
+            : defaultProfileId;
+        var tab = new WorkbenchPreviewTabViewModel(preference.TabId.Trim(), profileId);
         tab.Restore(
             preference.Url,
             preference.Title,
@@ -678,7 +861,9 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
                 ? preference.ViewportPreset
                 : PreviewViewportPreset.Responsive,
             preference.ViewportWidth,
-            preference.ViewportHeight);
+            preference.ViewportHeight,
+            preference.ZoomFactor,
+            preference.ColorScheme);
         return tab;
     }
 
@@ -688,14 +873,19 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         DocumentTitle,
         _viewportPreset,
         _viewportWidth,
-        _viewportHeight);
+        _viewportHeight,
+        _zoomFactor,
+        _colorScheme,
+        _profileId);
 
     internal void Restore(
         string? url,
         string? title,
         PreviewViewportPreset preset,
         int width,
-        int height)
+        int height,
+        double zoomFactor = 1,
+        PreviewColorScheme colorScheme = PreviewColorScheme.System)
     {
         if (WorkbenchPreviewViewModel.TryNormalizeAddress(url, out var uri, out _))
         {
@@ -711,6 +901,8 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         }
 
         ApplyViewport(preset, width, height);
+        SetZoom(zoomFactor);
+        SetColorScheme(colorScheme);
         FailureKind = PreviewFailureKind.None;
         FailureMessage = string.Empty;
         IsLoading = false;
@@ -809,6 +1001,29 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
 
         (_viewportWidth, _viewportHeight) = (_viewportHeight, _viewportWidth);
         RaiseViewportProperties();
+    }
+
+    internal void SetZoom(double value)
+    {
+        var normalized = double.IsFinite(value) ? Math.Clamp(Math.Round(value, 2), 0.25, 3) : 1;
+        if (SetProperty(ref _zoomFactor, normalized, nameof(ZoomFactor)))
+        {
+            OnPropertyChanged(nameof(ViewportDescription));
+        }
+    }
+
+    internal void SetColorScheme(PreviewColorScheme value) =>
+        SetProperty(
+            ref _colorScheme,
+            Enum.IsDefined(value) ? value : PreviewColorScheme.System,
+            nameof(ColorScheme));
+
+    internal void SetProfile(string profileId)
+    {
+        if (!string.IsNullOrWhiteSpace(profileId))
+        {
+            SetProperty(ref _profileId, profileId.Trim(), nameof(ProfileId));
+        }
     }
 
     internal void UpdateResponsiveViewport(double width, double height)

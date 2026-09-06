@@ -21,6 +21,8 @@ public sealed class ThreadViewModel : ObservableObject
 
     public ObservableCollection<TimelineItemViewModel> Timeline { get; } = [];
 
+    public ThreadQueueViewModel Queue { get; } = new();
+
     public ThreadProjection? Projection
     {
         get => _projection;
@@ -75,6 +77,7 @@ public sealed class ThreadViewModel : ObservableObject
     {
         _hasSelectedThread = hasSelectedThread;
         Projection = projection;
+        Queue.Apply(projection?.Queue, projection?.RuntimeState);
         Reconcile(Timeline, CreatePresentationTimeline(
             projection?.Timeline ?? [],
             projection?.Checkpoints ?? [],
@@ -91,7 +94,7 @@ public sealed class ThreadViewModel : ObservableObject
             ThreadRuntimeState.Running => "Pi is working",
             ThreadRuntimeState.Stopping => "Stopping",
             ThreadRuntimeState.Crashed => "Pi crashed",
-            ThreadRuntimeState.Stopped => "Stopped",
+            ThreadRuntimeState.Stopped => "Idle · resumes on send",
             _ => hasSelectedThread ? "Connecting" : "No active thread",
         };
         OnPropertyChanged(nameof(TurnStatusRunningVisibility));

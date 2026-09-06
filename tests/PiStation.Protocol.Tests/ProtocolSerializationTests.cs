@@ -58,6 +58,46 @@ public sealed class ProtocolSerializationTests
     }
 
     [Fact]
+    public void ComposerCompactionAndInboxCommandsRoundTripThroughProtocolTwentyOne()
+    {
+        var compactRequest = CreateRequest(new ThreadCompactContextCommand("Keep decisions and open questions"));
+        var inboxRequest = CreateRequest(new ThreadSetSnoozedCommand(
+            7,
+            DateTimeOffset.Parse("2026-09-05T12:00:00Z", CultureInfo.InvariantCulture)));
+        ThreadEvent @event = new ContextCompactionChangedEvent(new ContextCompactionProjection(
+            ContextCompactionState.Completed,
+            "manual",
+            12_000,
+            2_400,
+            0.02m,
+            "Compacted context",
+            null,
+            DateTimeOffset.Parse("2026-09-04T12:00:00Z", CultureInfo.InvariantCulture)));
+
+        var compactJson = JsonSerializer.Serialize(compactRequest, ProtocolJsonContext.Default.ExecuteThreadCommandRequest);
+        var inboxJson = JsonSerializer.Serialize(inboxRequest, ProtocolJsonContext.Default.ExecuteThreadCommandRequest);
+        var eventJson = JsonSerializer.Serialize(@event, ProtocolJsonContext.Default.ThreadEvent);
+
+        Assert.Equal(
+            "Keep decisions and open questions",
+            Assert.IsType<ThreadCompactContextCommand>(JsonSerializer.Deserialize(
+                compactJson,
+                ProtocolJsonContext.Default.ExecuteThreadCommandRequest)?.Command).CustomInstructions);
+        Assert.Equal(
+            7,
+            Assert.IsType<ThreadSetSnoozedCommand>(JsonSerializer.Deserialize(
+                inboxJson,
+                ProtocolJsonContext.Default.ExecuteThreadCommandRequest)?.Command).ExpectedRevision);
+        Assert.Equal(
+            ContextCompactionState.Completed,
+            Assert.IsType<ContextCompactionChangedEvent>(JsonSerializer.Deserialize(
+                eventJson,
+                ProtocolJsonContext.Default.ThreadEvent)).Compaction.State);
+        Assert.Contains("\"$type\":\"threadCompactContext\"", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"$type\":\"contextCompactionChanged\"", eventJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CheckpointCommandAndEventRoundTripThroughClosedUnions()
     {
         var request = new ExecuteThreadCommandRequest(
@@ -795,6 +835,83 @@ public sealed class ProtocolSerializationTests
 
         Assert.Equal(@event, Assert.IsType<UnknownRuntimeEvent>(roundTrip));
         Assert.DoesNotContain("rawJson", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ActiveTurnQueueCommandsAndProjectionEventsRoundTrip()
+    {
+        var followUpRequest = CreateRequest(new ThreadQueueFollowUpCommand(
+            "Then summarize",
+            null,
+            null,
+            null));
+        var deliveryRequest = CreateRequest(new ThreadSetQueueDeliveryModeCommand(
+            QueuedMessageKind.FollowUp,
+            QueueDeliveryMode.All));
+        var interruptRequest = CreateRequest(new ThreadInterruptAgentCommand("workflow-1/agent-0"));
+        var queue = new ThreadQueueProjection(
+            [new QueuedMessageProjection(QueuedMessageKind.FollowUp, 1, "Then summarize")],
+            QueueDeliveryMode.OneAtATime,
+            QueueDeliveryMode.All,
+            QueueDeliveryState.Queued,
+            1,
+            new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero));
+        var activity = new AgentActivityProjection(
+            "workflow-1/agent-0",
+            TurnId.Parse("turn-1"),
+            "workflow-1",
+            AgentActivityKind.Agent,
+            AgentActivityState.Running,
+            "reviewer",
+            "Review the implementation",
+            "Reading the diff",
+            new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 4, 12, 0, 2, TimeSpan.Zero),
+            null,
+            3,
+            new TokenUsage(100, 25, 10, 0, null, 135),
+            "gpt-test",
+            "high",
+            null,
+            null,
+            1,
+            0,
+            true);
+        ThreadEvent queueEvent = new QueueStateChangedEvent(queue);
+        ThreadEvent activityEvent = new AgentActivityChangedEvent(activity);
+
+        var followUpJson = JsonSerializer.Serialize(
+            followUpRequest,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest);
+        var deliveryJson = JsonSerializer.Serialize(
+            deliveryRequest,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest);
+        var interruptJson = JsonSerializer.Serialize(
+            interruptRequest,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest);
+        var queueJson = JsonSerializer.Serialize(queueEvent, ProtocolJsonContext.Default.ThreadEvent);
+        var activityJson = JsonSerializer.Serialize(activityEvent, ProtocolJsonContext.Default.ThreadEvent);
+
+        Assert.IsType<ThreadQueueFollowUpCommand>(JsonSerializer.Deserialize(
+            followUpJson,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest)?.Command);
+        Assert.IsType<ThreadSetQueueDeliveryModeCommand>(JsonSerializer.Deserialize(
+            deliveryJson,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest)?.Command);
+        Assert.IsType<ThreadInterruptAgentCommand>(JsonSerializer.Deserialize(
+            interruptJson,
+            ProtocolJsonContext.Default.ExecuteThreadCommandRequest)?.Command);
+        var restoredQueue = Assert.IsType<QueueStateChangedEvent>(JsonSerializer.Deserialize(
+            queueJson,
+            ProtocolJsonContext.Default.ThreadEvent)).Queue;
+        Assert.Equal(queue.SteeringMode, restoredQueue.SteeringMode);
+        Assert.Equal(queue.FollowUpMode, restoredQueue.FollowUpMode);
+        Assert.Equal(queue.DeliveryState, restoredQueue.DeliveryState);
+        Assert.Equal(queue.PendingMessageCount, restoredQueue.PendingMessageCount);
+        Assert.Equal(queue.Messages.ToArray(), restoredQueue.Messages.ToArray());
+        Assert.Equal(activity, Assert.IsType<AgentActivityChangedEvent>(JsonSerializer.Deserialize(
+            activityJson,
+            ProtocolJsonContext.Default.ThreadEvent)).Activity);
     }
 
     [Fact]

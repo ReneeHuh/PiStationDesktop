@@ -23,6 +23,23 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
     {
         var installation = _options.PiInstallation ??
             throw new InvalidOperationException("No compatible Pi installation is configured.");
+        var additionalArguments = _options.AdditionalPiArguments.ToList();
+        var environmentVariables = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var extensions = _options.Extensions;
+        foreach (var extension in extensions.Paths ?? [])
+        {
+            additionalArguments.Add("--extension");
+            additionalArguments.Add(extension);
+        }
+        if (_options.BrowserAutomationExtensionPath is { } extensionPath &&
+            _options.BrowserAutomationRoot is { } automationRoot)
+        {
+            additionalArguments.Add("--extension");
+            additionalArguments.Add(Path.GetFullPath(extensionPath));
+            environmentVariables["PISTATION_BROWSER_AUTOMATION_ROOT"] = Path.GetFullPath(automationRoot);
+            environmentVariables["PISTATION_BROWSER_THREAD_ID"] = thread.ThreadId.Value;
+        }
+
         return PiProcessLauncher.StartAsync(
             new PiProcessLaunchOptions
             {
@@ -32,7 +49,9 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
                     : project.CanonicalPath,
                 SessionDirectory = _options.SessionRoot,
                 SessionId = thread.PiSessionId,
-                AdditionalArguments = _options.AdditionalPiArguments,
+                AdditionalArguments = additionalArguments,
+                DiscoverExtensions = extensions.DiscoverInstalled,
+                EnvironmentVariables = environmentVariables,
             },
             cancellationToken);
     }

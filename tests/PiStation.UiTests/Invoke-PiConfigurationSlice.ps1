@@ -19,6 +19,7 @@ $projectPath = Join-Path $dataRoot 'fixture-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -55,6 +56,20 @@ function Start-TestApp {
     $script:launchedProcessId = [int]$launch.ProcessId
 }
 
+function Wait-PiConfigurationStatus {
+    param([Parameter(Mandatory)][string] $Value)
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $tree = Invoke-Ui 'inspect' 'ComposerSurface' '--depth' '12' | ConvertFrom-Json -Depth 100
+        $matches = @($tree.windows | ForEach-Object { Get-TestThreadNodes -Node $_ } | Where-Object {
+            $_.automationId -eq 'PiConfigurationStatusText' -and $_.name -eq $Value
+        })
+        if ($matches.Count -eq 1) { return }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Pi configuration did not reach '$Value'."
+}
+
 function Stop-TestApp {
     if ($null -eq $script:launchedProcessId) {
         return
@@ -71,9 +86,13 @@ function Stop-TestApp {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -165,27 +184,27 @@ try {
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Invoke-Ui 'wait-for' 'PiConfigurationPanel' '--timeout' '15000' | Out-Null
     Invoke-Ui 'wait-for' 'PiModelSelector' '--timeout' '15000' | Out-Null
     Invoke-Ui 'wait-for' 'PiThinkingLevelSelector' '--timeout' '15000' | Out-Null
-    Wait-UiValue -Selector 'PiConfigurationStatusText' -Value 'Fake Standard • Off • Revision 0'
+    Wait-PiConfigurationStatus -Value 'Fake Standard • Off'
     Invoke-Ui 'wait-for' 'PiRuntimeModeSelector' '--gone' '--timeout' '1000' | Out-Null
 
     Select-ComboBoxItem -ComboBox 'PiThinkingLevelSelector' -ItemName 'High'
-    Wait-UiValue -Selector 'PiConfigurationStatusText' -Value 'Fake Standard • High • Revision 1'
+    Wait-PiConfigurationStatus -Value 'Fake Standard • High'
 
     Select-ComboBoxItem -ComboBox 'PiModelSelector' -ItemName 'Fake Fast'
-    Wait-UiValue -Selector 'PiConfigurationStatusText' -Value 'Fake Fast • Off • Revision 2'
+    Wait-PiConfigurationStatus -Value 'Fake Fast • Off'
 
     Stop-TestApp
     Start-TestApp
     Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'fixture-project' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '10000' | Out-Null
-    Invoke-Ui 'invoke' 'Thread 1' | Out-Null
-    Wait-UiValue -Selector 'PiConfigurationStatusText' -Value 'Fake Fast • Off • Revision 2'
+    Wait-TestThread -Title 'Thread 1' -Timeout 10000
+    Select-TestThread -Title 'Thread 1'
+    Wait-PiConfigurationStatus -Value 'Fake Fast • Off'
 
     $tree = Invoke-Ui 'inspect' '--depth' '10'
     Set-Content -LiteralPath (Join-Path $runRoot 'ui-tree.json') -Value $tree -Encoding utf8NoBOM

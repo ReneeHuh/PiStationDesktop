@@ -62,8 +62,7 @@ public sealed class PiConfigurationViewModel : ObservableObject
         Status = Models.Count == 0 && ThinkingLevels.Count == 0
             ? "Pi reports no configurable settings"
             : $"{SelectedModel?.DisplayName ?? "Default model"} • " +
-              $"{SelectedThinkingLevel?.DisplayName ?? "Default reasoning"} • " +
-              $"Revision {snapshot.Configuration.Revision}";
+              $"{SelectedThinkingLevel?.DisplayName ?? "Default reasoning"}";
         RaiseSelectorVisibilityChanged();
     }
 

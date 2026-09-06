@@ -18,6 +18,7 @@ $projectPath = Join-Path $dataRoot 'fixture-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -30,7 +31,7 @@ function Invoke-CheckedNative {
 
     $output = & $FilePath @ArgumentList 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
+        throw "$FilePath $($ArgumentList -join ' ') failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
     }
 
     return ($output | Out-String).Trim()
@@ -73,9 +74,13 @@ function Stop-TestApp {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Set-TranscriptScrollPosition {
@@ -131,6 +136,27 @@ function Get-UiNodes {
     }
 }
 
+function Select-TestThread {
+    param([Parameter(Mandatory)][string] $Title)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $tree = Invoke-Ui 'inspect' 'ThreadTabList' '--depth' '8' | ConvertFrom-Json -Depth 100
+        $matches = @($tree.windows | ForEach-Object { Get-UiNodes -Node $_ } | Where-Object {
+            $_.type -eq 'ListItem' -and @(
+                Get-UiNodes -Node $_ | Where-Object { $_.type -eq 'Text' -and $_.name -eq $Title }
+            ).Count -gt 0
+        })
+        if ($matches.Count -eq 1) {
+            Invoke-Ui 'invoke' $matches[0].selector | Out-Null
+            return
+        }
+        if ($matches.Count -gt 1) { throw "Multiple thread-list rows matched '$Title'." }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "The thread list did not expose '$Title'."
+}
+
 function Wait-UiAutomationNode {
     param(
         [Parameter(Mandatory)][string] $AutomationId,
@@ -172,6 +198,8 @@ function Assert-TurnMetricsNode {
 }
 
 New-Item -ItemType Directory -Path $projectPath -Force | Out-Null
+$toolGatePath = Join-Path $projectPath '.pistation-ui-tool-gates'
+New-Item -ItemType Directory -Path $toolGatePath -Force | Out-Null
 
 try {
     if (-not $NoBuild) {
@@ -195,16 +223,18 @@ try {
     Wait-UiValue -Selector 'NewThreadButton' -Value 'True' -Property 'IsEnabled'
 
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
 
     Invoke-Ui 'set-value' 'PromptInput' 'Exercise the UI tool stream' | Out-Null
     Wait-UiValue -Selector 'SendPromptButton' -Value 'True' -Property 'IsEnabled'
     Invoke-Ui 'invoke' 'SendPromptButton' | Out-Null
     Wait-UiValue -Selector 'StopTurnButton' -Value 'True' -Property 'IsEnabled'
-    Invoke-Ui 'wait-for' 'Running' '--timeout' '10000' | Out-Null
+    Wait-UiValue -Selector 'TurnStatusText' -Value 'Pi is working'
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'activity-running.png') '--focus' | Out-Null
+    New-Item -ItemType File -Path (Join-Path $toolGatePath 'continue-tool') | Out-Null
     Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Tool'
+    New-Item -ItemType File -Path (Join-Path $toolGatePath 'complete-turn') | Out-Null
     Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Tool finished.'
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Wait-UiValue -Selector 'StopTurnButton' -Value 'False' -Property 'IsEnabled'
@@ -279,7 +309,7 @@ try {
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'activity-expanded.png') '--focus' | Out-Null
 
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 2' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 2' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Invoke-Ui 'set-value' 'PromptInput' 'Render the Markdown fixture' | Out-Null
     Wait-UiValue -Selector 'SendPromptButton' -Value 'True' -Property 'IsEnabled'
@@ -349,9 +379,11 @@ try {
 
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'markdown-code-slice.png') '--focus' | Out-Null
+    & (Join-Path $PSScriptRoot 'Assert-ScreenshotPalette.ps1') -Path (Join-Path $runRoot 'markdown-code-slice.png') `
+        -Color '80BFFF' -MinimumSamples 5 | Out-Null
     Set-TranscriptScrollPosition -Position 'top'
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'markdown-slice.png') '--focus' | Out-Null
-    Invoke-Ui 'invoke' 'Thread 1' | Out-Null
+    Select-TestThread -Title 'Exercise the UI tool stream'
     Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Tool finished.'
 
     Stop-TestApp
@@ -359,8 +391,8 @@ try {
     Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'fixture-project' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '10000' | Out-Null
-    Invoke-Ui 'invoke' 'Thread 1' | Out-Null
+    Invoke-Ui 'wait-for' 'Exercise the UI tool stream' '--timeout' '10000' | Out-Null
+    Select-TestThread -Title 'Exercise the UI tool stream'
     Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Tool finished.'
     Set-TranscriptScrollPosition -Position 'bottom'
     $restoredTurnMetricsNode = Wait-UiAutomationNode -AutomationId 'TurnMetricsText' -RequireVisible

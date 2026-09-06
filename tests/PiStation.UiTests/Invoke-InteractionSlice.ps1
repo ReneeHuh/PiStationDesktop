@@ -18,6 +18,7 @@ $projectPath = Join-Path $dataRoot 'fixture-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -27,7 +28,7 @@ function Invoke-CheckedNative {
 
     $output = & $FilePath @ArgumentList 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
+        throw "$FilePath $($ArgumentList -join ' ') failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
     }
 
     return ($output | Out-String).Trim()
@@ -35,9 +36,13 @@ function Invoke-CheckedNative {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -105,7 +110,7 @@ try {
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
     Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
 
     Invoke-Ui 'set-value' 'PromptInput' 'Exercise inline interactions' | Out-Null
@@ -113,13 +118,13 @@ try {
     Invoke-Ui 'wait-for' 'ApprovalApproveButton' '--timeout' '15000' | Out-Null
     Wait-UiValue -Selector 'ApprovalApproveButton' -Value 'True' -Property 'IsEnabled'
     Invoke-Ui 'invoke' 'ApprovalApproveButton' | Out-Null
-    Wait-UiValue -Selector 'ApprovalApproveButton' -Value 'False' -Property 'IsEnabled'
     Invoke-Ui 'wait-for' 'QuestionSubmitButton' '--timeout' '15000' | Out-Null
     Wait-UiValue -Selector 'QuestionSubmitButton' -Value 'True' -Property 'IsEnabled'
+    Wait-UiValue -Selector 'ApprovalApproveButton' -Value 'False' -Property 'IsEnabled'
     Invoke-Ui 'invoke' 'QuestionSubmitButton' | Out-Null
-    Wait-UiValue -Selector 'QuestionSubmitButton' -Value 'False' -Property 'IsEnabled'
     Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Approved. Selected: Run tests.'
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
+    Wait-UiValue -Selector 'QuestionSubmitButton' -Value 'False' -Property 'IsEnabled'
 
     $approvalMarker = Join-Path $dataRoot 'sessions\approval-response.txt'
     $questionMarker = Join-Path $dataRoot 'sessions\question-response.txt'

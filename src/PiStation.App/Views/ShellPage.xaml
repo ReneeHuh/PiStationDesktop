@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:automation="using:Microsoft.UI.Xaml.Automation"
     xmlns:controls="using:PiStation.App.Views.Controls"
+    xmlns:models="using:PiStation.Protocol.Models"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     FontFamily="{StaticResource PiSansFontFamily}"
@@ -35,7 +36,7 @@
                         <Setter Target="RecoveryBannerHost.Margin" Value="16,0" />
                         <Setter Target="ComposerSurfaceHost.Margin" Value="16,8,16,0" />
                         <Setter Target="WorkspaceStatusBarHost.Margin" Value="16,0,16,6" />
-                        <Setter Target="SettingsShell.MinWidth" Value="360" />
+                        <Setter Target="SettingsShell.MinWidth" Value="0" />
                         <Setter Target="ProjectDialogContent.MinWidth" Value="340" />
                     </VisualState.Setters>
                 </VisualState>
@@ -48,7 +49,7 @@
                         <Setter Target="RecoveryBannerHost.Margin" Value="20,0" />
                         <Setter Target="ComposerSurfaceHost.Margin" Value="20,10,20,0" />
                         <Setter Target="WorkspaceStatusBarHost.Margin" Value="20,0,20,8" />
-                        <Setter Target="SettingsShell.MinWidth" Value="420" />
+                        <Setter Target="SettingsShell.MinWidth" Value="0" />
                         <Setter Target="ProjectDialogContent.MinWidth" Value="380" />
                     </VisualState.Setters>
                 </VisualState>
@@ -61,7 +62,7 @@
                         <Setter Target="RecoveryBannerHost.Margin" Value="24,0" />
                         <Setter Target="ComposerSurfaceHost.Margin" Value="24,10,24,0" />
                         <Setter Target="WorkspaceStatusBarHost.Margin" Value="24,0,24,8" />
-                        <Setter Target="SettingsShell.MinWidth" Value="420" />
+                        <Setter Target="SettingsShell.MinWidth" Value="0" />
                         <Setter Target="ProjectDialogContent.MinWidth" Value="380" />
                     </VisualState.Setters>
                 </VisualState>
@@ -85,12 +86,32 @@
                         HorizontalContentAlignment="Stretch"
                         VerticalContentAlignment="Stretch" />
 
+                    <StackPanel Grid.Row="1" Spacing="6">
+                        <Expander Header="{x:Bind ViewModel.ExtensionUi.Heading, Mode=OneWay}" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            MaxWidth="{StaticResource PiReadingColumnWidth}" Margin="24,0" Visibility="{x:Bind ViewModel.ExtensionUi.PanelVisibility, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiExtensionPanel">
+                            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{x:Bind ViewModel.ExtensionUi.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <TextBlock Text="{x:Bind ViewModel.ExtensionUi.Notifications, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <TextBlock Text="{x:Bind ViewModel.ExtensionUi.AboveWidgets, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <StackPanel Visibility="{x:Bind ViewModel.ExtensionUi.SuggestionVisibility, Mode=OneWay}" Spacing="4">
+                                        <TextBlock Text="Suggested draft text" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind ViewModel.ExtensionUi.SuggestedText, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" MaxHeight="80" />
+                                        <Button Content="Insert into draft" Click="OnInsertExtensionTextClicked" automation:AutomationProperties.AutomationId="InsertExtensionTextButton" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Expander>
+                        <InfoBar IsOpen="{x:Bind ViewModel.RequiresPiSetup, Mode=OneWay}" IsClosable="False" Severity="Informational"
+                            Title="Set up Pi" Message="Choose the Pi executable in Settings to start your first task.">
+                            <InfoBar.ActionButton><Button Content="Set up Pi" Click="OnOpenPiSetupClicked" /></InfoBar.ActionButton>
+                        </InfoBar>
                     <ContentControl
                         x:Name="RecoveryBannerHost"
-                        Grid.Row="1"
                         MaxWidth="{StaticResource PiReadingColumnWidth}"
                         Margin="24,0"
                         HorizontalContentAlignment="Stretch" />
+                    </StackPanel>
 
                     <ContentControl
                         x:Name="ComposerSurfaceHost"
@@ -99,12 +120,16 @@
                         Margin="24,10,24,0"
                         HorizontalContentAlignment="Stretch" />
 
+                    <StackPanel Grid.Row="3">
+                        <ScrollViewer MaxHeight="100" MaxWidth="{StaticResource PiReadingColumnWidth}" Margin="24,4,24,0" Visibility="{x:Bind ViewModel.ExtensionUi.BelowVisibility, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind ViewModel.ExtensionUi.BelowWidgets, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiExtensionBelowWidget" />
+                        </ScrollViewer>
                     <ContentControl
                         x:Name="WorkspaceStatusBarHost"
-                        Grid.Row="3"
                         MaxWidth="{StaticResource PiReadingColumnWidth}"
                         Margin="24,0,24,8"
                         HorizontalContentAlignment="Stretch" />
+                    </StackPanel>
                 </Grid>
             </controls:WorkspaceShell.MainContent>
         </controls:WorkspaceShell>
@@ -211,19 +236,42 @@
             CloseButtonText="Done"
             DefaultButton="Close"
             Title="Settings">
+            <NavigationView
+                x:Name="SettingsNavigation"
+                MinWidth="0"
+                MaxWidth="760"
+                MaxHeight="620"
+                CompactPaneLength="48"
+                IsBackButtonVisible="Collapsed"
+                IsSettingsVisible="False"
+                OpenPaneLength="210"
+                PaneDisplayMode="Left"
+                SelectionChanged="OnSettingsNavigationSelectionChanged">
+                <NavigationView.MenuItems>
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsProjectsNavItem" Content="Projects" Tag="Projects" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsRuntimeNavItem" Content="Pi / runtime" Tag="PiRuntime" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsSourceControlNavItem" Content="Source control" Tag="SourceControl" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsAppearanceNavItem" Content="Appearance" Tag="Appearance" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsIntegrationsNavItem" Content="Integrations" Tag="Integrations" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsDiagnosticsNavItem" Content="Diagnostics" Tag="Diagnostics" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsUsageNavItem" Content="Usage" Tag="Usage" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsUpdatesNavItem" Content="Updates" Tag="Updates" />
+                </NavigationView.MenuItems>
+                <NavigationView.Content>
             <ScrollViewer MaxHeight="560" VerticalScrollBarVisibility="Auto">
                 <StackPanel
                     x:Name="SettingsShell"
-                    MinWidth="420"
+                    MinWidth="0"
                     automation:AutomationProperties.AutomationId="SettingsShell"
                     automation:AutomationProperties.Name="Pi Station settings"
                     Spacing="12">
                     <TextBlock
+                        Tag="Appearance"
                         Foreground="{ThemeResource PiTextSecondaryBrush}"
                         Text="Configure this local Pi Station workspace."
                         TextWrapping="Wrap" />
 
-                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid ColumnSpacing="12" RowSpacing="6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -262,7 +310,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <StackPanel Spacing="8">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Keyboard shortcuts" />
                             <TextBlock
@@ -356,7 +404,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid RowSpacing="8">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -427,7 +475,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid RowSpacing="8">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -454,7 +502,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Style="{StaticResource PiElevatedSurfaceStyle}">
+                    <Border Tag="PiRuntime" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid RowSpacing="6">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -482,7 +530,218 @@
                     </Border>
 
                     <Border
+                        x:Name="ProjectsSettingsSection"
+                        Tag="Projects"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Projects" />
+                            <TextBlock FontWeight="SemiBold" Text="{x:Bind ViewModel.Workspace.ActiveProjectName, Mode=OneWay}" />
+                            <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}" TextWrapping="Wrap" />
+                            <ComboBox x:Name="ProjectDefaultWorkspaceModeSelector" Header="Default thread workspace" Style="{StaticResource PiComboBoxStyle}">
+                                <ComboBoxItem Content="Local" Tag="Local" />
+                                <ComboBoxItem Content="Git worktree" Tag="Worktree" />
+                            </ComboBox>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBox x:Name="ProjectDefaultModelProviderInput" Header="Default model provider" PlaceholderText="openai" Style="{StaticResource PiTextBoxStyle}" />
+                                <TextBox x:Name="ProjectDefaultModelIdInput" Grid.Column="1" Header="Default model ID" PlaceholderText="model ID" Style="{StaticResource PiTextBoxStyle}" />
+                            </Grid>
+                            <ComboBox x:Name="ProjectDefaultThinkingSelector" Header="Default reasoning level" Style="{StaticResource PiComboBoxStyle}">
+                                <ComboBoxItem Content="Runtime default" Tag="" />
+                                <ComboBoxItem Content="Off" Tag="Off" />
+                                <ComboBoxItem Content="Minimal" Tag="Minimal" />
+                                <ComboBoxItem Content="Low" Tag="Low" />
+                                <ComboBoxItem Content="Medium" Tag="Medium" />
+                                <ComboBoxItem Content="High" Tag="High" />
+                            </ComboBox>
+                            <TextBox x:Name="ProjectDefaultRuntimeModeInput" Header="Default runtime mode" PlaceholderText="Optional extension mode ID" Style="{StaticResource PiTextBoxStyle}" />
+                            <ToggleSwitch x:Name="ProjectAutoPullToggle" Header="Automatically fast-forward the clean default branch when Pi Station starts" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnSaveProjectDefaultsClicked" Content="Save defaults" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                <Button Click="OnRemoveProjectClicked" Content="Remove project" Style="{StaticResource PiSecondaryButtonStyle}" />
+                            </StackPanel>
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Project icons are loaded from iconPath in t3.json, then common favicon locations. Named t3.json scripts appear in the Add menu." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="RuntimeSettingsSection"
+                        Tag="PiRuntime"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Pi and runtime" />
+                            <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="Pi executable or package path" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
+                            <CheckBox Content="Discover installed Pi extensions" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />
+                            <TextBlock Text="Discovery follows Pi's saved project trust decisions. Explicit paths below load code you choose to trust. The bundled browser extension stays available with its per-thread browser permission controls." TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                            <TextBox Header="Additional trusted extensions (one absolute path per line)" Text="{x:Bind ViewModel.Settings.PiExtensionPaths, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="72" MaxHeight="160" TextWrapping="Wrap" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PiExtensionPathsInput" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnBrowsePiExecutableClicked" Content="Browse…" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button automation:AutomationProperties.AutomationId="ConfigurePiRuntimeButton" Click="OnConfigurePiRuntimeClicked" Content="Save and connect" Style="{StaticResource PiPrimaryButtonStyle}" />
+                            </StackPanel>
+                            <Button HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RestartConfiguredPiButton" Click="OnRestartConfiguredPiClicked" Content="Restart selected thread" IsEnabled="{x:Bind ViewModel.CanRestartPi, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
+                            <TextBlock Text="Install Pi, then select its executable or leave the path empty for automatic discovery. Authenticate your model provider using Pi in a terminal. Return here and choose Save and connect; you can retry without restarting Pi Station." TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Connection.Status, Mode=OneWay}" />
+                            <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="Project defaults seed the model, reasoning level, runtime mode, and workspace mode for new threads. Per-thread model and reasoning controls remain in the composer." TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left" Click="OnConfigurePiRuntimeClicked" Content="Recheck runtime" Style="{StaticResource PiSecondaryButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="SourceControlSettingsSection"
+                        Tag="SourceControl"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Source-control hosting" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.SourceControlSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                            <Expander Header="Recent hosting operations">
+                                <StackPanel Spacing="8">
+                                    <Button Click="OnRefreshSettingsClicked" Content="Refresh operation history" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                    <ListView MaxHeight="240" ItemsSource="{x:Bind ViewModel.Settings.HostingOperations}" SelectionMode="None">
+                                        <ListView.ItemTemplate><DataTemplate x:DataType="models:HostingOperation">
+                                            <StackPanel Padding="4" Spacing="4">
+                                                <TextBlock Text="{x:Bind Action}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{x:Bind State}" />
+                                                <TextBlock Text="{x:Bind Result.Message}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                            </StackPanel>
+                                        </DataTemplate></ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Clone hosted repository">
+                                <StackPanel Padding="0,8,0,0" Spacing="6">
+                                    <TextBox x:Name="CloneRemoteInput" Header="Remote URL" PlaceholderText="https://github.com/owner/repository.git" Style="{StaticResource PiTextBoxStyle}" />
+                                    <TextBox x:Name="CloneDestinationInput" Header="Destination" PlaceholderText="C:\Projects\repository" Style="{StaticResource PiTextBoxStyle}" />
+                                    <Button HorizontalAlignment="Left" Click="OnCloneRepositoryClicked" Content="Clone and add project" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Publish selected project">
+                                <StackPanel Padding="0,8,0,0" Spacing="6">
+                                    <ComboBox x:Name="PublishProviderSelector" SelectedIndex="0" Header="Provider" Style="{StaticResource PiComboBoxStyle}">
+                                        <ComboBoxItem Content="GitHub" Tag="GitHub" />
+                                    </ComboBox>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBox x:Name="PublishOwnerInput" Header="Owner / organization" Style="{StaticResource PiTextBoxStyle}" />
+                                        <TextBox x:Name="PublishRepositoryInput" Grid.Column="1" Header="Repository name" Style="{StaticResource PiTextBoxStyle}" />
+                                    </Grid>
+                                    <CheckBox x:Name="PublishPrivateCheckBox" Content="Private repository" IsChecked="True" />
+                                    <Button HorizontalAlignment="Left" Click="OnPublishRepositoryClicked" Content="Publish" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="Create pull request">
+                                <StackPanel Padding="0,8,0,0" Spacing="6">
+                                    <TextBox x:Name="PullRequestTitleInput" Header="Title" Style="{StaticResource PiTextBoxStyle}" />
+                                    <TextBox x:Name="PullRequestBodyInput" MinHeight="90" AcceptsReturn="True" Header="Description" Style="{StaticResource PiTextBoxStyle}" TextWrapping="Wrap" />
+                                    <CheckBox x:Name="PullRequestDraftCheckBox" Content="Create as draft" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Click="OnGeneratePullRequestTextClicked" Content="Generate text" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                        <Button Click="OnCreatePullRequestClicked" IsEnabled="{x:Bind ViewModel.Settings.CanCreatePullRequest, Mode=OneWay}" Content="Create pull request" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                            <ListView MaxHeight="260" ItemsSource="{x:Bind ViewModel.Settings.PullRequests, Mode=OneWay}" SelectionMode="None">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:PullRequestDescriptor">
+                                        <Grid Padding="4" ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="2">
+                                                <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Number}" />
+                                                <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind State}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Actions" Style="{StaticResource PiToolbarButtonStyle}">
+                                                <Button.Flyout>
+                                                    <MenuFlyout>
+                                                        <MenuFlyoutItem Click="OnLinkPullRequestClicked" Tag="{x:Bind Number}" Text="Link to active thread" />
+                                                        <MenuFlyoutItem Click="OnCommentPullRequestClicked" IsEnabled="{x:Bind CanComment}" Tag="{x:Bind Number}" Text="Comment…" />
+                                                        <MenuFlyoutItem Click="OnLabelPullRequestClicked" IsEnabled="{x:Bind CanLabel}" Tag="{x:Bind Number}" Text="Add label…" />
+                                                        <MenuFlyoutItem Click="OnReviewerPullRequestClicked" IsEnabled="{x:Bind CanReview}" Tag="{x:Bind Number}" Text="Add reviewer…" />
+                                                        <MenuFlyoutSeparator />
+                                                        <MenuFlyoutItem Click="OnApprovePullRequestClicked" IsEnabled="{x:Bind CanApprove}" Tag="{x:Bind Number}" Text="Approve" />
+                                                        <MenuFlyoutItem Click="OnRequestChangesPullRequestClicked" IsEnabled="{x:Bind CanRequestChanges}" Tag="{x:Bind Number}" Text="Request changes…" />
+                                                        <MenuFlyoutItem Click="OnMergePullRequestClicked" IsEnabled="{x:Bind CanMerge}" Tag="{x:Bind Number}" Text="Merge" />
+                                                        <MenuFlyoutItem Click="OnClosePullRequestClicked" IsEnabled="{x:Bind CanClose}" Tag="{x:Bind Number}" Text="Close / reopen" />
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="IntegrationsSettingsSection"
+                        Tag="Integrations"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Integrations" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Hosting adapters use installed and authenticated provider CLIs: gh, glab, bb, and az. Availability and authentication failures appear in diagnostics without exporting secrets." TextWrapping="Wrap" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Diagnostics, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:RuntimeDiagnostic">
+                                        <Grid Padding="2" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" /><TextBlock Grid.Column="1" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind Detail}" TextTrimming="CharacterEllipsis" /></Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="RealDiagnosticsSettingsSection"
+                        Tag="Diagnostics"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Diagnostics and resources" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.DiagnosticsSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnRefreshSettingsClicked" Content="Refresh" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button Click="OnExportDiagnosticsClicked" Content="Export redacted diagnostics" Style="{StaticResource PiPrimaryButtonStyle}" />
+                            </StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="Recent logs" />
+                            <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.Settings.Logs, Mode=OneWay}" SelectionMode="None">
+                                <ListView.ItemTemplate><DataTemplate><TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="{StaticResource PiFontSizeCaption}" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="UsageSettingsSection"
+                        Tag="Usage"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Usage, cost, and quota" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.UsageSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="Costs are estimates from usage reported by Pi. Provider quota status is shown when the runtime exposes it." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="UpdatesSettingsSection"
+                        Tag="Updates"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Updates" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnCheckForUpdatesClicked" Content="Check for updates" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button Click="OnOpenUpdateInstallerClicked" Content="Open update installer" IsEnabled="{x:Bind ViewModel.Settings.CanOpenUpdateInstaller, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
+                            </StackPanel>
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.UpdateSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
                         x:Name="DiagnosticsSection"
+                        Tag="Diagnostics"
                         automation:AutomationProperties.AutomationId="DiagnosticsSection"
                         Style="{StaticResource PiWarningBannerStyle}"
                         Visibility="{x:Bind ViewModel.UiTestFaultControlsVisibility}">
@@ -503,7 +762,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource PiBannerStyle}">
+                    <Border Tag="Updates" Style="{StaticResource PiBannerStyle}">
                         <StackPanel Spacing="4">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="About" />
                             <TextBlock
@@ -514,6 +773,8 @@
                     </Border>
                 </StackPanel>
             </ScrollViewer>
+                </NavigationView.Content>
+            </NavigationView>
         </ContentDialog>
 
         <ContentDialog

@@ -18,6 +18,9 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     private bool _disposed;
     private readonly ThreadWorkspaceResolver _workspaceResolver;
 
+    public int ActiveCount => _sessions.Values.Count(static session =>
+        session.Descriptor.State == TerminalSessionState.Running);
+
     public TerminalSessionRegistry(
         HostDatabase database,
         HostOptions options,

@@ -37,6 +37,8 @@ public sealed class PiThreadController : IAsyncDisposable
     private string? _activeTurnEntryIdBefore;
     private long? _activeTurnStartedTimestamp;
     private PiTokenUsage? _activeTurnUsage;
+    private string _activeTurnProvider = "unknown";
+    private string _activeTurnModel = "unknown";
     private string? _currentAssistantMessageId;
     private int _disposed;
     private long _generation;
@@ -71,14 +73,52 @@ public sealed class PiThreadController : IAsyncDisposable
 
     public ThreadEventJournal Journal { get; }
 
+    private long _lastActivityTicks = DateTimeOffset.UtcNow.UtcTicks;
+    private void TouchRuntime() => Interlocked.Exchange(ref _lastActivityTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+    internal async Task<bool> StopIfIdleAsync(DateTimeOffset now, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        if (now.UtcTicks - Interlocked.Read(ref _lastActivityTicks) < timeout.Ticks) return false;
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Journal.Projection.RuntimeState != ThreadRuntimeState.Ready ||
+                now.UtcTicks - Interlocked.Read(ref _lastActivityTicks) < timeout.Ticks ||
+                Journal.Projection.Timeline.Any(item => item is ApprovalTimelineItem { State: InteractionState.Pending } or QuestionTimelineItem { State: InteractionState.Pending })) return false;
+            Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Stopping));
+            await DisposePreviousProcessAsync().ConfigureAwait(false);
+            Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Stopped));
+            return true;
+        }
+        finally { _lifecycle.Release(); }
+    }
+
+
+    public async Task ApplyRenamedThreadAsync(
+        HostThreadRecord thread,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        TouchRuntime();
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _thread = thread;
+            if (_process is not null && Journal.Projection.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running)
+            {
+                await _process.Connection.SetSessionNameAsync(thread.Title, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
     public async Task EnsureReadyAsync(CancellationToken cancellationToken = default)
     {
+        TouchRuntime();
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (Journal.Projection.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running)
-        {
-            return;
-        }
-
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -115,6 +155,11 @@ public sealed class PiThreadController : IAsyncDisposable
                     configuration,
                     cancellationToken).ConfigureAwait(false);
                 var activeState = await process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(_thread.Title) &&
+                    !string.Equals(activeState.SessionName, _thread.Title, StringComparison.Ordinal))
+                {
+                    await process.Connection.SetSessionNameAsync(_thread.Title, cancellationToken).ConfigureAwait(false);
+                }
                 await _database.UpdateThreadSessionFileAsync(_thread.ThreadId, state.SessionFile, cancellationToken)
                     .ConfigureAwait(false);
                 Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Hydrating));
@@ -123,14 +168,54 @@ public sealed class PiThreadController : IAsyncDisposable
                 _lastPiEntryId = entries.LeafId;
                 var checkpoints = await _checkpoints.ListAsync(_thread.ThreadId, cancellationToken)
                     .ConfigureAwait(false);
-                Journal.ReplaceProjection(ThreadProjectionReducer.Hydrate(
+                var hydrated = ThreadProjectionReducer.Hydrate(
                     Journal.Projection,
                     entries.Entries,
                     entries.LeafId,
                     state.SessionFile,
                     activeState.Model?.ContextWindow,
                     checkpoints,
-                    state.SessionId));
+                    state.SessionId) with
+                {
+                    Queue = CreateQueueProjection(activeState, Journal.Projection.Queue?.Messages ?? []),
+                    AgentActivities = [],
+                };
+                var persistedAgentEvents = await _database.ListThreadAgentEventsAsync(
+                    _thread.ThreadId,
+                    cancellationToken).ConfigureAwait(false);
+                foreach (var persistedEvent in persistedAgentEvents)
+                {
+                    hydrated = ThreadProjectionReducer.Apply(hydrated, persistedEvent);
+                }
+
+                if (!activeState.IsStreaming)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    foreach (var orphaned in (hydrated.AgentActivities ?? []).Where(static activity =>
+                                 activity.State is AgentActivityState.Pending or
+                                     AgentActivityState.Running or AgentActivityState.Waiting))
+                    {
+                        var interrupted = new AgentActivityChangedEvent(orphaned with
+                        {
+                            State = AgentActivityState.Interrupted,
+                            CurrentActivity = "Interrupted during host restart",
+                            UpdatedUtc = now,
+                            CompletedUtc = now,
+                            FailureSummary = orphaned.FailureSummary ??
+                                "Pi Station restarted before this activity reported completion.",
+                            CanInterrupt = false,
+                        });
+                        await _database.AppendThreadAgentEventAsync(
+                            _thread.ThreadId,
+                            orphaned.TurnId,
+                            CountStartedTurns(hydrated),
+                            interrupted,
+                            cancellationToken).ConfigureAwait(false);
+                        hydrated = ThreadProjectionReducer.Apply(hydrated, interrupted);
+                    }
+                }
+
+                Journal.ReplaceProjection(hydrated);
                 _eventPump = PumpEventsAsync(process, generation, _shutdown.Token);
             }
             catch
@@ -147,6 +232,9 @@ public sealed class PiThreadController : IAsyncDisposable
         }
         finally
         {
+            // Startup and hydration can take longer than the idle threshold. A caller
+            // returning from EnsureReady owns a fresh activity window before dispatch.
+            TouchRuntime();
             _lifecycle.Release();
         }
     }
@@ -155,6 +243,7 @@ public sealed class PiThreadController : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        TouchRuntime();
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -173,6 +262,153 @@ public sealed class PiThreadController : IAsyncDisposable
         }
     }
 
+    public async Task<ComposerDiscoveryResult> GetComposerDiscoveryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var process = _process ?? throw new HostOperationException(
+            ProtocolErrorCodes.PiRuntimeCrashed,
+            "Pi is unavailable for composer discovery.");
+        var commands = await process.Connection.GetCommandsAsync(cancellationToken).ConfigureAwait(false);
+        var result = new List<ComposerCommandDescriptor>
+        {
+            new("compact", "Compact the current context, optionally with instructions.", ComposerCommandSource.BuiltIn),
+            new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
+            new("background", "Submit the draft and keep working elsewhere.", ComposerCommandSource.BuiltIn),
+        };
+        result.AddRange(commands.Select(static command => new ComposerCommandDescriptor(
+            command.Name,
+            command.Description ?? command.Name,
+            command.Source switch
+            {
+                "skill" => ComposerCommandSource.Skill,
+                "prompt" => ComposerCommandSource.Prompt,
+                _ => ComposerCommandSource.Extension,
+            },
+            command.Location,
+            command.Path,
+            command.SourceInfo is { } info ? new ComposerCommandSourceInfo(info.Path, info.Source, info.Scope, info.Origin, info.BaseDir) : null)));
+        return new ComposerDiscoveryResult(
+            result.GroupBy(static command => command.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => group.First())
+                .OrderBy(static command => command.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            DateTimeOffset.UtcNow);
+    }
+
+    public async Task<ContextCompactionResult> CompactContextAsync(
+        string? customInstructions,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        TouchRuntime();
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var process = RequireReadyProcess();
+            Journal.Commit(new ContextCompactionChangedEvent(new ContextCompactionProjection(
+                ContextCompactionState.Running,
+                "manual",
+                null,
+                null,
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow)));
+            try
+            {
+                var result = await process.Connection.CompactAsync(customInstructions, cancellationToken)
+                    .ConfigureAwait(false);
+                var projection = new ContextCompactionProjection(
+                    ContextCompactionState.Completed,
+                    "manual",
+                    result.TokensBefore,
+                    result.EstimatedTokensAfter,
+                    result.Usage?.TotalCost,
+                    LimitPreview(result.Summary, 2_000),
+                    null,
+                    DateTimeOffset.UtcNow);
+                Journal.Commit(new ContextCompactionChangedEvent(projection));
+                if (result.Usage is not null)
+                {
+                    await _database.AppendUsageAsync(
+                        _thread.ThreadId,
+                        _activeTurnProvider,
+                        _activeTurnModel,
+                        result.Usage.InputTokens,
+                        result.Usage.OutputTokens,
+                        result.Usage.CacheReadTokens + result.Usage.CacheWriteTokens,
+                        result.Usage.TotalTokens,
+                        result.Usage.TotalCost,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                return new ContextCompactionResult(
+                    result.Summary,
+                    result.FirstKeptEntryId,
+                    result.TokensBefore,
+                    result.EstimatedTokensAfter,
+                    result.Usage is null ? null : new TokenCostUsage(
+                        result.Usage.InputTokens,
+                        result.Usage.OutputTokens,
+                        result.Usage.CacheReadTokens,
+                        result.Usage.CacheWriteTokens,
+                        result.Usage.TotalTokens,
+                        result.Usage.TotalCost));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Journal.Commit(new ContextCompactionChangedEvent(new ContextCompactionProjection(
+                    ContextCompactionState.Failed,
+                    "manual",
+                    null,
+                    null,
+                    null,
+                    null,
+                    exception.Message,
+                    DateTimeOffset.UtcNow)));
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
+    public async Task<ThreadDescriptor> RegenerateTitleAsync(
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var firstPrompt = Journal.Projection.Messages.FirstOrDefault(static message => message.Role == MessageRole.User)?.Text;
+        if (string.IsNullOrWhiteSpace(firstPrompt))
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, "A thread needs a user turn before its title can be generated.");
+        }
+        var title = GenerateThreadTitle(firstPrompt);
+        var update = await _database.UpdateThreadMetadataAsync(
+            _thread.ThreadId, expectedRevision, title, null, null, cancellationToken).ConfigureAwait(false);
+        if (!update.WasUpdated || update.Thread is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadConflict, "The thread changed before its title could be regenerated.");
+        }
+        await _database.SetThreadTitleKindAsync(_thread.ThreadId, ThreadTitleKind.Generated, cancellationToken)
+            .ConfigureAwait(false);
+        _thread = update.Thread;
+        if (_process is not null)
+        {
+            try
+            {
+                await _process.Connection.SetSessionNameAsync(title, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is PiRpcConnectionException or PiRpcTimeoutException)
+            {
+                // The title is durable in Pi Station even if the runtime exits before its session label is updated.
+            }
+        }
+        return await _database.EnrichThreadDescriptorAsync(_thread, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ThreadPiConfiguration> UpdatePiConfigurationAsync(
         long expectedRevision,
         PiModelSelection? model,
@@ -189,6 +425,7 @@ public sealed class PiThreadController : IAsyncDisposable
 
         ValidateConfigurationValues(model, runtimeModeId);
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        TouchRuntime();
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -298,6 +535,7 @@ public sealed class PiThreadController : IAsyncDisposable
         }
 
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        TouchRuntime();
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -306,6 +544,12 @@ public sealed class PiThreadController : IAsyncDisposable
                 throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread is not ready for a new turn.");
             }
 
+            // Resolve resources before creating a turn or consuming its draft.
+            var preparedPrompt = await _process.Connection.PreparePromptAsync(prompt, cancellationToken).ConfigureAwait(false);
+            var firstToken = prompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            var isExtensionCommand = firstToken?.StartsWith('/') == true &&
+                (await _process.Connection.GetCommandsAsync(cancellationToken).ConfigureAwait(false))
+                    .Any(command => command.Source == "extension" && command.Name == firstToken[1..]);
             var state = await _process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
             var turnId = TurnId.New();
             var turnCount = CountStartedTurns(Journal.Projection) + 1;
@@ -330,6 +574,8 @@ public sealed class PiThreadController : IAsyncDisposable
                 _activeTurnEntryIdBefore = _lastPiEntryId;
                 _activeTurnStartedTimestamp = Stopwatch.GetTimestamp();
                 _activeTurnUsage = null;
+                _activeTurnProvider = state.Model?.ProviderId ?? "unknown";
+                _activeTurnModel = state.Model?.ModelId ?? "unknown";
                 _currentAssistantMessageId = null;
                 _settlementReceipts.Add((clientId, commandId));
             }
@@ -337,12 +583,19 @@ public sealed class PiThreadController : IAsyncDisposable
             Journal.Commit(new TurnStartedEvent(
                 turnId,
                 PiPromptFormatter.CreateDisplayMessage(prompt, attachments)));
-            await _process.Connection.PromptAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
+            // Finish title RPCs while Pi is idle. Some runtimes defer later
+            // commands until the prompt ends, which would delay its receipt
+            // and leave the desktop's Stop action disabled for the whole turn.
+            await TryGenerateAutomaticTitleAsync(prompt, cancellationToken).ConfigureAwait(false);
+            await _process.Connection.PromptPreparedAsync(preparedPrompt, attachments, cancellationToken).ConfigureAwait(false);
             await _database.UpdateReceiptStateAsync(
                 clientId,
                 commandId,
                 CommandReceiptState.Accepted,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
+            await _database.SetThreadSettlementAutomaticallyAsync(_thread.ThreadId, false, cancellationToken)
+                .ConfigureAwait(false);
+            if (isExtensionCommand) _ = ObserveExtensionCommandAsync(_process, turnId);
             return turnId;
         }
         catch
@@ -380,6 +633,7 @@ public sealed class PiThreadController : IAsyncDisposable
         try
         {
             await process.Connection.StopAsync(cancellationToken).ConfigureAwait(false);
+            CommitQueue([], [], QueueDeliveryState.Cleared);
             await _database.UpdateReceiptStateAsync(
                 clientId,
                 commandId,
@@ -397,17 +651,125 @@ public sealed class PiThreadController : IAsyncDisposable
         }
     }
 
-    public Task RestartRuntimeAsync(CancellationToken cancellationToken = default)
+    public async Task QueueMessageAsync(
+        QueuedMessageKind kind,
+        string prompt,
+        IReadOnlyList<PiPromptAttachment> attachments,
+        CancellationToken cancellationToken = default)
     {
-        var state = Journal.Projection.RuntimeState;
-        if (state is ThreadRuntimeState.Running or ThreadRuntimeState.Stopping)
+        ArgumentNullException.ThrowIfNull(prompt);
+        ArgumentNullException.ThrowIfNull(attachments);
+        if (string.IsNullOrWhiteSpace(prompt) && attachments.Count == 0)
         {
             throw new HostOperationException(
-                ProtocolErrorCodes.ThreadBusy,
-                "Stop the running turn before restarting Pi.");
+                ProtocolErrorCodes.PiCommandRejected,
+                "A queued message must contain text or at least one attachment.");
         }
 
-        return EnsureReadyAsync(cancellationToken);
+        var process = _process;
+        if (process is null || Journal.Projection.RuntimeState != ThreadRuntimeState.Running)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread has no active turn to steer.");
+        }
+
+        var state = await process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        if (!state.IsStreaming || Journal.Projection.CurrentTurnId is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The active turn settled before the message could be queued.");
+        }
+
+        if (kind == QueuedMessageKind.Steering)
+        {
+            await process.Connection.SteerAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await process.Connection.FollowUpAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task ClearQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var process = await RequireQueueProcessAsync(cancellationToken).ConfigureAwait(false);
+        await process.Connection.ClearQueueAsync(cancellationToken).ConfigureAwait(false);
+        CommitQueue([], [], QueueDeliveryState.Cleared);
+    }
+
+    public async Task RefreshQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var process = await RequireQueueProcessAsync(cancellationToken).ConfigureAwait(false);
+        var state = await process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        Journal.Commit(new QueueStateChangedEvent(CreateQueueProjection(
+            state,
+            Journal.Projection.Queue?.Messages ?? [])));
+    }
+
+    public async Task SetQueueDeliveryModeAsync(
+        QueuedMessageKind kind,
+        QueueDeliveryMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(kind) || !Enum.IsDefined(mode))
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.PiCommandRejected,
+                "The requested queue kind or delivery mode is invalid.");
+        }
+
+        var process = await RequireQueueProcessAsync(cancellationToken).ConfigureAwait(false);
+        var piMode = mode == QueueDeliveryMode.All ? "all" : "one-at-a-time";
+        if (kind == QueuedMessageKind.Steering)
+        {
+            await process.Connection.SetSteeringModeAsync(piMode, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await process.Connection.SetFollowUpModeAsync(piMode, cancellationToken).ConfigureAwait(false);
+        }
+
+        await RefreshQueueAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task InterruptAgentAsync(
+        string activityId,
+        ClientId clientId,
+        CommandId commandId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
+        if (activityId.Length > 512)
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.PiCommandRejected,
+                "The agent activity identifier is too long.");
+        }
+
+        var activity = (Journal.Projection.AgentActivities ?? [])
+            .FirstOrDefault(candidate => candidate.ActivityId == activityId);
+        if (activity is null || !activity.CanInterrupt)
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.PiCommandRejected,
+                "That agent activity is no longer interruptible.");
+        }
+
+        // Pi extensions receive the active turn's abort signal. Pi does not expose targeted child-process aborts.
+        return StopTurnAsync(clientId, commandId, cancellationToken);
+    }
+
+    public async Task RestartRuntimeAsync(CancellationToken cancellationToken = default)
+    {
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Journal.Projection.RuntimeState is ThreadRuntimeState.Running or ThreadRuntimeState.Stopping ||
+                Journal.Projection.Timeline.Any(item => item is ApprovalTimelineItem { State: InteractionState.Pending } or QuestionTimelineItem { State: InteractionState.Pending }))
+                throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "Finish or stop the active work before restarting Pi.");
+            await DisposePreviousProcessAsync().ConfigureAwait(false);
+            Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Stopped));
+        }
+        finally { _lifecycle.Release(); }
+        await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RevertToCheckpointAsync(
@@ -415,6 +777,7 @@ public sealed class PiThreadController : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        TouchRuntime();
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -494,16 +857,29 @@ public sealed class PiThreadController : IAsyncDisposable
                     _thread.ThreadId,
                     turnCount,
                     cancellationToken).ConfigureAwait(false);
+                await _database.DeleteThreadAgentEventsAfterTurnAsync(
+                    _thread.ThreadId,
+                    turnCount,
+                    cancellationToken).ConfigureAwait(false);
                 var retained = await _checkpoints.ListAsync(_thread.ThreadId, cancellationToken)
                     .ConfigureAwait(false);
-                Journal.ReplaceProjection(ThreadProjectionReducer.Hydrate(
+                var rewound = ThreadProjectionReducer.Hydrate(
                     Journal.Projection,
                     entries.Entries,
                     entries.LeafId,
                     state.SessionFile,
                     state.Model?.ContextWindow,
                     retained,
-                    state.SessionId));
+                    state.SessionId) with { AgentActivities = [] };
+                var retainedAgentEvents = await _database.ListThreadAgentEventsAsync(
+                    _thread.ThreadId,
+                    cancellationToken).ConfigureAwait(false);
+                foreach (var retainedAgentEvent in retainedAgentEvents)
+                {
+                    rewound = ThreadProjectionReducer.Apply(rewound, retainedAgentEvent);
+                }
+
+                Journal.ReplaceProjection(rewound);
             }
             catch (Exception exception)
             {
@@ -703,6 +1079,11 @@ public sealed class PiThreadController : IAsyncDisposable
 
     private async Task FailRuntimeAsync(Exception exception)
     {
+        var error = ToProtocolError(exception);
+        await FinalizeActiveAgentActivitiesAsync(
+            AgentActivityState.Failed,
+            $"Pi runtime failed: {error.Message}").ConfigureAwait(false);
+        CommitQueue([], [], QueueDeliveryState.Cleared);
         (ClientId ClientId, CommandId CommandId)[] receipts;
         lock (_stateLock)
         {
@@ -713,7 +1094,6 @@ public sealed class PiThreadController : IAsyncDisposable
             _settlementReceipts.Clear();
         }
 
-        var error = ToProtocolError(exception);
         Journal.Commit(new RuntimeFailedEvent(error));
         foreach (var receipt in receipts)
         {
@@ -750,8 +1130,16 @@ public sealed class PiThreadController : IAsyncDisposable
 
     private async Task ApplyPiEventAsync(PiRpcEvent @event)
     {
+        TouchRuntime();
         switch (@event)
         {
+            case PiIdlePromptCompletedEvent completed when Journal.Projection.CurrentTurnId?.Value == completed.Tag:
+                await SettleAsync().ConfigureAwait(false);
+                break;
+            case PiExtensionUiUpdateEvent update:
+                Journal.Commit(new PiExtensionUiChangedEvent(new PiExtensionUiUpdate(update.RequestId, update.Method,
+                    DateTimeOffset.UtcNow, update.Key, update.Text, update.Lines, update.Placement, update.Severity)));
+                break;
             case PiAgentStartedEvent:
                 Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Running));
                 break;
@@ -782,17 +1170,56 @@ public sealed class PiThreadController : IAsyncDisposable
                     LimitToolArguments(started.Arguments),
                     string.Empty,
                     ToolExecutionState.Running)));
+                await PersistAgentActivitiesAsync(PiAgentActivityProjector.Start(
+                    started.ToolCallId,
+                    started.ToolName,
+                    started.Arguments,
+                    Journal.Projection.CurrentTurnId,
+                    DateTimeOffset.UtcNow)).ConfigureAwait(false);
                 break;
             case PiToolExecutionUpdatedEvent updated:
                 Journal.Commit(new ToolOutputReplacedEvent(
                     updated.ToolCallId,
                     LimitToolOutput(ExtractToolOutput(updated.PartialResult))));
+                await PersistAgentActivitiesAsync(PiAgentActivityProjector.Update(
+                    updated.ToolCallId,
+                    updated.PartialResult,
+                    Journal.Projection.AgentActivities ?? [],
+                    isFinal: false,
+                    isError: false,
+                    Journal.Projection.CurrentTurnId,
+                    DateTimeOffset.UtcNow)).ConfigureAwait(false);
                 break;
             case PiToolExecutionCompletedEvent completed:
                 Journal.Commit(new ToolCompletedEvent(
                     completed.ToolCallId,
                     LimitToolOutput(ExtractToolOutput(completed.Result)),
                     completed.IsError ? ToolExecutionState.Failed : ToolExecutionState.Completed));
+                await PersistAgentActivitiesAsync(PiAgentActivityProjector.Update(
+                    completed.ToolCallId,
+                    completed.Result,
+                    Journal.Projection.AgentActivities ?? [],
+                    isFinal: true,
+                    completed.IsError,
+                    Journal.Projection.CurrentTurnId,
+                    DateTimeOffset.UtcNow)).ConfigureAwait(false);
+                break;
+            case PiQueueUpdatedEvent updated:
+                CommitQueue(updated.Steering, updated.FollowUp, QueueDeliveryState.Queued);
+                break;
+            case PiCompactionStartedEvent started:
+                Journal.Commit(new ContextCompactionChangedEvent(new ContextCompactionProjection(
+                    ContextCompactionState.Running,
+                    started.Reason,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    DateTimeOffset.UtcNow)));
+                break;
+            case PiCompactionCompletedEvent completed:
+                ApplyCompactionCompleted(completed);
                 break;
             case PiConfirmRequestedEvent requested:
                 Journal.Commit(new ApprovalRequestedEvent(
@@ -867,17 +1294,36 @@ public sealed class PiThreadController : IAsyncDisposable
         }
     }
 
+    private async Task ObserveExtensionCommandAsync(PiProcess process, TurnId turnId)
+    {
+        try { await process.Connection.ObserveHandledPromptAsync(turnId.Value, _shutdown.Token).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is OperationCanceledException or PiRpcException or TimeoutException or ObjectDisposedException)
+        {
+            // The normal runtime event pump owns crash/restart recovery.
+        }
+    }
+
     private async Task SettleAsync()
     {
+        await FinalizeActiveAgentActivitiesAsync(
+            AgentActivityState.Interrupted,
+            "The parent Pi turn ended before this activity reported completion.").ConfigureAwait(false);
+        CommitQueue([], [], QueueDeliveryState.Empty);
         TurnId? turnId;
         TurnMetrics? metrics;
         string? piEntryIdBeforeTurn;
+        PiTokenUsage? usage;
+        string provider;
+        string model;
         (ClientId ClientId, CommandId CommandId)[] receipts;
         lock (_stateLock)
         {
             turnId = _activeTurnId;
             metrics = turnId is null ? null : CreateTurnMetrics();
             piEntryIdBeforeTurn = _activeTurnEntryIdBefore;
+            usage = _activeTurnUsage;
+            provider = _activeTurnProvider;
+            model = _activeTurnModel;
             _activeTurnId = null;
             ClearActiveTurnMetrics();
             _currentAssistantMessageId = null;
@@ -934,6 +1380,19 @@ public sealed class PiThreadController : IAsyncDisposable
             }
 
             Journal.Commit(new TurnSettledEvent(turnId.Value, metrics));
+            if (usage is not null)
+            {
+                await _database.AppendUsageAsync(
+                    _thread.ThreadId,
+                    provider,
+                    model,
+                    usage.InputTokens,
+                    usage.OutputTokens,
+                    usage.CacheReadTokens + usage.CacheWriteTokens,
+                    usage.TotalTokens,
+                    usage.TotalCost,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
         }
         else
         {
@@ -969,6 +1428,46 @@ public sealed class PiThreadController : IAsyncDisposable
                 _activeTurnContextTokens = usage.ContextTokens;
             }
         }
+    }
+
+    private void ApplyCompactionCompleted(PiCompactionCompletedEvent completed)
+    {
+        long? before = null;
+        long? after = null;
+        decimal? cost = null;
+        string? summary = null;
+        if (completed.Result is { } result)
+        {
+            if (result.TryGetProperty("tokensBefore", out var beforeElement) && beforeElement.TryGetInt64(out var parsedBefore))
+            {
+                before = parsedBefore;
+            }
+            if (result.TryGetProperty("estimatedTokensAfter", out var afterElement) && afterElement.TryGetInt64(out var parsedAfter))
+            {
+                after = parsedAfter;
+            }
+            if (result.TryGetProperty("summary", out var summaryElement) && summaryElement.ValueKind == JsonValueKind.String)
+            {
+                summary = LimitPreview(summaryElement.GetString() ?? string.Empty, 2_000);
+            }
+            if (result.TryGetProperty("usage", out var usageElement) &&
+                usageElement.TryGetProperty("cost", out var costElement) &&
+                costElement.TryGetProperty("total", out var totalElement) &&
+                totalElement.TryGetDecimal(out var parsedCost))
+            {
+                cost = parsedCost;
+            }
+        }
+        Journal.Commit(new ContextCompactionChangedEvent(new ContextCompactionProjection(
+            completed.Aborted ? ContextCompactionState.Interrupted :
+                completed.Result is null ? ContextCompactionState.Failed : ContextCompactionState.Completed,
+            completed.Reason,
+            before,
+            after,
+            cost,
+            summary,
+            completed.ErrorMessage,
+            DateTimeOffset.UtcNow)));
     }
 
     private TurnMetrics CreateTurnMetrics()
@@ -1017,11 +1516,109 @@ public sealed class PiThreadController : IAsyncDisposable
         current?.ReasoningTokens is null && next.ReasoningTokens is null
             ? null
             : AddSaturated(current?.ReasoningTokens ?? 0, next.ReasoningTokens ?? 0),
-        AddSaturated(current?.TotalTokens ?? 0, next.TotalTokens));
+        AddSaturated(current?.TotalTokens ?? 0, next.TotalTokens),
+        current is null ? next.TotalCost : current.TotalCost is { } left && next.TotalCost is { } right
+            ? left > decimal.MaxValue - right ? decimal.MaxValue : left + right
+            : null);
 
     private static long AddSaturated(long left, long right) => left > long.MaxValue - right
         ? long.MaxValue
         : left + right;
+
+    private async Task PersistAgentActivitiesAsync(IReadOnlyList<AgentActivityProjection> activities)
+    {
+        if (activities.Count == 0)
+        {
+            return;
+        }
+
+        var turnCount = CountStartedTurns(Journal.Projection);
+        foreach (var activity in activities)
+        {
+            var @event = new AgentActivityChangedEvent(activity);
+            await _database.AppendThreadAgentEventAsync(
+                _thread.ThreadId,
+                activity.TurnId,
+                turnCount,
+                @event,
+                _shutdown.Token).ConfigureAwait(false);
+            Journal.Commit(@event);
+        }
+    }
+
+    private async Task FinalizeActiveAgentActivitiesAsync(
+        AgentActivityState finalState,
+        string failureSummary)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var active = (Journal.Projection.AgentActivities ?? [])
+            .Where(static activity => activity.State is AgentActivityState.Pending or
+                AgentActivityState.Running or AgentActivityState.Waiting)
+            .ToArray();
+        foreach (var activity in active)
+        {
+            await PersistAgentActivitiesAsync(
+            [
+                activity with
+                {
+                    State = finalState,
+                    CurrentActivity = finalState == AgentActivityState.Failed ? "Failed" : "Interrupted",
+                    UpdatedUtc = now,
+                    CompletedUtc = now,
+                    FailureSummary = activity.FailureSummary ?? failureSummary,
+                    CanInterrupt = false,
+                },
+            ]).ConfigureAwait(false);
+        }
+    }
+
+    private void CommitQueue(
+        IReadOnlyList<string> steering,
+        IReadOnlyList<string> followUp,
+        QueueDeliveryState requestedState)
+    {
+        var current = Journal.Projection.Queue;
+        var messages = steering.Select((text, index) => new QueuedMessageProjection(
+                QueuedMessageKind.Steering,
+                index + 1,
+                LimitPreview(PiPromptFormatter.NormalizePersistedMessage(text), 4_000)))
+            .Concat(followUp.Select((text, index) => new QueuedMessageProjection(
+                QueuedMessageKind.FollowUp,
+                index + 1,
+                LimitPreview(PiPromptFormatter.NormalizePersistedMessage(text), 4_000))))
+            .ToArray();
+        var state = messages.Length > 0
+            ? QueueDeliveryState.Queued
+            : requestedState switch
+            {
+                QueueDeliveryState.Cleared => QueueDeliveryState.Cleared,
+                QueueDeliveryState.Empty => QueueDeliveryState.Empty,
+                _ => current?.PendingMessageCount > 0
+                    ? QueueDeliveryState.Delivering
+                    : QueueDeliveryState.Empty,
+            };
+        Journal.Commit(new QueueStateChangedEvent(new ThreadQueueProjection(
+            messages,
+            current?.SteeringMode ?? QueueDeliveryMode.OneAtATime,
+            current?.FollowUpMode ?? QueueDeliveryMode.OneAtATime,
+            state,
+            messages.Length,
+            DateTimeOffset.UtcNow)));
+    }
+
+    private static ThreadQueueProjection CreateQueueProjection(
+        PiSessionState state,
+        IReadOnlyList<QueuedMessageProjection> messages) => new(
+        state.PendingMessageCount == messages.Count ? messages : [],
+        ParseDeliveryMode(state.SteeringMode),
+        ParseDeliveryMode(state.FollowUpMode),
+        state.PendingMessageCount > 0 ? QueueDeliveryState.Queued : QueueDeliveryState.Empty,
+        state.PendingMessageCount,
+        DateTimeOffset.UtcNow);
+
+    private static QueueDeliveryMode ParseDeliveryMode(string value) => value == "all"
+        ? QueueDeliveryMode.All
+        : QueueDeliveryMode.OneAtATime;
 
     private T RequirePendingInteraction<T>(InteractionId interactionId) where T : TimelineItem
     {
@@ -1064,6 +1661,24 @@ public sealed class PiThreadController : IAsyncDisposable
     private PiProcess RequireInteractionProcess() => _process ?? throw new HostOperationException(
         ProtocolErrorCodes.PiRuntimeCrashed,
         "Pi is no longer available to receive the interaction response.");
+
+    private async Task<PiProcess> RequireQueueProcessAsync(CancellationToken cancellationToken)
+    {
+        if (_process is null || Journal.Projection.RuntimeState == ThreadRuntimeState.Stopped)
+        {
+            await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (_process is null || Journal.Projection.RuntimeState is not
+            (ThreadRuntimeState.Ready or ThreadRuntimeState.Running))
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.ThreadBusy,
+                "The Pi queue is unavailable while the thread is changing runtime state.");
+        }
+
+        return _process;
+    }
 
     private PiProcess RequireReadyProcess()
     {
@@ -1307,6 +1922,66 @@ public sealed class PiThreadController : IAsyncDisposable
         {
             return _currentAssistantMessageId ??= $"assistant-{Guid.NewGuid():N}";
         }
+    }
+
+    private async Task TryGenerateAutomaticTitleAsync(string prompt, CancellationToken cancellationToken)
+    {
+        var current = await _database.GetThreadAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false);
+        if (current is null)
+        {
+            return;
+        }
+        var descriptor = await _database.EnrichThreadDescriptorAsync(current, cancellationToken).ConfigureAwait(false);
+        if (descriptor.TitleKind != ThreadTitleKind.Placeholder)
+        {
+            return;
+        }
+        var title = GenerateThreadTitle(prompt);
+        var update = await _database.UpdateThreadMetadataAsync(
+            current.ThreadId, current.Revision, title, null, null, cancellationToken).ConfigureAwait(false);
+        if (!update.WasUpdated || update.Thread is null)
+        {
+            return;
+        }
+        await _database.SetThreadTitleKindAsync(current.ThreadId, ThreadTitleKind.Generated, cancellationToken)
+            .ConfigureAwait(false);
+        _thread = update.Thread;
+        if (_process is not null)
+        {
+            try
+            {
+                await _process.Connection.SetSessionNameAsync(title, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is PiRpcConnectionException or PiRpcTimeoutException)
+            {
+                // The first prompt remains accepted and the durable title will be applied on the next runtime start.
+            }
+        }
+    }
+
+    internal static string GenerateThreadTitle(string prompt)
+    {
+        var normalized = string.Join(' ', prompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.StartsWith('/'))
+        {
+            var separator = normalized.IndexOf(' ');
+            normalized = separator >= 0 ? normalized[(separator + 1)..] : normalized.TrimStart('/');
+        }
+        var sentenceEnd = normalized.IndexOfAny(['.', '!', '?', '\n', '\r']);
+        if (sentenceEnd is > 10 and < 80)
+        {
+            normalized = normalized[..sentenceEnd];
+        }
+        normalized = normalized.Trim(' ', '.', ',', ':', ';', '-', '—');
+        if (normalized.Length == 0)
+        {
+            return "New thread";
+        }
+        if (normalized.Length > 72)
+        {
+            normalized = normalized[..69].TrimEnd() + "…";
+        }
+        return char.ToUpperInvariant(normalized[0]) + normalized[1..];
     }
 
     private void ValidateSessionFile(string? sessionFile)

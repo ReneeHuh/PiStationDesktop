@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Dispatching;
 using PiStation.Protocol.Identifiers;
@@ -45,11 +46,42 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         _uploadAttachment = uploadAttachment ?? throw new ArgumentNullException(nameof(uploadAttachment));
         _removeAttachment = removeAttachment ?? throw new ArgumentNullException(nameof(removeAttachment));
         _clearDraft = clearDraft ?? throw new ArgumentNullException(nameof(clearDraft));
+        ContextChips.CollectionChanged += OnContextChanged;
     }
 
     public event EventHandler<ComposerSaveFailedEventArgs>? SaveFailed;
 
     public ObservableCollection<DraftAttachmentViewModel> Attachments { get; } = [];
+
+    public ObservableCollection<ComposerContextChipViewModel> ContextChips { get; } = [];
+
+    public void AddContext(ComposerContextChipViewModel context)
+    {
+        if (_draft is null) throw new InvalidOperationException("Wait for the thread draft to load before adding context.");
+        ComposerContextDefaults.Validate([.. GetContext(), context.ToContext()]);
+        ContextChips.Add(context);
+    }
+
+    private ComposerContext[] GetContext() => ContextChips.Select(static chip => chip.ToContext()).ToArray();
+
+    private void OnContextChanged(object? sender, NotifyCollectionChangedEventArgs args)
+    {
+        OnPropertyChanged(nameof(ContextChips));
+        if (_settingLoadedText || _draft is null) return;
+        Status = "Unsaved";
+        ScheduleSave();
+    }
+
+    private void ReplaceContext(IReadOnlyList<ComposerContext>? context)
+    {
+        _settingLoadedText = true;
+        try
+        {
+            ContextChips.Clear();
+            foreach (var item in context ?? []) ContextChips.Add(ComposerContextChipViewModel.FromContext(item));
+        }
+        finally { _settingLoadedText = false; }
+    }
 
     public bool HasAttachments => Attachments.Count != 0;
 
@@ -58,6 +90,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     public double AttachmentNoticeHeight => HasAttachments ? double.NaN : 1;
 
     public bool CanAttach => _draft is not null && Attachments.Count < AttachmentDefaults.MaximumPerDraft;
+
+    public bool OwnsDraft(ThreadId threadId) => _draft?.ThreadId == threadId && _threadId == threadId;
 
     public string AttachmentNotice => HasAttachments
         ? "Attachments will be sent with your next message. Supported images are included directly; other files are shared by path."
@@ -106,6 +140,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 _threadId = threadId;
                 _draft = null;
                 SetLoadedText(string.Empty);
+                ReplaceContext([]);
                 ReplaceAttachments([]);
                 Status = threadId is null ? "No active draft" : "Loading draft";
             }).ConfigureAwait(false);
@@ -124,6 +159,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
                 _draft = loaded;
                 SetLoadedText(loaded.Text);
+                ReplaceContext(loaded.Context);
                 ReplaceAttachments(loaded.Attachments);
                 Status = "Saved";
             }).ConfigureAwait(false);
@@ -145,6 +181,19 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         await FlushAsync(cancellationToken).ConfigureAwait(false);
         return await RunOnUiThreadAsync(() => _draft).ConfigureAwait(false);
     }
+
+    public Task ApplyRestoredDraftAsync(ThreadDraft expected, ThreadDraft restored) => RunOnUiThreadAsync(() =>
+    {
+        if (_draft?.DraftId != expected.DraftId) return;
+        var localText = string.Equals(_text, expected.Text, StringComparison.Ordinal) ? string.Empty : _text;
+        var localContext = GetContext();
+        _draft = restored;
+        SetLoadedText(string.IsNullOrWhiteSpace(localText) ? restored.Text : $"{restored.Text}{Environment.NewLine}{localText}");
+        ReplaceContext((restored.Context ?? []).Concat(localContext).DistinctBy(static item => item.Id).ToArray());
+        ReplaceAttachments(restored.Attachments);
+        Status = "Saved";
+        if (localText.Length > 0 || localContext.Length > 0) ScheduleSave();
+    });
 
     public async Task ClearAcceptedTurnAsync(
         ThreadDraft sentDraft,
@@ -261,6 +310,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         }
 
         _disposed = true;
+        ContextChips.CollectionChanged -= OnContextChanged;
         CancelPendingDelay();
         await _saveGate.WaitAsync().ConfigureAwait(false);
         _saveGate.Release();
@@ -310,21 +360,22 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var snapshot = await RunOnUiThreadAsync(() => new DraftSnapshot(_draft, _text))
+            var snapshot = await RunOnUiThreadAsync(() => new DraftSnapshot(_draft, _text, GetContext()))
                 .ConfigureAwait(false);
             if (snapshot.Draft is null)
             {
                 return;
             }
 
-            if (string.Equals(snapshot.Draft.Text, snapshot.Text, StringComparison.Ordinal))
+            if (string.Equals(snapshot.Draft.Text, snapshot.Text, StringComparison.Ordinal) &&
+                (snapshot.Draft.Context ?? []).SequenceEqual(snapshot.Context))
             {
                 await RunOnUiThreadAsync(() => Status = "Saved").ConfigureAwait(false);
                 return;
             }
 
             await RunOnUiThreadAsync(() => Status = "Saving").ConfigureAwait(false);
-            var saved = await _saveDraft(snapshot.Draft, snapshot.Text, cancellationToken).ConfigureAwait(false);
+            var saved = await _saveDraft(snapshot.Draft with { Context = snapshot.Context }, snapshot.Text, cancellationToken).ConfigureAwait(false);
             await RunOnUiThreadAsync(() =>
             {
                 if (_draft?.DraftId != saved.DraftId)
@@ -369,7 +420,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
         _draft = saved;
         ReplaceAttachments(saved.Attachments);
-        Status = string.Equals(_text, saved.Text, StringComparison.Ordinal) ? "Saved" : "Unsaved";
+        Status = string.Equals(_text, saved.Text, StringComparison.Ordinal) &&
+            GetContext().SequenceEqual(saved.Context ?? []) ? "Saved" : "Unsaved";
     }
 
     private void ApplyClearedDraft(ThreadDraft sentDraft, ThreadDraft cleared)
@@ -381,13 +433,16 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
         var textStillMatchesSentDraft = string.Equals(_text, sentDraft.Text, StringComparison.Ordinal);
         _draft = cleared;
+        var sentContextIds = (sentDraft.Context ?? []).Select(static context => context.Id).ToHashSet(StringComparer.Ordinal);
+        ReplaceContext(GetContext().Where(context => !sentContextIds.Contains(context.Id)).ToArray());
         ReplaceAttachments(cleared.Attachments);
         if (textStillMatchesSentDraft)
         {
             SetLoadedText(cleared.Text);
         }
 
-        Status = string.Equals(_text, cleared.Text, StringComparison.Ordinal) ? "Saved" : "Unsaved";
+        Status = string.Equals(_text, cleared.Text, StringComparison.Ordinal) && ContextChips.Count == 0 ? "Saved" : "Unsaved";
+        if (Status == "Unsaved") ScheduleSave();
     }
 
     private void ReplaceAttachments(IReadOnlyList<DraftAttachment> attachments)
@@ -459,5 +514,5 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         return completion.Task;
     }
 
-    private sealed record DraftSnapshot(ThreadDraft? Draft, string Text);
+    private sealed record DraftSnapshot(ThreadDraft? Draft, string Text, IReadOnlyList<ComposerContext> Context);
 }

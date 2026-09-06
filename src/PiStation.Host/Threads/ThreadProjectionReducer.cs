@@ -30,7 +30,9 @@ public static class ThreadProjectionReducer
         piSessionId,
         piSessionFile,
         null,
-        null);
+        null,
+        EmptyQueue(),
+        []);
 
     public static ThreadProjection Hydrate(
         ThreadProjection current,
@@ -146,6 +148,7 @@ public static class ThreadProjectionReducer
 
     public static ThreadProjection Apply(ThreadProjection projection, ThreadEvent @event) => @event switch
     {
+        PiExtensionUiChangedEvent changed => projection with { ExtensionUi = (projection.ExtensionUi ?? PiExtensionUiState.Empty).Apply(changed.Update) },
         RuntimeStateChangedEvent changed => ApplyRuntimeStateChanged(projection, changed),
         TurnStartedEvent started => ApplyTurnStarted(projection, started),
         MessageStartedEvent started => projection with
@@ -220,6 +223,12 @@ public static class ThreadProjectionReducer
         },
         InteractionResolvedEvent resolved => ApplyInteractionResolved(projection, resolved),
         CheckpointCapturedEvent captured => ApplyCheckpointCaptured(projection, captured),
+        QueueStateChangedEvent changed => projection with { Queue = changed.Queue },
+        AgentActivityChangedEvent changed => projection with
+        {
+            AgentActivities = AddOrReplaceAgentActivity(projection.AgentActivities ?? [], changed.Activity),
+        },
+        ContextCompactionChangedEvent changed => projection with { Compaction = changed.Compaction },
         TurnSettledEvent settled => ApplyTurnSettled(projection, settled),
         RuntimeFailedEvent failed => ApplyRuntimeFailed(projection, failed),
         UnknownRuntimeEvent unknown => projection with
@@ -294,6 +303,7 @@ public static class ThreadProjectionReducer
         return projection with
         {
             RuntimeState = changed.State,
+            ExtensionUi = changed.State is ThreadRuntimeState.Starting or ThreadRuntimeState.Stopped ? PiExtensionUiState.Empty : projection.ExtensionUi,
             Timeline = timeline,
             LastError = changed.State == ThreadRuntimeState.Crashed ? projection.LastError : null,
         };
@@ -477,6 +487,36 @@ public static class ThreadProjectionReducer
 
         return result;
     }
+
+    private static AgentActivityProjection[] AddOrReplaceAgentActivity(
+        IReadOnlyList<AgentActivityProjection> activities,
+        AgentActivityProjection activity)
+    {
+        var result = activities.ToList();
+        var index = result.FindIndex(existing => existing.ActivityId == activity.ActivityId);
+        if (index < 0)
+        {
+            result.Add(activity);
+        }
+        else
+        {
+            result[index] = activity;
+        }
+
+        return result
+            .OrderBy(static item => item.StartedUtc)
+            .ThenBy(static item => item.AgentIndex ?? int.MaxValue)
+            .ThenBy(static item => item.ActivityId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static ThreadQueueProjection EmptyQueue() => new(
+        [],
+        QueueDeliveryMode.OneAtATime,
+        QueueDeliveryMode.OneAtATime,
+        QueueDeliveryState.Empty,
+        0,
+        DateTimeOffset.UtcNow);
 
     private static ThreadProjection ApplyInteractionResolved(
         ThreadProjection projection,

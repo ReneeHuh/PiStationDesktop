@@ -1,14 +1,20 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using PiStation.App.ViewModels;
+using Windows.Media.Editing;
+using Windows.Media.Transcoding;
+using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace PiStation.App.Views.Controls;
 
 public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 {
+    private static readonly ConcurrentDictionary<string, Task<CoreWebView2Environment>> ProfileEnvironments =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, string?> _navigationContexts = [];
     private string? _activeNavigationContext;
     private bool _disposed;
@@ -16,6 +22,14 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     private string? _elementPickToken;
     private Task? _initializationTask;
     private string? _navigationContext;
+    private string? _profileDataPath;
+    private bool _allowDevTools;
+    private double _zoomFactor = 1;
+    private PreviewColorScheme _colorScheme;
+    private CancellationTokenSource? _recordingCancellation;
+    private Task? _recordingTask;
+    private string? _recordingDirectory;
+    private int _recordingFrameRate;
 
     public PreviewWebViewSurface()
     {
@@ -33,6 +47,30 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     public bool IsInitialized => Browser.CoreWebView2 is not null;
 
     public string? CurrentSource => Browser.CoreWebView2?.Source;
+
+    public void Configure(
+        string profileDataPath,
+        bool allowDevTools,
+        double zoomFactor,
+        PreviewColorScheme colorScheme)
+    {
+        if (_initializationTask is not null &&
+            !string.Equals(_profileDataPath, profileDataPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("A preview profile cannot change after its browser starts.");
+        }
+
+        _profileDataPath = Path.GetFullPath(profileDataPath);
+        _allowDevTools = allowDevTools;
+        _zoomFactor = NormalizeZoom(zoomFactor);
+        _colorScheme = Enum.IsDefined(colorScheme) ? colorScheme : PreviewColorScheme.System;
+        if (Browser.CoreWebView2 is not null)
+        {
+            ApplyDevToolsPolicy(allowDevTools);
+            _ = ApplyZoomAsync(_zoomFactor);
+            _ = ApplyColorSchemeAsync(_colorScheme);
+        }
+    }
 
     public void SetNavigationContext(string? context)
     {
@@ -85,6 +123,122 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 
     public void Stop() => Browser.CoreWebView2?.Stop();
 
+    public void ApplyDevToolsPolicy(bool allow)
+    {
+        _allowDevTools = allow;
+        if (Browser.CoreWebView2 is { } core)
+        {
+            core.Settings.AreDevToolsEnabled = allow;
+        }
+    }
+
+    public void OpenDevTools()
+    {
+        if (!_allowDevTools || Browser.CoreWebView2 is not { } core)
+        {
+            throw new InvalidOperationException("DevTools are disabled by the preview security policy.");
+        }
+
+        core.OpenDevToolsWindow();
+    }
+
+    public void SetZoomFactor(double value)
+    {
+        _zoomFactor = NormalizeZoom(value);
+        if (Browser.CoreWebView2 is not null)
+        {
+            _ = ApplyZoomAsync(_zoomFactor);
+        }
+    }
+
+    public async Task SetColorSchemeAsync(PreviewColorScheme colorScheme)
+    {
+        _colorScheme = Enum.IsDefined(colorScheme) ? colorScheme : PreviewColorScheme.System;
+        if (Browser.CoreWebView2 is not null)
+        {
+            await ApplyColorSchemeAsync(_colorScheme);
+        }
+    }
+
+    public async Task<int> ImportCookiesAsync(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        await InitializeAsync();
+        var manager = Browser.CoreWebView2.CookieManager;
+        var imported = 0;
+        foreach (var item in ParseCookies(content).Take(2_000))
+        {
+            try
+            {
+                var cookie = manager.CreateCookie(item.Name, item.Value, item.Domain, item.Path);
+                cookie.IsSecure = item.IsSecure;
+                cookie.IsHttpOnly = item.IsHttpOnly;
+                manager.AddOrUpdateCookie(cookie);
+                imported++;
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        return imported;
+    }
+
+    public async Task<string> GetDomSnapshotAsync()
+    {
+        await InitializeAsync();
+        var raw = await Browser.CoreWebView2.ExecuteScriptAsync(DomSnapshotScript);
+        return DecodeScriptString(raw, "[]", 32 * 1024);
+    }
+
+    public async Task<string> ClickElementAsync(string selector)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(selector);
+        if (selector.Length > 1024)
+        {
+            throw new ArgumentException("The browser selector exceeds 1,024 characters.", nameof(selector));
+        }
+
+        await InitializeAsync();
+        var script = $$"""
+            (() => {
+              const element = document.querySelector({{JsonSerializer.Serialize(selector)}});
+              if (!element) return JSON.stringify({ ok: false, message: 'No matching element' });
+              element.scrollIntoView({ block: 'center', inline: 'center' });
+              element.click();
+              return JSON.stringify({ ok: true, tag: element.tagName.toLowerCase() });
+            })()
+            """;
+        return DecodeScriptString(await Browser.CoreWebView2.ExecuteScriptAsync(script), "{}", 4 * 1024);
+    }
+
+    public async Task<string> TypeIntoElementAsync(string selector, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(selector);
+        ArgumentNullException.ThrowIfNull(value);
+        if (selector.Length > 1024 || value.Length > 8 * 1024)
+        {
+            throw new ArgumentException("The browser selector or value exceeds its safe limit.");
+        }
+
+        await InitializeAsync();
+        var script = $$"""
+            (() => {
+              const element = document.querySelector({{JsonSerializer.Serialize(selector)}});
+              if (!element) return JSON.stringify({ ok: false, message: 'No matching element' });
+              const value = {{JsonSerializer.Serialize(value)}};
+              element.focus();
+              if ('value' in element) element.value = value;
+              else if (element.isContentEditable) element.textContent = value;
+              else return JSON.stringify({ ok: false, message: 'Element does not accept text' });
+              element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+              element.dispatchEvent(new Event('change', { bubbles: true }));
+              return JSON.stringify({ ok: true, tag: element.tagName.toLowerCase() });
+            })()
+            """;
+        return DecodeScriptString(await Browser.CoreWebView2.ExecuteScriptAsync(script), "{}", 4 * 1024);
+    }
+
     public async Task<byte[]> CapturePreviewPngAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -104,6 +258,91 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         var bytes = new byte[checked((int)stream.Size)];
         reader.ReadBytes(bytes);
         return bytes;
+    }
+
+    public Task StartRecordingAsync(int frameRate = 4)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_recordingTask is not null)
+        {
+            throw new InvalidOperationException("The preview is already recording.");
+        }
+
+        _recordingFrameRate = Math.Clamp(frameRate, 1, 12);
+        var root = Path.Combine(Path.GetTempPath(), "PiStationDesktop", "preview-recordings");
+        Directory.CreateDirectory(root);
+        _recordingDirectory = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_recordingDirectory);
+        _recordingCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        _recordingTask = CaptureRecordingFramesAsync(_recordingDirectory, _recordingFrameRate, _recordingCancellation.Token);
+        return Task.CompletedTask;
+    }
+
+    public async Task<string> StopRecordingAsync(string outputDirectory)
+    {
+        if (_recordingTask is null || _recordingCancellation is null || _recordingDirectory is null)
+        {
+            throw new InvalidOperationException("The preview is not recording.");
+        }
+
+        var recordingTask = _recordingTask;
+        var frameDirectory = _recordingDirectory;
+        var frameRate = _recordingFrameRate;
+        _recordingCancellation.Cancel();
+        try
+        {
+            await recordingTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _recordingCancellation.Dispose();
+            _recordingCancellation = null;
+            _recordingTask = null;
+            _recordingDirectory = null;
+        }
+
+        var framePaths = Directory.EnumerateFiles(frameDirectory, "*.png")
+            .OrderBy(static path => path, StringComparer.Ordinal)
+            .Take(1_440)
+            .ToArray();
+        if (framePaths.Length == 0)
+        {
+            DeleteRecordingFrames(frameDirectory);
+            throw new InvalidOperationException("The recording did not capture any frames.");
+        }
+
+        Directory.CreateDirectory(outputDirectory);
+        var outputFolder = await StorageFolder.GetFolderFromPathAsync(Path.GetFullPath(outputDirectory));
+        var output = await outputFolder.CreateFileAsync(
+            $"preview-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.mp4",
+            CreationCollisionOption.GenerateUniqueName);
+        try
+        {
+            var composition = new MediaComposition();
+            var duration = TimeSpan.FromSeconds(1d / frameRate);
+            foreach (var framePath in framePaths)
+            {
+                var frame = await StorageFile.GetFileFromPathAsync(framePath);
+                composition.Clips.Add(await MediaClip.CreateFromImageFileAsync(frame, duration));
+            }
+
+            var failure = await composition.RenderToFileAsync(
+                output,
+                MediaTrimmingPreference.Precise);
+            if (failure != TranscodeFailureReason.None)
+            {
+                throw new InvalidOperationException($"The recording encoder failed ({failure}).");
+            }
+
+            return output.Path;
+        }
+        finally
+        {
+            DeleteRecordingFrames(frameDirectory);
+        }
     }
 
     public async Task<PreviewElementSelection?> PickElementAsync()
@@ -163,6 +402,27 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
 
         _disposed = true;
+        var recordingTask = _recordingTask;
+        var recordingDirectory = _recordingDirectory;
+        _recordingCancellation?.Cancel();
+        _recordingCancellation?.Dispose();
+        _recordingCancellation = null;
+        _recordingTask = null;
+        _recordingDirectory = null;
+        if (recordingTask is not null && recordingDirectory is not null)
+        {
+            _ = recordingTask.ContinueWith(
+                static (task, state) =>
+                {
+                    _ = task.Exception;
+                    DeleteRecordingFrames((string)state!);
+                },
+                recordingDirectory,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
         CancelElementPicker();
         if (Browser.CoreWebView2 is { } core)
         {
@@ -185,16 +445,23 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     {
         try
         {
-            await Browser.EnsureCoreWebView2Async();
+            if (_profileDataPath is { } profileDataPath)
+            {
+                Directory.CreateDirectory(profileDataPath);
+                var environment = await ProfileEnvironments.GetOrAdd(
+                    profileDataPath,
+                    static path => CoreWebView2Environment.CreateWithOptionsAsync(null, path, null).AsTask());
+                await Browser.EnsureCoreWebView2Async(environment);
+            }
+            else
+            {
+                await Browser.EnsureCoreWebView2Async();
+            }
             var core = Browser.CoreWebView2 ??
                 throw new InvalidOperationException("WebView2 did not create its core instance.");
 
             core.Settings.AreDefaultContextMenusEnabled = true;
-#if DEBUG
-            core.Settings.AreDevToolsEnabled = true;
-#else
-            core.Settings.AreDevToolsEnabled = false;
-#endif
+            core.Settings.AreDevToolsEnabled = _allowDevTools;
             core.Settings.AreHostObjectsAllowed = false;
             core.Settings.IsWebMessageEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
@@ -210,6 +477,8 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             core.DownloadStarting += OnDownloadStarting;
             // Web content commonly relies on the browser's white default without declaring a body background.
             Browser.DefaultBackgroundColor = Windows.UI.Color.FromArgb(255, 255, 255, 255);
+            await ApplyZoomAsync(_zoomFactor);
+            await ApplyColorSchemeAsync(_colorScheme);
             InitializationProgress.IsActive = false;
             InitializationOverlay.Visibility = Visibility.Collapsed;
             PublishBrowserState(_navigationContext);
@@ -417,6 +686,185 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             "The preview server presented an invalid HTTPS certificate.",
         _ => $"The page could not be loaded ({status}).",
     };
+
+    private async Task CaptureRecordingFramesAsync(
+        string frameDirectory,
+        int frameRate,
+        CancellationToken cancellationToken)
+    {
+        var frame = 0;
+        var interval = TimeSpan.FromSeconds(1d / frameRate);
+        while (!cancellationToken.IsCancellationRequested && frame < 1_440)
+        {
+            var started = DateTimeOffset.UtcNow;
+            var content = await CapturePreviewPngAsync();
+            await File.WriteAllBytesAsync(
+                Path.Combine(frameDirectory, $"frame-{frame++:D5}.png"),
+                content,
+                cancellationToken);
+            var remaining = interval - (DateTimeOffset.UtcNow - started);
+            if (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining, cancellationToken);
+            }
+        }
+    }
+
+    private static void DeleteRecordingFrames(string frameDirectory)
+    {
+        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "PiStationDesktop", "preview-recordings"));
+        var target = Path.GetFullPath(frameDirectory);
+        if (target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+            Directory.Exists(target))
+        {
+            try
+            {
+                Directory.Delete(target, recursive: true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private async Task ApplyColorSchemeAsync(PreviewColorScheme colorScheme)
+    {
+        if (Browser.CoreWebView2 is not { } core)
+        {
+            return;
+        }
+
+        var features = colorScheme == PreviewColorScheme.System
+            ? "[]"
+            : $"[{{\"name\":\"prefers-color-scheme\",\"value\":\"{colorScheme.ToString().ToLowerInvariant()}\"}}]";
+        await core.CallDevToolsProtocolMethodAsync(
+            "Emulation.setEmulatedMedia",
+            $"{{\"features\":{features}}}");
+    }
+
+    private async Task ApplyZoomAsync(double zoomFactor)
+    {
+        if (Browser.CoreWebView2 is { } core)
+        {
+            await core.CallDevToolsProtocolMethodAsync(
+                "Emulation.setPageScaleFactor",
+                $"{{\"pageScaleFactor\":{zoomFactor.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+        }
+    }
+
+    private static double NormalizeZoom(double value) =>
+        double.IsFinite(value) ? Math.Clamp(Math.Round(value, 2), 0.25, 3) : 1;
+
+    private static string DecodeScriptString(string raw, string fallback, int maximumLength)
+    {
+        try
+        {
+            var decoded = JsonSerializer.Deserialize<string>(raw) ?? fallback;
+            return decoded.Length <= maximumLength ? decoded : decoded[..maximumLength];
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
+    }
+
+    private static IEnumerable<ImportedCookie> ParseCookies(string content)
+    {
+        var trimmed = content.TrimStart();
+        if (trimmed.StartsWith('['))
+        {
+            using var document = JsonDocument.Parse(content);
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                var name = JsonString(item, "name", 512);
+                var value = JsonString(item, "value", 8 * 1024);
+                var domain = JsonString(item, "domain", 512);
+                var path = JsonString(item, "path", 1024);
+                if (name.Length > 0 && domain.Length > 0)
+                {
+                    yield return new ImportedCookie(
+                        name,
+                        value,
+                        domain,
+                        path.Length == 0 ? "/" : path,
+                        JsonBoolean(item, "secure"),
+                        JsonBoolean(item, "httpOnly"));
+                }
+            }
+
+            yield break;
+        }
+
+        foreach (var rawLine in content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine;
+            var httpOnly = false;
+            if (line.StartsWith("#HttpOnly_", StringComparison.Ordinal))
+            {
+                line = line[10..];
+                httpOnly = true;
+            }
+            else if (line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var fields = line.Split('\t');
+            if (fields.Length >= 7 && fields[0].Length is > 0 and <= 512 &&
+                fields[2].Length is > 0 and <= 1024 && fields[5].Length is > 0 and <= 512 &&
+                fields[6].Length <= 8 * 1024)
+            {
+                yield return new ImportedCookie(
+                    fields[5],
+                    fields[6],
+                    fields[0],
+                    fields[2],
+                    fields[3].Equals("TRUE", StringComparison.OrdinalIgnoreCase),
+                    httpOnly);
+            }
+        }
+    }
+
+    private static string JsonString(JsonElement item, string name, int maximumLength)
+    {
+        if (!item.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return string.Empty;
+        }
+
+        var text = value.GetString() ?? string.Empty;
+        return text.Length <= maximumLength ? text : text[..maximumLength];
+    }
+
+    private static bool JsonBoolean(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
+
+    private sealed record ImportedCookie(
+        string Name,
+        string Value,
+        string Domain,
+        string Path,
+        bool IsSecure,
+        bool IsHttpOnly);
+
+    private const string DomSnapshotScript = """
+        (() => JSON.stringify(Array.from(document.querySelectorAll('a,button,input,textarea,select,[role],h1,h2,h3'))
+          .filter(element => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+          })
+          .slice(0, 250)
+          .map((element, index) => ({
+            index,
+            tag: element.tagName.toLowerCase(),
+            role: element.getAttribute('role') || '',
+            label: (element.getAttribute('aria-label') || element.innerText || element.value || '').trim().slice(0, 240),
+            id: element.id || '',
+            name: element.getAttribute('name') || '',
+            type: element.getAttribute('type') || ''
+          }))))()
+        """;
 
     private const string ElementPickerScript = """
         (() => {

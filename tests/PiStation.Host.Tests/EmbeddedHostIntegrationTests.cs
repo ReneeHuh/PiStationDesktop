@@ -147,6 +147,75 @@ public sealed class EmbeddedHostIntegrationTests
     }
 
     [Fact]
+    public async Task ComposerDiscoveryAutomaticTitlesSettlementStashesAndCompactionWorkTogether()
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(temporaryDirectory.CreateOptions());
+        var descriptor = host.Environment.GetDescriptor();
+        var project = await host.Environment.AddProjectAsync(new AddProjectRequest(
+            temporaryDirectory.CreateDirectory("composer-power-project")));
+        var thread = await host.Environment.CreateThreadAsync(new CreateThreadRequest(project.ProjectId));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var discovery = await host.Environment.GetComposerDiscoveryAsync(thread.ThreadId, cancellation.Token);
+        var stash = await host.Environment.SavePromptStashAsync(new SavePromptStashRequest(
+            project.ProjectId,
+            thread.ThreadId,
+            "Keep this prompt for later"), cancellation.Token);
+        Assert.Contains(discovery.Commands, static command => command.Name == "compact" && command.Source == ComposerCommandSource.BuiltIn);
+        Assert.Contains(discovery.Commands, static command => command.Name == "skill:fake-skill" && command.Source == ComposerCommandSource.Skill && command.SourceInfo?.Scope == "user");
+        Assert.Equal(stash.StashId, Assert.Single(await host.Environment.ListPromptStashesAsync(project.ProjectId, cancellation.Token)).StashId);
+
+        await using (var stream = host.Environment.SubscribeThreadAsync(thread.ThreadId, null, cancellation.Token)
+                         .GetAsyncEnumerator(cancellation.Token))
+        {
+            Assert.True(await stream.MoveNextAsync());
+            var snapshot = Assert.IsType<ThreadSnapshotEnvelope>(stream.Current);
+            var receipt = await host.Environment.ExecuteThreadCommandAsync(new ExecuteThreadCommandRequest(
+                ProtocolVersion.Current,
+                descriptor.EnvironmentId,
+                ClientId.New(),
+                CommandId.New(),
+                thread.ThreadId,
+                snapshot.ProjectionEpoch,
+                null,
+                new ThreadStartTurnCommand("Implement composer power features")), cancellation.Token);
+            Assert.True(receipt.State is CommandReceiptState.Accepted or CommandReceiptState.Completed);
+            while (await stream.MoveNextAsync())
+            {
+                if ((stream.Current as ThreadEventEnvelope)?.Event is TurnSettledEvent)
+                {
+                    break;
+                }
+            }
+        }
+
+        var updated = await host.Environment.GetThreadAsync(thread.ThreadId, cancellation.Token);
+        Assert.Equal("Implement composer power features", updated.Title);
+        Assert.Equal(ThreadTitleKind.Generated, updated.TitleKind);
+        Assert.False(updated.IsSettled);
+
+        var compactReceipt = await host.Environment.ExecuteThreadCommandAsync(new ExecuteThreadCommandRequest(
+            ProtocolVersion.Current,
+            descriptor.EnvironmentId,
+            ClientId.New(),
+            CommandId.New(),
+            thread.ThreadId,
+            null,
+            null,
+            new ThreadCompactContextCommand("Keep implementation decisions")), cancellation.Token);
+        Assert.Equal(CommandReceiptState.Completed, compactReceipt.State);
+
+        await using var compactedStream = host.Environment.SubscribeThreadAsync(thread.ThreadId, null, cancellation.Token)
+            .GetAsyncEnumerator(cancellation.Token);
+        Assert.True(await compactedStream.MoveNextAsync());
+        var compacted = Assert.IsType<ThreadSnapshotEnvelope>(compactedStream.Current).Projection.Compaction;
+        Assert.Equal(ContextCompactionState.Completed, compacted?.State);
+        Assert.Equal(1200, compacted?.TokensBefore);
+        Assert.Equal(320, compacted?.EstimatedTokensAfter);
+    }
+
+    [Fact]
     public async Task SignalRStreamsReconnectsIdempotentlyAndResumesAfterRestart()
     {
         using var temporaryDirectory = new HostTestDirectory();
@@ -323,6 +392,8 @@ public sealed class EmbeddedHostIntegrationTests
         await using var connection = HostTestConnection.Create(host);
         await connection.StartAsync();
         var descriptor = await connection.InvokeAsync<EnvironmentDescriptor>("GetEnvironmentDescriptor");
+        Assert.Contains("thread.queue", descriptor.Capabilities);
+        Assert.Contains("thread.agents", descriptor.Capabilities);
         Assert.Contains("thread.draft", descriptor.Capabilities);
         var project = await connection.InvokeAsync<ProjectDescriptor>(
             "AddProject",
@@ -899,6 +970,107 @@ public sealed class EmbeddedHostIntegrationTests
             .Where(static command => command is "clear_queue" or "abort" or "abort_retry")
             .ToArray();
         Assert.Equal(["clear_queue", "abort"], commands);
+    }
+
+    [Fact]
+    public async Task ActiveTurnCommandsProjectQueueContentsModesAndClearing()
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        var options = temporaryDirectory.CreateOptions("queue");
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(options);
+        await using var connection = HostTestConnection.Create(host);
+        await connection.StartAsync();
+        var descriptor = await connection.InvokeAsync<EnvironmentDescriptor>("GetEnvironmentDescriptor");
+        var project = await connection.InvokeAsync<ProjectDescriptor>(
+            "AddProject",
+            new AddProjectRequest(temporaryDirectory.CreateDirectory("queue-project")));
+        var thread = await connection.InvokeAsync<ThreadDescriptor>(
+            "CreateThread",
+            new CreateThreadRequest(project.ProjectId));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var stream = connection.StreamAsync<ThreadEnvelope>(
+                "SubscribeThread",
+                thread.ThreadId,
+                null,
+                cancellation.Token)
+            .GetAsyncEnumerator(cancellation.Token);
+        Assert.True(await stream.MoveNextAsync());
+        var snapshot = Assert.IsType<ThreadSnapshotEnvelope>(stream.Current);
+        var clientId = ClientId.New();
+
+        async Task<CommandReceipt> ExecuteAsync(ThreadCommand command, TurnId? expectedTurnId = null) =>
+            await connection.InvokeAsync<CommandReceipt>(
+                "ExecuteThreadCommand",
+                new ExecuteThreadCommandRequest(
+                    ProtocolVersion.Current,
+                    descriptor.EnvironmentId,
+                    clientId,
+                    CommandId.New(),
+                    thread.ThreadId,
+                    snapshot.ProjectionEpoch,
+                    expectedTurnId,
+                    command),
+                cancellation.Token);
+
+        await ExecuteAsync(new ThreadStartTurnCommand("Start the task"));
+        TurnStartedEvent? turnStarted = null;
+        while (turnStarted is null && await stream.MoveNextAsync())
+        {
+            turnStarted = (stream.Current as ThreadEventEnvelope)?.Event as TurnStartedEvent;
+        }
+
+        Assert.NotNull(turnStarted);
+        var steerReceipt = await ExecuteAsync(
+            new ThreadQueueSteeringCommand("Change direction", null, null, null),
+            turnStarted.TurnId);
+        var steered = await ReadQueueAsync(static queue =>
+            queue.Messages.Any(message => message.Kind == QueuedMessageKind.Steering));
+        var followUpReceipt = await ExecuteAsync(
+            new ThreadQueueFollowUpCommand("Then summarize", null, null, null),
+            turnStarted.TurnId);
+        var followed = await ReadQueueAsync(static queue => queue.Messages.Count == 2);
+        var modeReceipt = await ExecuteAsync(new ThreadSetQueueDeliveryModeCommand(
+            QueuedMessageKind.Steering,
+            QueueDeliveryMode.OneAtATime));
+        var configured = await ReadQueueAsync(static queue =>
+            queue.SteeringMode == QueueDeliveryMode.OneAtATime && queue.PendingMessageCount == 2);
+        var clearReceipt = await ExecuteAsync(new ThreadClearQueueCommand(), turnStarted.TurnId);
+        var cleared = await ReadQueueAsync(static queue => queue.DeliveryState == QueueDeliveryState.Cleared);
+
+        Assert.Equal(CommandReceiptState.Completed, steerReceipt.State);
+        Assert.Equal(CommandReceiptState.Completed, followUpReceipt.State);
+        Assert.Equal(CommandReceiptState.Completed, modeReceipt.State);
+        Assert.Equal(CommandReceiptState.Completed, clearReceipt.State);
+        Assert.Equal("Change direction", Assert.Single(steered.Messages).Text);
+        Assert.Equal(2, followed.PendingMessageCount);
+        Assert.Contains(followed.Messages, static message =>
+            message.Kind == QueuedMessageKind.FollowUp && message.Text == "Then summarize");
+        Assert.Equal(QueueDeliveryMode.OneAtATime, configured.SteeringMode);
+        Assert.Empty(cleared.Messages);
+        Assert.Equal(0, cleared.PendingMessageCount);
+
+        await ExecuteAsync(new ThreadStopTurnCommand(), turnStarted.TurnId);
+        while (await stream.MoveNextAsync())
+        {
+            if ((stream.Current as ThreadEventEnvelope)?.Event is TurnSettledEvent)
+            {
+                break;
+            }
+        }
+
+        async Task<ThreadQueueProjection> ReadQueueAsync(Func<ThreadQueueProjection, bool> predicate)
+        {
+            while (await stream.MoveNextAsync())
+            {
+                if ((stream.Current as ThreadEventEnvelope)?.Event is QueueStateChangedEvent changed &&
+                    predicate(changed.Queue))
+                {
+                    return changed.Queue;
+                }
+            }
+
+            throw new EndOfStreamException("The thread ended before the expected queue projection arrived.");
+        }
     }
 
     [Fact]

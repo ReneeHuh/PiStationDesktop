@@ -27,9 +27,28 @@
                     HorizontalAlignment="Stretch"
                     Style="{StaticResource PiAssistantMessageStyle}"
                     Visibility="{x:Bind MarkdownVisibility}">
-                    <views:MarkdownView
-                        automation:AutomationProperties.AutomationId="MarkdownMessageBody"
-                        Text="{x:Bind Text}" />
+                    <StackPanel Spacing="6">
+                        <views:MarkdownView
+                            automation:AutomationProperties.AutomationId="MarkdownMessageBody"
+                            WorkspaceLinkRequested="OnWorkspaceLinkRequested"
+                            SelectionQuoteRequested="OnSelectionQuoteRequested"
+                            SelectionCiteRequested="OnSelectionCiteRequested"
+                            Text="{x:Bind Text}" />
+                        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
+                            <Button
+                                automation:AutomationProperties.AutomationId="QuoteResponseButton"
+                                automation:AutomationProperties.Name="Quote response in prompt"
+                                Click="OnQuoteResponseClicked"
+                                Content="Quote"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                            <Button
+                                automation:AutomationProperties.AutomationId="CiteResponseButton"
+                                automation:AutomationProperties.Name="Cite response as prompt context"
+                                Click="OnCiteResponseClicked"
+                                Content="Cite"
+                                Style="{StaticResource PiToolbarButtonStyle}" />
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
                 <Border
                     HorizontalAlignment="Stretch"
@@ -628,6 +647,12 @@
                 TextAlignment="Center"
                 TextWrapping="WrapWholeWords" />
         </StackPanel>
+
+        <Button x:Name="JumpToLatestButton" Content="Jump to latest ↓"
+            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12"
+            Visibility="Collapsed" Click="OnJumpToLatestClicked"
+            automation:AutomationProperties.AutomationId="JumpToLatestButton"
+            Style="{StaticResource PiCompactButtonStyle}" />
 
         <TextBlock
             x:Name="LatestAssistantMessage"

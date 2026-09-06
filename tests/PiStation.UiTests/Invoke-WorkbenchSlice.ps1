@@ -3,7 +3,10 @@ param(
     [ValidateSet('Debug')]
     [string] $Configuration = 'Debug',
 
-    [switch] $NoBuild
+    [switch] $NoBuild,
+
+    [ValidateSet('All', 'Changes', 'Visual')]
+    [string] $Scope = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +24,8 @@ $launchedProcessId = $null
 $previewServerJob = $null
 $previewServerPort = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
+$launchedWindowHandle = [IntPtr]::Zero
 
 Add-Type -TypeDefinition @'
 using System;
@@ -28,6 +33,15 @@ using System.Runtime.InteropServices;
 
 public static class PiStationWorkbenchWindow
 {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(
         IntPtr hWnd,
@@ -37,6 +51,12 @@ public static class PiStationWorkbenchWindow
         int width,
         int height,
         uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out Rect rect);
 }
 '@
 
@@ -73,6 +93,26 @@ function Start-TestApp {
     )
     $launch = $launchJson | ConvertFrom-Json
     $script:launchedProcessId = [int]$launch.ProcessId
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $stateJson = & winapp ui inspect --depth 1 --app $script:launchedProcessId --json 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $state = $stateJson | ConvertFrom-Json
+            $window = @($state.windows | Where-Object { $_.title -eq 'Pi Station Desktop' }) |
+                Select-Object -First 1
+            if ($null -ne $window -and [long]$window.hwnd -ne 0) {
+                $script:launchedWindowHandle = [IntPtr][long]$window.hwnd
+            }
+        }
+
+        if ($script:launchedWindowHandle -ne [IntPtr]::Zero) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw 'The packaged app did not expose its main window after launch.'
 }
 
 function Stop-TestApp {
@@ -87,6 +127,7 @@ function Stop-TestApp {
     }
 
     $script:launchedProcessId = $null
+    $script:launchedWindowHandle = [IntPtr]::Zero
 }
 
 function Start-PreviewServer {
@@ -115,9 +156,16 @@ function Start-PreviewServer {
             }
 
             while ($true) {
+                # Keep the job cancellable while no preview has connected yet.
+                if (-not $listener.Pending()) {
+                    Start-Sleep -Milliseconds 100
+                    continue
+                }
+
                 $client = $listener.AcceptTcpClient()
                 try {
                     $stream = $client.GetStream()
+                    $stream.ReadTimeout = 5000
                     $reader = [System.IO.StreamReader]::new(
                         $stream,
                         [System.Text.Encoding]::ASCII,
@@ -134,6 +182,12 @@ function Start-PreviewServer {
                     $stream.Write($header, 0, $header.Length)
                     $stream.Write($body, 0, $body.Length)
                     $stream.Flush()
+                }
+                catch [System.IO.IOException] {
+                    # Browsers can open speculative connections without a request
+                    # or close a tab mid-response. Keep serving later requests.
+                }
+                catch [System.Net.Sockets.SocketException] {
                 }
                 finally {
                     $client.Dispose()
@@ -181,9 +235,13 @@ function Stop-PreviewServer {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -345,20 +403,28 @@ function Get-UiBounds {
     }
 }
 
+function Update-TestWindowHandle {
+    $state = Invoke-Ui 'inspect' '--depth' '1' | ConvertFrom-Json
+    $window = @($state.windows | Where-Object { $_.title -eq 'Pi Station Desktop' }) |
+        Select-Object -First 1
+    if ($null -eq $window -or [long]$window.hwnd -eq 0) {
+        throw 'The UI driver did not report the Pi Station Desktop window.'
+    }
+
+    $script:launchedWindowHandle = [IntPtr][long]$window.hwnd
+}
+
 function Set-TestWindowSize {
     param(
         [Parameter(Mandatory)][int] $Width,
         [Parameter(Mandatory)][int] $Height
     )
 
-    $process = Get-Process -Id $script:launchedProcessId -ErrorAction Stop
-    if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
-        throw 'The packaged app did not expose a main window handle.'
-    }
+    Update-TestWindowHandle
 
     $noMoveAndShow = 0x0042
     $didResize = [PiStationWorkbenchWindow]::SetWindowPos(
-        $process.MainWindowHandle,
+        $script:launchedWindowHandle,
         [IntPtr]::Zero,
         0,
         0,
@@ -374,21 +440,51 @@ function Wait-ForWindowWidth {
     param(
         [Parameter(Mandatory)][double] $Threshold,
         [Parameter(Mandatory)][ValidateSet('Below', 'Above')][string] $Direction,
-        [int] $Timeout = 5000
+        [int] $Timeout = 15000
     )
 
+    if ($script:launchedWindowHandle -eq [IntPtr]::Zero) {
+        throw 'The packaged app did not expose a main window handle.'
+    }
+
+    $dpi = [PiStationWorkbenchWindow]::GetDpiForWindow($script:launchedWindowHandle)
+    $scaledThreshold = $Threshold * ([Math]::Max(96, $dpi) / 96.0)
     $deadline = [DateTime]::UtcNow.AddMilliseconds($Timeout)
     do {
-        $bounds = Get-UiBounds -Selector 'AppMainWindow'
-        if (($Direction -eq 'Below' -and $bounds.Width -lt $Threshold) -or
-            ($Direction -eq 'Above' -and $bounds.Width -gt $Threshold)) {
+        $rect = New-Object PiStationWorkbenchWindow+Rect
+        if (-not [PiStationWorkbenchWindow]::GetWindowRect($script:launchedWindowHandle, [ref]$rect)) {
+            throw 'Could not read the packaged app window bounds.'
+        }
+
+        $windowWidth = $rect.Right - $rect.Left
+        $layoutResult = Invoke-Ui 'get-property' 'WorkspaceNavigation' '--property' 'HelpText' |
+            ConvertFrom-Json
+        $layout = [string]$layoutResult.properties.HelpText
+        $layoutSettled = if ($Direction -eq 'Below') {
+            $layout -match 'Responsive layout: (Narrow|Compact)'
+        }
+        else {
+            $layout -match 'Responsive layout: (Standard|Wide)'
+        }
+        $geometrySettled = $true
+        if ($layoutSettled -and $Direction -eq 'Below') {
+            $sidebar = Get-UiBounds -Selector 'AppSidebar'
+            $composer = Get-UiBounds -Selector 'ComposerSurface'
+            $panel = Get-UiBounds -Selector 'AgentsWorkbenchSurface'
+            $geometrySettled = $panel.X -lt ($composer.X + $composer.Width) -and
+                $panel.X -ge ($sidebar.X + $sidebar.Width - 2)
+        }
+
+        if ($layoutSettled -and $geometrySettled -and
+            (($Direction -eq 'Below' -and $windowWidth -lt $scaledThreshold) -or
+             ($Direction -eq 'Above' -and $windowWidth -gt $scaledThreshold))) {
             return
         }
 
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    throw "The app window width did not move $Direction $Threshold pixels."
+    throw "The app window width $windowWidth did not move $Direction $scaledThreshold physical pixels."
 }
 
 New-Item -ItemType Directory -Path $projectPath -Force | Out-Null
@@ -400,6 +496,9 @@ New-Item -ItemType Directory -Path $sourcePath -Force | Out-Null
 [System.IO.File]::WriteAllText(
     (Join-Path $projectPath 'README.md'),
     'Pi Station workbench file preview')
+[System.IO.File]::WriteAllText(
+    (Join-Path $projectPath 'preview.html'),
+    '<!doctype html><html><body><h1>Rendered safely</h1></body></html>')
 Invoke-CheckedNative -FilePath 'git' -ArgumentList @(
     '-C', $projectPath, 'init', '--quiet', '--initial-branch=main'
 ) | Out-Null
@@ -410,7 +509,7 @@ Invoke-CheckedNative -FilePath 'git' -ArgumentList @(
     '-C', $projectPath, 'config', 'user.name', 'Pi Station UI Tests'
 ) | Out-Null
 Invoke-CheckedNative -FilePath 'git' -ArgumentList @(
-    '-C', $projectPath, 'add', 'README.md', 'src/WorkbenchPreview.cs'
+    '-C', $projectPath, 'add', 'README.md', 'preview.html', 'src/WorkbenchPreview.cs'
 ) | Out-Null
 Invoke-CheckedNative -FilePath 'git' -ArgumentList @(
     '-C', $projectPath, 'commit', '--quiet', '-m', 'baseline'
@@ -438,6 +537,10 @@ try {
 
     Start-TestApp
     Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
+    # The initial workbench assertions inspect all three change rows. Start tall
+    # enough to realize them; the overlay layout is exercised explicitly below.
+    Set-TestWindowSize -Width 1400 -Height 1100
+    Wait-ForWindowWidth -Threshold 1000 -Direction 'Above'
     foreach ($selector in @(
         'ToggleWorkbenchButton',
         'WorkspaceStatusBar',
@@ -458,12 +561,13 @@ try {
     Invoke-Ui 'invoke' 'AddActionButton' | Out-Null
     Invoke-Ui 'wait-for' 'HeaderNewThreadMenuItem' '--timeout' '5000' | Out-Null
     Invoke-Ui 'invoke' 'HeaderNewThreadMenuItem' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Invoke-Ui 'wait-for' 'ThreadEmptyState' '--timeout' '5000' | Out-Null
 
     Invoke-Ui 'set-value' 'PromptInput' 'Capture the workbench checkpoint' | Out-Null
     Invoke-Ui 'invoke' 'SendPromptButton' | Out-Null
-    Wait-UiValue -Selector 'LatestAssistantMessage' -Value 'Hello from Fake Pi 👽'
+    $fakePiGreeting = 'Hello from Fake Pi ' + [char]::ConvertFromUtf32(0x1F47D)
+    Wait-UiValue -Selector 'LatestAssistantMessage' -Value $fakePiGreeting
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Invoke-Ui 'wait-for' 'TurnCheckpointCard' '--timeout' '10000' | Out-Null
 
@@ -478,7 +582,7 @@ try {
     )) {
         Invoke-Ui 'wait-for' $selector '--timeout' '5000' | Out-Null
     }
-    Invoke-Ui 'set-value' 'CommandPaletteQuery' 'Hello from Fake Pi 👽' | Out-Null
+    Invoke-Ui 'set-value' 'CommandPaletteQuery' $fakePiGreeting | Out-Null
     Wait-UiValue -Selector 'CommandPaletteStatusText' -Value '1 results' -Timeout 15000
     Invoke-Ui 'send-keys' 'esc' '--target' 'CommandPaletteQuery' '--via' 'post-message' | Out-Null
     Invoke-Ui 'wait-for' 'CommandPaletteDialog' '--gone' '--timeout' '5000' | Out-Null
@@ -509,7 +613,8 @@ try {
         'WorkbenchChangesStatusText',
         'WorkbenchChangeList',
         'WorkbenchDiffPathText',
-        'WorkbenchDiffStatusText'
+        'WorkbenchDiffStatusText',
+        'AddDiffSelectionToComposerButton'
     )) {
         Invoke-Ui 'wait-for' $selector '--timeout' '5000' | Out-Null
     }
@@ -517,12 +622,18 @@ try {
     Wait-UiValue -Selector 'GitBranchNameText' -Value 'main'
     Wait-UiValue -Selector 'GitBranchDetailText' -Value 'Local branch'
     Wait-UiValue -Selector 'WorkbenchChangesStatusText' -Value '3 changed files'
-    Wait-UiValue -Selector 'WorkspaceSourceControlStatusText' -Value 'main • 3 changes • +3 −1'
+    Wait-UiValue -Selector 'WorkspaceSourceControlStatusText' `
+        -Value ('main • 3 changes • +3 ' + [char]0x2212 + '1')
     foreach ($changedFile in @('README.md', 'Staged.cs', 'notes.txt')) {
         Invoke-Ui 'wait-for' $changedFile '--timeout' '5000' | Out-Null
     }
+    # Read nested row labels from the list subtree instead of the driver's
+    # shallower window-wide selector search.
+    $changeTree = Invoke-Ui 'inspect' 'WorkbenchChangeList' '--depth' '8'
     foreach ($changeArea in @('WORKTREE', 'STAGED', 'UNTRACKED')) {
-        Invoke-Ui 'wait-for' $changeArea '--timeout' '5000' | Out-Null
+        if ($changeTree -notmatch ('"name"\s*:\s*"' + [regex]::Escape($changeArea) + '"')) {
+            throw "The Changes workbench did not expose the $changeArea row label."
+        }
     }
     Invoke-Ui 'invoke' 'README.md' | Out-Null
     Wait-UiValue -Selector 'WorkbenchDiffPathText' -Value 'README.md'
@@ -533,8 +644,37 @@ try {
         [System.StringComparison]::Ordinal)) {
         throw 'The Changes workbench did not render the selected working-tree diff.'
     }
+    $diffTreeJson = Invoke-Ui 'inspect' 'WorkbenchDiffPreview' '--depth' '12'
+    Set-Content -LiteralPath (Join-Path $runRoot 'diff-ui-tree.json') -Value $diffTreeJson -Encoding UTF8
+    $diffTree = $diffTreeJson | ConvertFrom-Json -Depth 100
+    $pendingDiffNodes = [System.Collections.Generic.Queue[object]]::new()
+    foreach ($window in $diffTree.windows) { $pendingDiffNodes.Enqueue($window) }
+    $visibleDiffLines = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    while ($pendingDiffNodes.Count -gt 0) {
+        $node = $pendingDiffNodes.Dequeue()
+        if ($node.className -eq 'RichTextBlock' -and -not $node.isOffscreen -and $node.width -gt 0 -and $node.height -gt 0) {
+            $visibleDiffLines.Add(([string]$node.name).TrimEnd()) | Out-Null
+        }
+        foreach ($child in (@($node.children) + @($node.elements))) {
+            if ($null -ne $child) { $pendingDiffNodes.Enqueue($child) }
+        }
+    }
+    foreach ($expectedLine in @('-Pi Station workbench file preview', '+Pi Station workbench file preview (modified)')) {
+        if (-not $visibleDiffLines.Contains($expectedLine)) {
+            throw "The diff value was loaded, but the visible code row '$expectedLine' was missing."
+        }
+    }
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'changes-workbench.png') '--focus' |
         Out-Null
+    foreach ($color in @('2A1D1D', '192720')) {
+        & (Join-Path $PSScriptRoot 'Assert-ScreenshotPalette.ps1') -Path (Join-Path $runRoot 'changes-workbench.png') `
+            -Color $color -Left 0.7 -Top 0.5 -MinimumSamples 200 | Out-Null
+    }
+    if ($Scope -eq 'Changes') {
+        Write-Output "Changes slice passed for Pi Station Desktop (PID $launchedProcessId)."
+        Write-Output "Artifacts: $runRoot"
+        return
+    }
     Invoke-Ui 'invoke' 'RefreshChangesButton' | Out-Null
     Wait-UiValue -Selector 'WorkbenchChangesStatusText' -Value '3 changed files'
 
@@ -544,17 +684,28 @@ try {
         'WorkbenchFileSearchInput',
         'WorkbenchFileSearchMode',
         'RefreshWorkbenchFilesButton',
+        'OpenExternalReadOnlyFileButton',
         'WorkspaceFileTree',
         'WorkbenchFileStatusText',
         'WorkbenchFileTabs'
     )) {
         Invoke-Ui 'wait-for' $selector '--timeout' '5000' | Out-Null
     }
-    Wait-UiValue -Selector 'WorkbenchFileStatusText' -Value '4 files • 1 folder'
+    Wait-UiValue -Selector 'WorkbenchFileStatusText' -Value '5 files • 1 folder'
     Invoke-Ui 'wait-for' 'WorkbenchPreview.cs' '--timeout' '5000' | Out-Null
     Invoke-Ui 'invoke' 'WorkbenchPreview.cs' | Out-Null
     Wait-UiValue -Selector 'WorkbenchFilePreviewPathText' -Value 'src/WorkbenchPreview.cs'
     Wait-UiValue -Selector 'WorkbenchFileEditor' -Value 'public static class WorkbenchPreview { }'
+    $fileTree = Get-UiBounds -Selector 'WorkspaceFileTree'
+    Invoke-Ui 'wait-for' 'AddFileSelectionToComposerButton' '--timeout' '5000' | Out-Null
+
+    Invoke-Ui 'wait-for' 'preview.html' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'invoke' 'preview.html' | Out-Null
+    Wait-UiValue -Selector 'WorkbenchFilePreviewPathText' -Value 'preview.html'
+    Wait-UiValue -Selector 'WorkbenchRenderedFilePreview' -Value 'False' -Property 'IsOffscreen'
+    Invoke-Ui 'invoke' 'WorkbenchMarkdownToggle' | Out-Null
+    Wait-UiValue -Selector 'WorkbenchFileEditor' `
+        -Value '<!doctype html><html><body><h1>Rendered safely</h1></body></html>'
 
     Invoke-Ui 'set-value' 'WorkbenchFileSearchInput' 'readme' | Out-Null
     Wait-UiValue -Selector 'WorkbenchFileStatusText' -Value '1 project file'
@@ -562,11 +713,45 @@ try {
     Invoke-Ui 'invoke' 'README.md' | Out-Null
     Wait-UiValue -Selector 'WorkbenchFilePreviewPathText' -Value 'README.md'
     Wait-UiValue -Selector 'WorkbenchFileEditor' -Value 'Pi Station workbench file preview (modified)'
+    $filePanel = Get-UiBounds -Selector 'FileWorkbenchSurface'
+    $fileEditor = Get-UiBounds -Selector 'WorkbenchFileEditor'
+    if ($fileEditor.Y -lt ($fileTree.Y + $fileTree.Height) -or $fileEditor.Width -lt ($filePanel.Width * 0.8)) {
+        throw 'The default Files panel must stack the tree above a full-width editor.'
+    }
+    foreach ($selector in @('SaveWorkbenchFileButton', 'OpenWorkbenchFileInEditorButton', 'AddFileSelectionToComposerButton')) {
+        Wait-UiValue -Selector $selector -Value 'False' -Property 'IsOffscreen'
+        $actionBounds = Get-UiBounds -Selector $selector
+        if ($actionBounds.X -lt $filePanel.X -or ($actionBounds.X + $actionBounds.Width) -gt ($filePanel.X + $filePanel.Width + 2)) {
+            throw "The Files action '$selector' extends outside its panel."
+        }
+    }
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'files-workbench.png') '--focus' |
         Out-Null
+    Invoke-Ui 'set-value' 'RightPanelResizeHandle' '640' | Out-Null
+    Wait-UiValue -Selector 'RightPanelResizeHandle' -Value 'Workbench width 640 pixels' -Property 'HelpText'
+    $wideFileList = Get-UiBounds -Selector 'WorkbenchFileList'
+    $wideFileEditor = Get-UiBounds -Selector 'WorkbenchFileEditor'
+    if ($wideFileEditor.X -lt ($wideFileList.X + $wideFileList.Width)) {
+        throw 'A wide Files panel must place the editor beside the file list.'
+    }
+    $wideComposer = Get-UiBounds -Selector 'ComposerSurface'
+    $wideStatus = Get-UiBounds -Selector 'WorkspaceStatusBar'
+    foreach ($selector in @('SendPromptButton', 'StopTurnButton')) {
+        $action = Get-UiBounds -Selector $selector
+        if ($action.Width -le 0 -or $action.Height -le 0 -or
+            $action.X -lt $wideStatus.X -or $action.Y -lt $wideComposer.Y -or
+            ($action.X + $action.Width) -gt ($wideStatus.X + $wideStatus.Width + 2) -or
+            ($action.Y + $action.Height) -gt ($wideComposer.Y + $wideComposer.Height + 2)) {
+            throw "The wide Files panel clipped the composer's $selector."
+        }
+    }
+    Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'files-workbench-wide.png') '--focus' | Out-Null
+    Invoke-Ui 'set-value' 'RightPanelResizeHandle' '420' | Out-Null
+    Wait-UiValue -Selector 'RightPanelResizeHandle' -Value 'Workbench width 420 pixels' -Property 'HelpText'
     Invoke-Ui 'invoke' 'RefreshWorkbenchFilesButton' | Out-Null
     Wait-UiValue -Selector 'WorkbenchFileStatusText' -Value '1 project file'
 
+    if ($Scope -eq 'All') {
     Invoke-Ui 'invoke' 'TerminalPanelTab' | Out-Null
     foreach ($selector in @(
         'TerminalWorkbenchSurface',
@@ -678,6 +863,8 @@ try {
     }
 
     Invoke-Ui 'invoke' 'SettingsButton' | Out-Null
+    Invoke-Ui 'wait-for' 'SettingsShell' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'invoke' 'SettingsAppearanceNavItem' | Out-Null
     foreach ($keybindingSetting in @(
         'KeybindingSummaryText',
         'KeybindingCommandSelector',
@@ -716,7 +903,7 @@ try {
     Invoke-Ui 'invoke' 'CloseButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--gone' '--timeout' '5000' | Out-Null
     Wait-UiValue -Selector 'TerminalOutput' `
-        -Value 'Terminal output — Terminal font Consolas at 14 pixels' -Property 'Name'
+        -Value ('Terminal output ' + [char]0x2014 + ' Terminal font Consolas at 14 pixels') -Property 'Name'
 
     Wait-UiValue -Selector 'TerminalPaneSummaryText' -Value 'Single pane'
     Invoke-Ui 'invoke' 'SplitTerminalRightButton' | Out-Null
@@ -725,7 +912,7 @@ try {
     Invoke-Ui 'wait-for' 'TerminalPaneResizeHandle' '--timeout' '5000' | Out-Null
     Wait-UiValue -Selector 'TerminalPaneSummaryText' -Value 'Pane 2 of 2 • split right' -Timeout 15000
     Wait-UiValue -Selector 'TerminalOutputSecondary' `
-        -Value 'Terminal output — Terminal font Consolas at 14 pixels' -Property 'Name' -Timeout 15000
+        -Value ('Terminal output ' + [char]0x2014 + ' Terminal font Consolas at 14 pixels') -Property 'Name' -Timeout 15000
     Invoke-Ui 'set-value' 'TerminalInput' "Write-Output ('PANE2' + 'OK')" | Out-Null
     Invoke-Ui 'invoke' 'SendTerminalInputButton' | Out-Null
     Wait-UiPropertyContains -Selector 'TerminalOutputSecondary' `
@@ -740,7 +927,7 @@ try {
     Invoke-Ui 'wait-for' 'TerminalOutput3' '--timeout' '15000' | Out-Null
     Wait-UiValue -Selector 'TerminalPaneSummaryText' -Value 'Pane 3 of 3 • nested splits' -Timeout 15000
     Wait-UiValue -Selector 'TerminalOutput3' `
-        -Value 'Terminal output — Terminal font Consolas at 14 pixels' -Property 'Name' -Timeout 15000
+        -Value ('Terminal output ' + [char]0x2014 + ' Terminal font Consolas at 14 pixels') -Property 'Name' -Timeout 15000
     Invoke-Ui 'set-value' 'TerminalInput' "Write-Output ('PANE3' + 'OK')" | Out-Null
     Wait-UiValue -Selector 'SendTerminalInputButton' -Value 'True' -Property 'IsEnabled' -Timeout 15000
     Invoke-Ui 'invoke' 'SendTerminalInputButton' | Out-Null
@@ -831,6 +1018,7 @@ try {
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'terminal-split-nested-persisted.png') '--focus' |
         Out-Null
 
+    }
     Invoke-Ui 'invoke' 'PreviewPanelTab' | Out-Null
     foreach ($selector in @(
         'WorkbenchPreviewPanel',
@@ -858,7 +1046,22 @@ try {
         'RotatePreviewViewportButton',
         'PreviewAnnotateButton',
         'PreviewCaptureButton',
-        'PreviewBrowserHost'
+        'PreviewBrowserHost',
+        'PreviewProfileSelector',
+        'AddPreviewProfileButton',
+        'SetDefaultPreviewProfileButton',
+        'PreviewRecentUrlsButton',
+        'PreviewColorSchemeSelector',
+        'PreviewZoomOutButton',
+        'PreviewZoomDescriptionText',
+        'PreviewZoomInButton',
+        'PreviewZoomResetButton',
+        'PreviewDevToolsPolicyToggle',
+        'PreviewOpenDevToolsButton',
+        'PreviewImportCookiesButton',
+        'PreviewRecordingButton',
+        'PreviewPictureInPictureButton',
+        'PreviewAutomationPermissionSelector'
     )) {
         Invoke-Ui 'wait-for' $selector '--timeout' '10000' | Out-Null
     }
@@ -880,11 +1083,48 @@ try {
     Invoke-Ui 'send-keys' 'enter' '--target' 'PreviewAddressBox' | Out-Null
     Wait-UiValue -Selector 'PreviewAddressBox' -Value $secondPreviewUrl -Timeout 15000
     Invoke-Ui 'wait-for' 'PreviewLoadingProgress' '--gone' '--timeout' '15000' | Out-Null
+    Invoke-Ui 'wait-for' 'PreviewFailureOverlay' '--gone' '--timeout' '15000' | Out-Null
+    Invoke-Ui 'invoke' 'PreviewZoomInButton' | Out-Null
+    Wait-UiValue -Selector 'PreviewZoomDescriptionText' -Value '110%'
+    Select-ComboBoxItem -ComboBox 'PreviewColorSchemeSelector' -ItemName 'Dark'
+    Invoke-Ui 'invoke' 'PreviewDevToolsPolicyToggle' | Out-Null
+    Wait-UiValue -Selector 'PreviewOpenDevToolsButton' -Value 'True' -Property 'IsEnabled'
+    Select-ComboBoxItem -ComboBox 'PreviewAutomationPermissionSelector' -ItemName 'Agent inspect only'
+    Invoke-Ui 'invoke' 'PreviewRecordingButton' | Out-Null
+    Wait-UiPropertyContains -Selector 'PreviewCaptureStatusText' `
+        -Property 'Name' -Expected 'Recording preview' -Timeout 15000
+    Start-Sleep -Milliseconds 1500
+    Invoke-Ui 'invoke' 'PreviewRecordingButton' | Out-Null
+    Wait-UiPropertyContains -Selector 'PreviewCaptureStatusText' `
+        -Property 'Name' -Expected 'Recording saved' -Timeout 30000
+    $recordingStatus = Invoke-Ui 'get-property' 'PreviewCaptureStatusText' '--property' 'Name' |
+        ConvertFrom-Json
+    $recordingPath = ([string]$recordingStatus.properties.Name -split ' • ', 2)[1]
+    if ([string]::IsNullOrWhiteSpace($recordingPath) -or
+        -not (Test-Path -LiteralPath $recordingPath -PathType Leaf)) {
+        throw "The preview recording was not saved at '$recordingPath'."
+    }
+    Invoke-Ui 'invoke' 'PreviewPictureInPictureButton' | Out-Null
+    Wait-UiPropertyContains -Selector 'PreviewCaptureStatusText' `
+        -Property 'Name' -Expected 'Picture in picture opened' -Timeout 20000
+    Invoke-Ui 'invoke' 'PreviewPictureInPictureButton' | Out-Null
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'preview-workbench.png') '--focus' |
         Out-Null
+    & (Join-Path $PSScriptRoot 'Assert-ScreenshotPalette.ps1') -Path (Join-Path $runRoot 'preview-workbench.png') `
+        -Color '151515' -Left 0.2 -Right 0.65 -Top 0.15 -Bottom 0.8 -MinimumSamples 10000 | Out-Null
+    # The fixture has unstyled HTML: the browser must retain its white page
+    # backing so default black text stays readable inside the dark app chrome.
+    & (Join-Path $PSScriptRoot 'Assert-ScreenshotPalette.ps1') -Path (Join-Path $runRoot 'preview-workbench.png') `
+        -Color 'FFFFFF' -Left 0.72 -Top 0.3 -Bottom 0.9 -MinimumSamples 10000 | Out-Null
+
+    if ($Scope -eq 'Visual') {
+        Write-Output "Visual workbench slice passed for Pi Station Desktop (PID $launchedProcessId)."
+        Write-Output "Artifacts: $runRoot"
+        return
+    }
 
     Invoke-Ui 'invoke' 'AgentsPanelTab' | Out-Null
-    Wait-UiValue -Selector 'WorkbenchEmptyStateText' -Value 'Agent observability is not connected yet.'
+    Wait-UiValue -Selector 'AgentEmptyStateText' -Value 'Subagents and workflows started by Pi will appear here with live status, usage, and results.'
 
     $resizedWidth = 480
     Invoke-Ui 'set-value' 'RightPanelResizeHandle' "$resizedWidth" | Out-Null
@@ -895,7 +1135,7 @@ try {
     Wait-ForWindowWidth -Threshold 900 -Direction 'Below'
     $sidebarBounds = Get-UiBounds -Selector 'AppSidebar'
     $composerBounds = Get-UiBounds -Selector 'ComposerSurface'
-    $panelBounds = Get-UiBounds -Selector 'RightPanelHost'
+    $panelBounds = Get-UiBounds -Selector 'AgentsWorkbenchSurface'
     if ($panelBounds.X -ge ($composerBounds.X + $composerBounds.Width)) {
         throw 'The narrow-window workbench was docked instead of overlaying the conversation.'
     }
@@ -905,7 +1145,7 @@ try {
     Wait-UiValue -Selector 'CloseRightPanelButton' -Value 'False' -Property 'IsOffscreen'
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'workbench-overlay.png') '--focus' |
         Out-Null
-    Set-TestWindowSize -Width 1200 -Height 800
+    Set-TestWindowSize -Width 1400 -Height 800
     Wait-ForWindowWidth -Threshold 1000 -Direction 'Above'
 
     Invoke-Ui 'invoke' 'CollapseSidebarButton' | Out-Null
@@ -946,8 +1186,18 @@ try {
     if ($previewTabs.Count -ne 2 -or
         [string]$previewTabs[-1].Url -ne $secondPreviewUrl -or
         [string]$previewWorkspace.ActiveTabId -ne [string]$previewTabs[-1].TabId -or
-        @($previewTabs | Where-Object { $_.ViewportPreset -eq 'Tablet' }).Count -ne 1) {
-        throw 'The persisted preview workspace did not retain both tabs, the active tab, and device viewport.'
+        @($previewTabs | Where-Object { $_.ViewportPreset -eq 'Tablet' }).Count -ne 1 -or
+        [Math]::Abs([double]$previewTabs[-1].ZoomFactor - 1.1) -gt 0.001 -or
+        [string]$previewTabs[-1].ColorScheme -ne 'Dark' -or
+        @($previewWorkspace.RecentUrls).Count -ne 2) {
+        throw 'The persisted preview workspace did not retain tabs, viewport, zoom, color, and recent addresses.'
+    }
+    if ([string]$layoutSettings.PreviewDevToolsPolicy -ne 'UserInitiated') {
+        throw 'The shell did not persist the explicit DevTools policy.'
+    }
+    $previewPermissions = @($layoutSettings.PreviewAutomationPermissions.PSObject.Properties)
+    if ($previewPermissions.Count -ne 1 -or [string]$previewPermissions[0].Value -ne 'Inspect') {
+        throw 'The shell did not persist the thread-scoped inspect-only browser permission.'
     }
     $terminalPaneLayouts = @($layoutSettings.TerminalPaneLayouts.PSObject.Properties)
     if ($terminalPaneLayouts.Count -ne 1) {
@@ -979,7 +1229,7 @@ try {
     Invoke-Ui 'wait-for' 'workbench-project' '--timeout' '15000' | Out-Null
     Invoke-Ui 'invoke' 'workbench-project' | Out-Null
     Wait-UiValue -Selector 'WorkspaceProjectStatusText' -Value 'workbench-project' -Timeout 15000
-    Wait-UiValue -Selector 'WorkbenchEmptyStateText' -Value 'Agent observability is not connected yet.'
+    Wait-UiValue -Selector 'AgentEmptyStateText' -Value 'Subagents and workflows started by Pi will appear here with live status, usage, and results.'
     Wait-UiValue -Selector 'RightPanelResizeHandle' -Value "Workbench width $resizedWidth pixels" -Property 'HelpText'
 
     Invoke-Ui 'invoke' 'TerminalPanelTab' | Out-Null
@@ -988,11 +1238,12 @@ try {
     Invoke-Ui 'wait-for' 'SecondaryTerminalPane' '--gone' '--timeout' '5000' | Out-Null
 
     $tree = Invoke-Ui 'inspect' '--depth' '10'
-    Set-Content -LiteralPath (Join-Path $runRoot 'ui-tree.json') -Value $tree -Encoding utf8NoBOM
+    Set-Content -LiteralPath (Join-Path $runRoot 'ui-tree.json') -Value $tree -Encoding UTF8
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'workbench-open.png') '--focus' | Out-Null
 
     Invoke-Ui 'invoke' 'SettingsButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'invoke' 'SettingsAppearanceNavItem' | Out-Null
     Wait-UiPropertyContains -Selector 'KeybindingSummaryText' `
         -Property 'Name' -Expected '1 custom overrides'
     Invoke-Ui 'invoke' 'ResetAllKeybindingsButton' | Out-Null
@@ -1018,7 +1269,7 @@ catch {
     if ($null -ne $launchedProcessId) {
         try {
             Invoke-Ui 'inspect' '--depth' '10' |
-                Set-Content -LiteralPath (Join-Path $runRoot 'failure-ui-tree.json') -Encoding utf8NoBOM
+                Set-Content -LiteralPath (Join-Path $runRoot 'failure-ui-tree.json') -Encoding UTF8
             Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'failure.png') '--focus' | Out-Null
         }
         catch {
@@ -1037,7 +1288,7 @@ finally {
         logFile = $logFile
     }
     $manifest | ConvertTo-Json -Depth 5 |
-        Set-Content -LiteralPath (Join-Path $runRoot 'run-manifest.json') -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $runRoot 'run-manifest.json') -Encoding UTF8
 }
 
 if ($null -ne $testError) {

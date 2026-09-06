@@ -19,4 +19,8 @@
     <ProjectReference Include="..\PiStation.Protocol\PiStation.Protocol.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="PiStation.Host.Tests" />
+  </ItemGroup>
+
 </Project>

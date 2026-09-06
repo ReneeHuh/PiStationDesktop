@@ -10,7 +10,11 @@ public sealed record PiSessionState(
     bool IsStreaming,
     bool IsCompacting,
     int MessageCount,
-    int PendingMessageCount);
+    int PendingMessageCount,
+    string SteeringMode,
+    string FollowUpMode,
+    string? SessionName = null,
+    bool AutoCompactionEnabled = true);
 
 public sealed record PiModelInfo(
     string ProviderId,
@@ -24,3 +28,28 @@ public sealed record PiSessionEntries(IReadOnlyList<JsonElement> Entries, string
 public sealed record PiClearedMessages(IReadOnlyList<string> Steering, IReadOnlyList<string> FollowUp);
 
 public sealed record PiSessionMutation(bool Cancelled);
+
+public sealed record PiCommandInfo(
+    string Name,
+    string? Description,
+    string Source,
+    string? Location,
+    string? Path,
+    PiCommandSourceInfo? SourceInfo = null);
+
+public sealed record PiCommandSourceInfo(string? Path, string? Source, string? Scope, string? Origin, string? BaseDir);
+
+public sealed record PiCompactionUsage(
+    long InputTokens,
+    long OutputTokens,
+    long CacheReadTokens,
+    long CacheWriteTokens,
+    long TotalTokens,
+    decimal? TotalCost);
+
+public sealed record PiCompactionResult(
+    string Summary,
+    string? FirstKeptEntryId,
+    long TokensBefore,
+    long? EstimatedTokensAfter,
+    PiCompactionUsage? Usage);

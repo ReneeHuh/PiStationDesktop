@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PiStation.Host.Attachments;
+using PiStation.Host.Diagnostics;
 using PiStation.Host.Errors;
 using PiStation.Host.Files;
 using PiStation.Host.Git;
@@ -11,6 +12,7 @@ using PiStation.Host.Persistence;
 using PiStation.Host.Preview;
 using PiStation.Host.Projects;
 using PiStation.Host.Search;
+using PiStation.Host.SourceControl;
 using PiStation.Host.Threads;
 using PiStation.Host.Terminals;
 using PiStation.Host.Workspaces;
@@ -28,7 +30,7 @@ using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host;
 
-public sealed class EnvironmentService : IAsyncDisposable
+public sealed partial class EnvironmentService : IAsyncDisposable
 {
     private readonly HostDatabase _database;
     private readonly DraftAttachmentStorage _attachmentStorage;
@@ -43,6 +45,8 @@ public sealed class EnvironmentService : IAsyncDisposable
     private readonly ProjectService _projects;
     private readonly ProjectSetupScriptRunner _setupScripts;
     private readonly GlobalSearchService _search;
+    private readonly SourceControlHostingService _sourceControl;
+    private readonly HostDiagnosticsService _diagnostics;
     private readonly PiThreadRegistry _threads;
     private readonly TerminalSessionRegistry _terminals;
 
@@ -60,6 +64,8 @@ public sealed class EnvironmentService : IAsyncDisposable
         ProjectService projects,
         ProjectSetupScriptRunner setupScripts,
         GlobalSearchService search,
+        SourceControlHostingService sourceControl,
+        HostDiagnosticsService diagnostics,
         PiThreadRegistry threads,
         TerminalSessionRegistry terminals)
     {
@@ -76,6 +82,8 @@ public sealed class EnvironmentService : IAsyncDisposable
         _projects = projects;
         _setupScripts = setupScripts;
         _search = search;
+        _sourceControl = sourceControl;
+        _diagnostics = diagnostics;
         _threads = threads;
         _terminals = terminals;
     }
@@ -110,7 +118,9 @@ public sealed class EnvironmentService : IAsyncDisposable
             options);
         var terminals = new TerminalSessionRegistry(database, options, workspaceResolver);
         var setupScripts = new ProjectSetupScriptRunner(database, terminals);
-        return new EnvironmentService(
+        var sourceControl = new SourceControlHostingService(workspaceResolver, projects);
+        var diagnostics = new HostDiagnosticsService(options, database, threads, terminals);
+        var service = new EnvironmentService(
             options,
             database,
             attachmentStorage,
@@ -124,8 +134,14 @@ public sealed class EnvironmentService : IAsyncDisposable
             projects,
             setupScripts,
             search,
+            sourceControl,
+            diagnostics,
             threads,
             terminals);
+        var knownProjects = await projects.ListAsync(cancellationToken).ConfigureAwait(false);
+        await new ProjectAutoPullService(diagnostics.Record)
+            .PullEligibleProjectsAsync(knownProjects, cancellationToken).ConfigureAwait(false);
+        return service;
     }
 
     public EnvironmentDescriptor GetDescriptor() => new(
@@ -136,7 +152,7 @@ public sealed class EnvironmentService : IAsyncDisposable
         ProtocolVersion.Current,
         _options.PiInstallation is not null,
         _options.PiInstallation?.PiVersion.ToString(),
-        ["project.read", "project.write", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.draft", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload"]);
+        ["project.read", "project.write", "project.remove", "project.defaults", "project.scripts", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "source-control.hosting", "source-control.pull-requests", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.queue", "thread.agents", "thread.draft", "thread.composer", "thread.compaction", "thread.inbox", "thread.titles", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload", "diagnostics.read", "diagnostics.export", "usage.read"]);
 
     public Task<IReadOnlyList<ProjectDescriptor>> ListProjectsAsync(CancellationToken cancellationToken = default) =>
         _projects.ListAsync(cancellationToken);
@@ -152,6 +168,144 @@ public sealed class EnvironmentService : IAsyncDisposable
     public Task<ProjectSetupScriptResult> RunProjectSetupScriptAsync(
         RunProjectSetupScriptRequest request,
         CancellationToken cancellationToken = default) => _setupScripts.RunAsync(request, cancellationToken);
+
+    public Task<ProjectSetupScriptResult> RunProjectScriptAsync(
+        RunProjectScriptRequest request,
+        CancellationToken cancellationToken = default) => _setupScripts.RunNamedAsync(request, cancellationToken);
+
+    public Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
+        UpdateProjectDefaultsRequest request,
+        CancellationToken cancellationToken = default) => _projects.UpdateDefaultsAsync(request, cancellationToken);
+
+    public async Task RemoveProjectAsync(
+        RemoveProjectRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var threads = await _database.ListThreadsAsync(request.ProjectId, includeArchived: true, cancellationToken)
+            .ConfigureAwait(false);
+        var attachments = new List<DraftAttachment>();
+        foreach (var stash in await _database.ListPromptStashesAsync(request.ProjectId, cancellationToken).ConfigureAwait(false))
+            attachments.AddRange(stash.Attachments ?? []);
+        foreach (var thread in threads)
+        {
+            await _threads.StopAndForgetAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                attachments.AddRange((await _database.GetOrCreateThreadDraftAsync(thread.ThreadId, cancellationToken)
+                    .ConfigureAwait(false)).Attachments);
+            }
+            catch (KeyNotFoundException)
+            {
+            }
+        }
+        foreach (var terminal in await _terminals.ListAsync(request.ProjectId, cancellationToken).ConfigureAwait(false))
+        {
+            await _terminals.CloseAsync(new CloseTerminalSessionRequest(terminal.TerminalSessionId), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        await _projects.RemoveAsync(request, cancellationToken).ConfigureAwait(false);
+        foreach (var attachment in attachments)
+        {
+            await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
+        }
+        _diagnostics.Record($"Project {request.ProjectId} was removed from Pi Station.");
+    }
+
+    public Task<ComposerDiscoveryResult> GetComposerDiscoveryAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default) => GetComposerDiscoveryCoreAsync(threadId, cancellationToken);
+
+    private async Task<ComposerDiscoveryResult> GetComposerDiscoveryCoreAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken)
+    {
+        var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
+        return await controller.GetComposerDiscoveryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<IReadOnlyList<PromptStash>> ListPromptStashesAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default) => _database.ListPromptStashesAsync(projectId, cancellationToken);
+
+    public async Task<PromptStash> SavePromptStashAsync(
+        SavePromptStashRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if ((string.IsNullOrWhiteSpace(request.Text) && request.DraftId is null) || request.Text.Length > 128 * 1024)
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.PromptStashInvalid,
+                "A prompt stash must contain between 1 and 131072 characters.");
+        }
+        if (await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false) is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ProjectNotFound, $"Project '{request.ProjectId}' was not found.");
+        }
+        return await _database.SavePromptStashAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeletePromptStashAsync(
+        DeletePromptStashRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var stash = await _database.GetPromptStashAsync(request.StashId, cancellationToken).ConfigureAwait(false);
+            await _database.DeletePromptStashAsync(request.StashId, cancellationToken).ConfigureAwait(false);
+            foreach (var attachment in stash?.Attachments ?? []) await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException exception)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.PromptStashNotFound, exception.Message);
+        }
+    }
+
+    public Task<SourceControlRepository> DetectSourceControlAsync(
+        DetectSourceControlRequest request,
+        CancellationToken cancellationToken = default) => _sourceControl.DetectAsync(request, cancellationToken);
+
+    public Task<ListPullRequestsResult> ListPullRequestsAsync(
+        ListPullRequestsRequest request,
+        CancellationToken cancellationToken = default) => _sourceControl.ListPullRequestsAsync(request, cancellationToken);
+
+    public Task<SourceControlOperationResult> CloneHostedRepositoryAsync(
+        CloneHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default) => new HostingOperationRunner(_database).RunAsync(
+            request.OperationId, "Clone repository", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.CloneHostedRepositoryRequest),
+            token => _sourceControl.CloneAsync(request, token), cancellationToken);
+
+    public Task<SourceControlOperationResult> PublishHostedRepositoryAsync(
+        PublishHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default) => new HostingOperationRunner(_database).RunAsync(
+            request.OperationId, "Publish repository", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.PublishHostedRepositoryRequest),
+            token => _sourceControl.PublishAsync(request, token), cancellationToken);
+
+    public Task<SourceControlOperationResult> CreatePullRequestAsync(
+        CreatePullRequestRequest request,
+        CancellationToken cancellationToken = default) => new HostingOperationRunner(_database).RunAsync(
+            request.OperationId, "Create pull request", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.CreatePullRequestRequest),
+            token => _sourceControl.CreatePullRequestAsync(request, token), cancellationToken);
+
+    public Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default) =>
+        _database.ListHostingOperationsAsync(cancellationToken);
+
+    public Task<SourceControlOperationResult> MutatePullRequestAsync(
+        MutatePullRequestRequest request,
+        CancellationToken cancellationToken = default) => new HostingOperationRunner(_database).RunAsync(
+            request.OperationId, "Update pull request", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.MutatePullRequestRequest),
+            token => _sourceControl.MutatePullRequestAsync(request, token), cancellationToken);
+
+    public Task<GeneratedSourceControlText> GenerateSourceControlTextAsync(
+        GenerateSourceControlTextRequest request,
+        CancellationToken cancellationToken = default) => _sourceControl.GenerateTextAsync(request, cancellationToken);
+
+    public Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default) =>
+        _diagnostics.GetSnapshotAsync(cancellationToken);
+
+    public Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
+        ExportDiagnosticsRequest request,
+        CancellationToken cancellationToken = default) => _diagnostics.ExportAsync(request, cancellationToken);
 
     public Task<SearchProjectFilesResult> SearchProjectFilesAsync(
         SearchProjectFilesRequest request,
@@ -260,24 +414,141 @@ public sealed class EnvironmentService : IAsyncDisposable
         CloseTerminalSessionRequest request,
         CancellationToken cancellationToken = default) => _terminals.CloseAsync(request, cancellationToken);
 
-    public Task<IReadOnlyList<ThreadDescriptor>> ListThreadsAsync(
+    public async Task<IReadOnlyList<ThreadDescriptor>> ListThreadsAsync(
         ProjectId projectId,
-        CancellationToken cancellationToken = default) => _projects.ListThreadsAsync(projectId, cancellationToken);
+        CancellationToken cancellationToken = default) => (await _projects.ListThreadsAsync(projectId, cancellationToken).ConfigureAwait(false)).Select(WithRuntimeStatus).ToArray();
 
     public async Task<ThreadDescriptor> GetThreadAsync(
         ThreadId threadId,
         CancellationToken cancellationToken = default)
     {
         var thread = await _database.GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false);
-        return thread?.ToDescriptor(_environment.EnvironmentId) ??
+        return thread is not null
+            ? await _database.EnrichThreadDescriptorAsync(thread, cancellationToken).ConfigureAwait(false)
+            :
             throw new HostOperationException(
                 ProtocolErrorCodes.ThreadNotFound,
                 $"Thread '{threadId}' was not found.");
     }
 
-    public Task<SearchThreadsResult> SearchThreadsAsync(
+    public async Task DeleteThreadAsync(
+        DeleteThreadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var thread = await _database.GetThreadAsync(request.ThreadId, cancellationToken).ConfigureAwait(false)
+            ?? throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, $"Thread '{request.ThreadId}' was not found.");
+        await _threads.StopAndForgetAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<DraftAttachment> attachments = [];
+        try
+        {
+            var draft = await _database.GetOrCreateThreadDraftAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+            attachments = draft.Attachments;
+        }
+        catch (KeyNotFoundException)
+        {
+        }
+        await _database.DeleteThreadAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+        foreach (var attachment in attachments) await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
+    }
+
+    public async Task<ApplyThreadBulkOperationResult> ApplyThreadBulkOperationAsync(
+        ApplyThreadBulkOperationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ThreadIds.Count is < 1 or > 200)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, "Select between 1 and 200 threads.");
+        }
+        if (request.Operation == ThreadBulkOperation.Snooze &&
+            (request.SnoozedUntilUtc is null || request.SnoozedUntilUtc <= DateTimeOffset.UtcNow))
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, "A snooze time must be in the future.");
+        }
+        if (request.Operation == ThreadBulkOperation.Delete)
+        {
+            var threadIds = request.ThreadIds.Distinct().ToArray();
+            foreach (var threadId in threadIds)
+            {
+                var thread = await _database.GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, $"Thread '{threadId}' was not found.");
+                if (thread.ProjectId != request.ProjectId)
+                {
+                    throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, $"Thread '{threadId}' belongs to another project.");
+                }
+            }
+
+            var attachments = new List<DraftAttachment>();
+            foreach (var threadId in threadIds)
+            {
+                await _threads.StopAndForgetAsync(threadId, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    attachments.AddRange((await _database.GetOrCreateThreadDraftAsync(threadId, cancellationToken)
+                        .ConfigureAwait(false)).Attachments);
+                }
+                catch (KeyNotFoundException)
+                {
+                }
+            }
+            var deleted = await _database.ApplyThreadBulkOperationAsync(request, cancellationToken).ConfigureAwait(false);
+            foreach (var attachment in attachments)
+            {
+                await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
+            }
+            return new ApplyThreadBulkOperationResult(
+                deleted,
+                await _projects.ListThreadsAsync(request.ProjectId, cancellationToken).ConfigureAwait(false));
+        }
+        var affected = await _database.ApplyThreadBulkOperationAsync(request, cancellationToken).ConfigureAwait(false);
+        return new ApplyThreadBulkOperationResult(
+            affected,
+            await _projects.ListThreadsAsync(request.ProjectId, cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<IReadOnlyList<ThreadDescriptor>> SetThreadPinnedOrderAsync(
+        SetThreadPinnedOrderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await _database.SetThreadPinnedOrderAsync(request, cancellationToken).ConfigureAwait(false);
+        return await _projects.ListThreadsAsync(request.ProjectId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ThreadDescriptor> LinkThreadPullRequestAsync(
+        LinkThreadPullRequestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var current = await _database.GetThreadAsync(request.ThreadId, cancellationToken).ConfigureAwait(false)
+            ?? throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, $"Thread '{request.ThreadId}' was not found.");
+        var update = await _database.UpdateThreadInboxAsync(
+            request.ThreadId,
+            current.Revision,
+            pullRequest: request.PullRequest,
+            updatePullRequest: true,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!update.WasUpdated || update.Thread is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadConflict, "The thread changed before its pull request could be linked.");
+        }
+        return await _database.EnrichThreadDescriptorAsync(update.Thread, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SearchThreadsResult> SearchThreadsAsync(
         SearchThreadsRequest request,
-        CancellationToken cancellationToken = default) => _projects.SearchThreadsAsync(request, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _projects.SearchThreadsAsync(request, cancellationToken).ConfigureAwait(false);
+        return result with { Threads = result.Threads.Select(WithRuntimeStatus).ToArray() };
+    }
+
+    private ThreadDescriptor WithRuntimeStatus(ThreadDescriptor thread)
+    {
+        if (thread.SnoozedUntilUtc <= DateTimeOffset.UtcNow) thread = thread with { SnoozedUntilUtc = null };
+        if (!_threads.TryGetController(thread.ThreadId, out var controller) || controller is null) return thread;
+        var projection = controller.Journal.Projection;
+        return thread with { RuntimeState = projection.RuntimeState, NeedsAttention = projection.Timeline.Any(item =>
+            item is ApprovalTimelineItem { State: InteractionState.Pending } or QuestionTimelineItem { State: InteractionState.Pending }) };
+    }
 
     public Task<GlobalSearchResult> SearchGlobalAsync(
         GlobalSearchRequest request,
@@ -396,7 +667,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                 candidate => candidate.AttachmentId == request.AttachmentId);
             if (attachment is null)
             {
-                _attachmentStorage.Delete(stored.Attachment);
+                await DeleteUnreferencedAttachmentAsync(stored.Attachment).ConfigureAwait(false);
             }
 
             return new DraftAttachmentUploadResult(
@@ -411,7 +682,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                 var draft = await GetThreadDraftAsync(request.ThreadId, CancellationToken.None).ConfigureAwait(false);
                 if (draft.Attachments.All(candidate => candidate.AttachmentId != request.AttachmentId))
                 {
-                    _attachmentStorage.Delete(stored.Attachment);
+                    await DeleteUnreferencedAttachmentAsync(stored.Attachment).ConfigureAwait(false);
                 }
             }
             catch
@@ -469,9 +740,13 @@ public sealed class EnvironmentService : IAsyncDisposable
                                         ThreadAddDraftAttachmentCommand or
                                         ThreadRemoveDraftAttachmentCommand or
                                         ThreadClearDraftCommand or
+                                        ThreadRestoreStashCommand or
                                         ThreadRenameCommand or
                                         ThreadSetArchivedCommand or
-                                        ThreadSetPinnedCommand))
+                                        ThreadSetPinnedCommand or
+                                        ThreadSetSettledCommand or
+                                        ThreadSetSnoozedCommand or
+                                        ThreadSetPinnedOrderCommand))
             {
                 controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
                 ValidateExpectations(request, controller);
@@ -483,7 +758,10 @@ public sealed class EnvironmentService : IAsyncDisposable
                     ArgumentNullException.ThrowIfNull(start.Prompt);
                     var promptAttachments = await ResolveTurnAttachmentsAsync(
                         request.ThreadId,
-                        start,
+                        start.Prompt,
+                        start.DraftId,
+                        start.DraftRevision,
+                        start.AttachmentIds,
                         cancellationToken).ConfigureAwait(false);
                     await controller!.StartTurnAsync(
                         start.Prompt,
@@ -492,8 +770,60 @@ public sealed class EnvironmentService : IAsyncDisposable
                         request.CommandId,
                         cancellationToken).ConfigureAwait(false);
                     break;
+                case ThreadQueueSteeringCommand steering:
+                    var steeringAttachments = await ResolveTurnAttachmentsAsync(
+                        request.ThreadId,
+                        steering.Prompt,
+                        steering.DraftId,
+                        steering.DraftRevision,
+                        steering.AttachmentIds,
+                        cancellationToken).ConfigureAwait(false);
+                    await controller!.QueueMessageAsync(
+                        QueuedMessageKind.Steering,
+                        steering.Prompt,
+                        steeringAttachments,
+                        cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadQueueFollowUpCommand followUp:
+                    var followUpAttachments = await ResolveTurnAttachmentsAsync(
+                        request.ThreadId,
+                        followUp.Prompt,
+                        followUp.DraftId,
+                        followUp.DraftRevision,
+                        followUp.AttachmentIds,
+                        cancellationToken).ConfigureAwait(false);
+                    await controller!.QueueMessageAsync(
+                        QueuedMessageKind.FollowUp,
+                        followUp.Prompt,
+                        followUpAttachments,
+                        cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadClearQueueCommand:
+                    await controller!.ClearQueueAsync(cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadRefreshQueueCommand:
+                    await controller!.RefreshQueueAsync(cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadSetQueueDeliveryModeCommand deliveryMode:
+                    await controller!.SetQueueDeliveryModeAsync(
+                        deliveryMode.Kind,
+                        deliveryMode.Mode,
+                        cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
                 case ThreadStopTurnCommand:
                     await controller!.StopTurnAsync(
+                        request.ClientId,
+                        request.CommandId,
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadInterruptAgentCommand interrupt:
+                    await controller!.InterruptAgentAsync(
+                        interrupt.ActivityId,
                         request.ClientId,
                         request.CommandId,
                         cancellationToken).ConfigureAwait(false);
@@ -521,13 +851,22 @@ public sealed class EnvironmentService : IAsyncDisposable
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadRenameCommand rename:
-                    await UpdateThreadMetadataAsync(
+                    var renamedThread = await UpdateThreadMetadataAsync(
                         request.ThreadId,
                         rename.ExpectedRevision,
                         ThreadMetadataValidation.NormalizeTitle(rename.Title),
                         null,
                         null,
                         cancellationToken).ConfigureAwait(false);
+                    await _database.SetThreadTitleKindAsync(
+                        request.ThreadId,
+                        ThreadTitleKind.Manual,
+                        cancellationToken).ConfigureAwait(false);
+                    if (_threads.TryGetController(request.ThreadId, out var activeController))
+                    {
+                        await activeController!.ApplyRenamedThreadAsync(renamedThread, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadSetArchivedCommand archive:
@@ -548,6 +887,52 @@ public sealed class EnvironmentService : IAsyncDisposable
                         null,
                         pin.IsPinned,
                         cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadSetSettledCommand settled:
+                    await UpdateThreadInboxAsync(
+                        request.ThreadId,
+                        settled.ExpectedRevision,
+                        isSettled: settled.IsSettled,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadSetSnoozedCommand snoozed:
+                    if (snoozed.SnoozedUntilUtc is { } until && until <= DateTimeOffset.UtcNow)
+                    {
+                        throw new HostOperationException(
+                            ProtocolErrorCodes.ThreadInvalid,
+                            "A snooze time must be in the future; use unsnooze to clear it.");
+                    }
+                    await UpdateThreadInboxAsync(
+                        request.ThreadId,
+                        snoozed.ExpectedRevision,
+                        snoozedUntilUtc: snoozed.SnoozedUntilUtc,
+                        updateSnooze: true,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadSetPinnedOrderCommand pinnedOrder:
+                    if (pinnedOrder.PinnedOrder < 0)
+                    {
+                        throw new HostOperationException(ProtocolErrorCodes.ThreadInvalid, "Pinned order cannot be negative.");
+                    }
+                    await UpdateThreadInboxAsync(
+                        request.ThreadId,
+                        pinnedOrder.ExpectedRevision,
+                        pinnedOrder: pinnedOrder.PinnedOrder,
+                        updatePinnedOrder: true,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadRegenerateTitleCommand regenerate:
+                    await controller!.RegenerateTitleAsync(regenerate.ExpectedRevision, cancellationToken)
+                        .ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadCompactContextCommand compact:
+                    await controller!.CompactContextAsync(compact.CustomInstructions, cancellationToken)
+                        .ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadRespondToApprovalCommand response:
@@ -616,7 +1001,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                     ThrowForAttachmentMutation(removal, remove.ExpectedRevision);
                     if (removal.RemovedAttachment is not null)
                     {
-                        _attachmentStorage.Delete(removal.RemovedAttachment);
+                        await DeleteUnreferencedAttachmentAsync(removal.RemovedAttachment).ConfigureAwait(false);
                     }
 
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
@@ -635,6 +1020,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                         save.DraftId,
                         save.ExpectedRevision,
                         save.Text,
+                        save.Context,
                         cancellationToken).ConfigureAwait(false);
                     if (update.Draft is null || update.Draft.DraftId != save.DraftId)
                     {
@@ -651,6 +1037,14 @@ public sealed class EnvironmentService : IAsyncDisposable
                             $"revision {update.Draft.Revision}; reload it before saving.");
                     }
 
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadRestoreStashCommand restore:
+                    var stash = await _database.GetPromptStashAsync(restore.StashId, cancellationToken).ConfigureAwait(false)
+                        ?? throw new HostOperationException(ProtocolErrorCodes.PromptStashNotFound, "The stash is no longer available.");
+                    foreach (var attachment in stash.Attachments ?? [])
+                        await _attachmentStorage.ValidateForPromptAsync(attachment, cancellationToken).ConfigureAwait(false);
+                    await _database.RestorePromptStashAsync(request.ThreadId, restore.DraftId, restore.ExpectedRevision, restore.StashId, cancellationToken).ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadClearDraftCommand clear:
@@ -671,7 +1065,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                     ThrowForDraftClear(cleared, clear.ExpectedRevision);
                     foreach (var attachment in cleared.RemovedAttachments)
                     {
-                        _attachmentStorage.Delete(attachment);
+                        await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
                     }
 
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
@@ -839,13 +1233,16 @@ public sealed class EnvironmentService : IAsyncDisposable
 
     private async Task<IReadOnlyList<PiPromptAttachment>> ResolveTurnAttachmentsAsync(
         ThreadId threadId,
-        ThreadStartTurnCommand command,
+        string prompt,
+        DraftId? draftId,
+        long? draftRevision,
+        IReadOnlyList<AttachmentId>? requestedAttachmentIds,
         CancellationToken cancellationToken)
     {
-        var attachmentIds = command.AttachmentIds ?? [];
+        var attachmentIds = requestedAttachmentIds ?? [];
         if (attachmentIds.Count == 0)
         {
-            if (string.IsNullOrWhiteSpace(command.Prompt))
+            if (string.IsNullOrWhiteSpace(prompt))
             {
                 throw new HostOperationException(
                     ProtocolErrorCodes.PiCommandRejected,
@@ -863,7 +1260,7 @@ public sealed class EnvironmentService : IAsyncDisposable
                 "The turn contains too many attachments or repeats an attachment ID.");
         }
 
-        if (command.DraftId is null || command.DraftRevision is null || command.DraftRevision < 0)
+        if (draftId is null || draftRevision is null || draftRevision < 0)
         {
             throw new HostOperationException(
                 ProtocolErrorCodes.AttachmentInvalid,
@@ -871,16 +1268,16 @@ public sealed class EnvironmentService : IAsyncDisposable
         }
 
         var draft = await GetThreadDraftAsync(threadId, cancellationToken).ConfigureAwait(false);
-        if (draft.DraftId != command.DraftId)
+        if (draft.DraftId != draftId)
         {
             throw new HostOperationException(
                 ProtocolErrorCodes.DraftNotFound,
                 "The attachment turn targets a different draft.");
         }
 
-        if (draft.Revision != command.DraftRevision)
+        if (draft.Revision != draftRevision)
         {
-            throw DraftConflict(command.DraftRevision.Value, draft.Revision);
+            throw DraftConflict(draftRevision.Value, draft.Revision);
         }
 
         var byId = draft.Attachments.ToDictionary(static attachment => attachment.AttachmentId);
@@ -904,6 +1301,12 @@ public sealed class EnvironmentService : IAsyncDisposable
         }
 
         return resolved;
+    }
+
+    private async Task DeleteUnreferencedAttachmentAsync(DraftAttachment attachment)
+    {
+        if (!await _database.IsAttachmentReferencedAsync(attachment.ServerPath, CancellationToken.None).ConfigureAwait(false))
+            _attachmentStorage.Delete(attachment);
     }
 
     private static void ThrowForAttachmentMutation(
@@ -962,7 +1365,7 @@ public sealed class EnvironmentService : IAsyncDisposable
         $"revision {actualRevision?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}; " +
         "reload it before changing attachments.");
 
-    private async Task UpdateThreadMetadataAsync(
+    private async Task<HostThreadRecord> UpdateThreadMetadataAsync(
         ThreadId threadId,
         long expectedRevision,
         string? title,
@@ -997,6 +1400,43 @@ public sealed class EnvironmentService : IAsyncDisposable
                 ProtocolErrorCodes.ThreadConflict,
                 $"The thread metadata changed from expected revision {expectedRevision} to " +
                 $"revision {result.Thread.Revision}; reload it before updating it.");
+        }
+
+        return result.Thread;
+    }
+
+    private async Task UpdateThreadInboxAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        bool? isSettled = null,
+        DateTimeOffset? snoozedUntilUtc = null,
+        bool updateSnooze = false,
+        long? pinnedOrder = null,
+        bool updatePinnedOrder = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (expectedRevision < 0)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadConflict, "A thread metadata revision cannot be negative.");
+        }
+        var result = await _database.UpdateThreadInboxAsync(
+            threadId,
+            expectedRevision,
+            isSettled,
+            snoozedUntilUtc,
+            updateSnooze,
+            pinnedOrder,
+            updatePinnedOrder,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (result.Thread is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, $"Thread '{threadId}' was not found.");
+        }
+        if (!result.WasUpdated)
+        {
+            throw new HostOperationException(
+                ProtocolErrorCodes.ThreadConflict,
+                $"The thread metadata changed from expected revision {expectedRevision} to revision {result.Thread.Revision}; reload it before updating it.");
         }
     }
 

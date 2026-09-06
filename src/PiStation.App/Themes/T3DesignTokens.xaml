@@ -33,6 +33,34 @@
             <Color x:Key="PiWaitingColor">#FFE6B85C</Color>
             <Color x:Key="PiCriticalColor">#FFF06A6A</Color>
             <Color x:Key="PiOfflineColor">#FF858585</Color>
+            <SolidColorBrush x:Key="PiCanvasBrush" Color="#FF151515" />
+            <SolidColorBrush x:Key="PiSidebarBrush" Color="#FF181818" />
+            <SolidColorBrush x:Key="PiChromeBrush" Color="#FF181818" />
+            <SolidColorBrush x:Key="PiSurfaceBrush" Color="#FF1C1C1C" />
+            <SolidColorBrush x:Key="PiSurfaceElevatedBrush" Color="#FF212121" />
+            <SolidColorBrush x:Key="PiWorkbenchBrush" Color="#FF191919" />
+            <SolidColorBrush x:Key="PiControlSurfaceBrush" Color="#FF242424" />
+            <SolidColorBrush x:Key="PiSurfaceHoverBrush" Color="#FF292929" />
+            <SolidColorBrush x:Key="PiSurfaceSelectedBrush" Color="#FF303030" />
+            <SolidColorBrush x:Key="PiMessageUserBrush" Color="#FF272727" />
+            <SolidColorBrush x:Key="PiOverlayBrush" Color="#F21B1B1B" />
+            <SolidColorBrush x:Key="PiDividerBrush" Color="#FF292929" />
+            <SolidColorBrush x:Key="PiBorderBrush" Color="#FF2B2B2B" />
+            <SolidColorBrush x:Key="PiBorderStrongBrush" Color="#FF3A3A3A" />
+            <SolidColorBrush x:Key="PiTextPrimaryBrush" Color="#FFF2F2F2" />
+            <SolidColorBrush x:Key="PiTextSecondaryBrush" Color="#FFAAAAAA" />
+            <SolidColorBrush x:Key="PiTextMutedBrush" Color="#FF777777" />
+            <SolidColorBrush x:Key="PiAccentBrush" Color="#FF4C8DFF" />
+            <SolidColorBrush x:Key="PiAccentHoverBrush" Color="#FF659EFF" />
+            <SolidColorBrush x:Key="PiFocusBrush" Color="#FF7AA2FF" />
+            <SolidColorBrush x:Key="PiWarningSurfaceBrush" Color="#FF2A2418" />
+            <SolidColorBrush x:Key="PiCriticalSurfaceBrush" Color="#FF2A1D1D" />
+            <SolidColorBrush x:Key="PiSuccessSurfaceBrush" Color="#FF192720" />
+            <SolidColorBrush x:Key="PiRunningBrush" Color="#FF58B8D8" />
+            <SolidColorBrush x:Key="PiCompletedBrush" Color="#FF54D6A0" />
+            <SolidColorBrush x:Key="PiWaitingBrush" Color="#FFE6B85C" />
+            <SolidColorBrush x:Key="PiCriticalBrush" Color="#FFF06A6A" />
+            <SolidColorBrush x:Key="PiOfflineBrush" Color="#FF858585" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Light">
@@ -64,6 +92,34 @@
             <Color x:Key="PiWaitingColor">#FF936A13</Color>
             <Color x:Key="PiCriticalColor">#FFB52B2B</Color>
             <Color x:Key="PiOfflineColor">#FF777777</Color>
+            <SolidColorBrush x:Key="PiCanvasBrush" Color="#FFF7F7F7" />
+            <SolidColorBrush x:Key="PiSidebarBrush" Color="#FFF1F1F1" />
+            <SolidColorBrush x:Key="PiChromeBrush" Color="#FFF3F3F3" />
+            <SolidColorBrush x:Key="PiSurfaceBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="PiSurfaceElevatedBrush" Color="#FFFAFAFA" />
+            <SolidColorBrush x:Key="PiWorkbenchBrush" Color="#FFF5F5F5" />
+            <SolidColorBrush x:Key="PiControlSurfaceBrush" Color="#FFF3F3F3" />
+            <SolidColorBrush x:Key="PiSurfaceHoverBrush" Color="#FFEAEAEA" />
+            <SolidColorBrush x:Key="PiSurfaceSelectedBrush" Color="#FFE2E2E2" />
+            <SolidColorBrush x:Key="PiMessageUserBrush" Color="#FFECECEC" />
+            <SolidColorBrush x:Key="PiOverlayBrush" Color="#F2FFFFFF" />
+            <SolidColorBrush x:Key="PiDividerBrush" Color="#FFE5E5E5" />
+            <SolidColorBrush x:Key="PiBorderBrush" Color="#FFE5E5E5" />
+            <SolidColorBrush x:Key="PiBorderStrongBrush" Color="#FFD1D1D1" />
+            <SolidColorBrush x:Key="PiTextPrimaryBrush" Color="#FF1D1D1D" />
+            <SolidColorBrush x:Key="PiTextSecondaryBrush" Color="#FF626262" />
+            <SolidColorBrush x:Key="PiTextMutedBrush" Color="#FF878787" />
+            <SolidColorBrush x:Key="PiAccentBrush" Color="#FF2563C7" />
+            <SolidColorBrush x:Key="PiAccentHoverBrush" Color="#FF174FA8" />
+            <SolidColorBrush x:Key="PiFocusBrush" Color="#FF155CC4" />
+            <SolidColorBrush x:Key="PiWarningSurfaceBrush" Color="#FFFFF5D9" />
+            <SolidColorBrush x:Key="PiCriticalSurfaceBrush" Color="#FFFFE8E8" />
+            <SolidColorBrush x:Key="PiSuccessSurfaceBrush" Color="#FFE5F7EF" />
+            <SolidColorBrush x:Key="PiRunningBrush" Color="#FF187D9C" />
+            <SolidColorBrush x:Key="PiCompletedBrush" Color="#FF16805E" />
+            <SolidColorBrush x:Key="PiWaitingBrush" Color="#FF936A13" />
+            <SolidColorBrush x:Key="PiCriticalBrush" Color="#FFB52B2B" />
+            <SolidColorBrush x:Key="PiOfflineBrush" Color="#FF777777" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="HighContrast">
@@ -95,37 +151,36 @@
             <Color x:Key="PiWaitingColor">{ThemeResource SystemColorHighlightColor}</Color>
             <Color x:Key="PiCriticalColor">{ThemeResource SystemColorHotlightColor}</Color>
             <Color x:Key="PiOfflineColor">{ThemeResource SystemColorGrayTextColor}</Color>
+            <SolidColorBrush x:Key="PiCanvasBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiSidebarBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiChromeBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiSurfaceElevatedBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiWorkbenchBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiControlSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiSurfaceHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiSurfaceSelectedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiMessageUserBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiOverlayBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiDividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PiBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PiBorderStrongBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PiTextPrimaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PiTextSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PiTextMutedBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="PiAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiAccentHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiFocusBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiWarningSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiCriticalSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiSuccessSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PiRunningBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiCompletedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiWaitingBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="PiCriticalBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="PiOfflineBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
-
-    <SolidColorBrush x:Key="PiCanvasBrush" Color="{ThemeResource PiCanvasColor}" />
-    <SolidColorBrush x:Key="PiSidebarBrush" Color="{ThemeResource PiSidebarColor}" />
-    <SolidColorBrush x:Key="PiChromeBrush" Color="{ThemeResource PiChromeColor}" />
-    <SolidColorBrush x:Key="PiSurfaceBrush" Color="{ThemeResource PiSurfaceColor}" />
-    <SolidColorBrush x:Key="PiSurfaceElevatedBrush" Color="{ThemeResource PiSurfaceElevatedColor}" />
-    <SolidColorBrush x:Key="PiWorkbenchBrush" Color="{ThemeResource PiWorkbenchColor}" />
-    <SolidColorBrush x:Key="PiControlSurfaceBrush" Color="{ThemeResource PiControlSurfaceColor}" />
-    <SolidColorBrush x:Key="PiSurfaceHoverBrush" Color="{ThemeResource PiSurfaceHoverColor}" />
-    <SolidColorBrush x:Key="PiSurfaceSelectedBrush" Color="{ThemeResource PiSurfaceSelectedColor}" />
-    <SolidColorBrush x:Key="PiMessageUserBrush" Color="{ThemeResource PiMessageUserColor}" />
-    <SolidColorBrush x:Key="PiOverlayBrush" Color="{ThemeResource PiOverlayColor}" />
-    <SolidColorBrush x:Key="PiDividerBrush" Color="{ThemeResource PiDividerColor}" />
-    <SolidColorBrush x:Key="PiBorderBrush" Color="{ThemeResource PiBorderColor}" />
-    <SolidColorBrush x:Key="PiBorderStrongBrush" Color="{ThemeResource PiBorderStrongColor}" />
-    <SolidColorBrush x:Key="PiTextPrimaryBrush" Color="{ThemeResource PiTextPrimaryColor}" />
-    <SolidColorBrush x:Key="PiTextSecondaryBrush" Color="{ThemeResource PiTextSecondaryColor}" />
-    <SolidColorBrush x:Key="PiTextMutedBrush" Color="{ThemeResource PiTextMutedColor}" />
-    <SolidColorBrush x:Key="PiAccentBrush" Color="{ThemeResource PiAccentColor}" />
-    <SolidColorBrush x:Key="PiAccentHoverBrush" Color="{ThemeResource PiAccentHoverColor}" />
-    <SolidColorBrush x:Key="PiFocusBrush" Color="{ThemeResource PiFocusColor}" />
-    <SolidColorBrush x:Key="PiWarningSurfaceBrush" Color="{ThemeResource PiWarningSurfaceColor}" />
-    <SolidColorBrush x:Key="PiCriticalSurfaceBrush" Color="{ThemeResource PiCriticalSurfaceColor}" />
-    <SolidColorBrush x:Key="PiSuccessSurfaceBrush" Color="{ThemeResource PiSuccessSurfaceColor}" />
-    <SolidColorBrush x:Key="PiRunningBrush" Color="{ThemeResource PiRunningColor}" />
-    <SolidColorBrush x:Key="PiCompletedBrush" Color="{ThemeResource PiCompletedColor}" />
-    <SolidColorBrush x:Key="PiWaitingBrush" Color="{ThemeResource PiWaitingColor}" />
-    <SolidColorBrush x:Key="PiCriticalBrush" Color="{ThemeResource PiCriticalColor}" />
-    <SolidColorBrush x:Key="PiOfflineBrush" Color="{ThemeResource PiOfflineColor}" />
 
     <FontFamily x:Key="PiSansFontFamily">Segoe UI Variable Text</FontFamily>
     <FontFamily x:Key="PiMonospaceFontFamily">Cascadia Mono</FontFamily>
@@ -150,7 +205,7 @@
     <x:Double x:Key="PiUserMessageMaxWidth">576</x:Double>
     <GridLength x:Key="PiWorkbenchPanelWidth">420</GridLength>
     <x:Double x:Key="PiWorkbenchPanelMinWidth">360</x:Double>
-    <x:Double x:Key="PiWorkbenchPanelMaxWidth">520</x:Double>
+    <x:Double x:Key="PiWorkbenchPanelMaxWidth">720</x:Double>
     <x:Double x:Key="PiComposerMinHeight">96</x:Double>
     <x:Double x:Key="PiComposerMaxHeight">240</x:Double>
     <x:Double x:Key="PiBreakpointNarrow">720</x:Double>
@@ -414,6 +469,17 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style x:Key="PiToolbarToggleButtonStyle" TargetType="ToggleButton">
+        <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
     </Style>
 
     <Style x:Key="PiToolbarIconButtonStyle" TargetType="Button" BasedOn="{StaticResource PiToolbarButtonStyle}">

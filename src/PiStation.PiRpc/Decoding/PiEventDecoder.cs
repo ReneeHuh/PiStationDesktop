@@ -44,6 +44,18 @@ public sealed class PiEventDecoder
                 GetOptionalBoolean(record, "success"),
                 GetRequiredInt32(record, "attempt"),
                 GetOptionalString(record, "finalError")),
+            "queue_update" => new PiQueueUpdatedEvent(
+                GetRequiredStringArray(record, "steering"),
+                GetRequiredStringArray(record, "followUp")),
+            "compaction_start" => new PiCompactionStartedEvent(GetOptionalString(record, "reason") ?? "manual"),
+            "compaction_end" => new PiCompactionCompletedEvent(
+                GetOptionalString(record, "reason") ?? "manual",
+                record.TryGetProperty("result", out var result) && result.ValueKind != JsonValueKind.Null
+                    ? result.Clone()
+                    : null,
+                GetOptionalBoolean(record, "aborted"),
+                GetOptionalBoolean(record, "willRetry"),
+                GetOptionalString(record, "errorMessage")),
             "extension_ui_request" => DecodeExtensionUiRequest(record),
             _ => new PiUnknownEvent(type, record.Clone()),
         };
@@ -59,7 +71,7 @@ public sealed class PiEventDecoder
     {
         var id = GetRequiredString(record, "id");
         var method = GetRequiredString(record, "method");
-        var title = GetRequiredString(record, "title");
+        var title = GetOptionalString(record, "title") ?? string.Empty;
         var timeout = GetOptionalInt32(record, "timeout");
         return method switch
         {
@@ -71,6 +83,15 @@ public sealed class PiEventDecoder
             "select" => new PiSelectRequestedEvent(id, title, GetRequiredStringArray(record, "options"), timeout),
             "input" => new PiInputRequestedEvent(id, title, GetOptionalString(record, "placeholder"), timeout),
             "editor" => new PiEditorRequestedEvent(id, title, GetOptionalString(record, "prefill")),
+            "notify" => new PiExtensionUiUpdateEvent(id, method, Text: GetRequiredString(record, "message"),
+                Severity: GetOptionalString(record, "notifyType")),
+            "setStatus" => new PiExtensionUiUpdateEvent(id, method, GetRequiredString(record, "statusKey"), GetOptionalString(record, "statusText")),
+            "setWidget" => new PiExtensionUiUpdateEvent(id, method, GetRequiredString(record, "widgetKey"),
+                Lines: record.TryGetProperty("widgetLines", out var lines) && lines.ValueKind == JsonValueKind.Array
+                    ? GetRequiredStringArray(record, "widgetLines") : null,
+                Placement: GetOptionalString(record, "widgetPlacement")),
+            "setTitle" => new PiExtensionUiUpdateEvent(id, method, Text: title),
+            "set_editor_text" => new PiExtensionUiUpdateEvent(id, method, Text: GetRequiredString(record, "text")),
             _ => new PiUnknownEvent("extension_ui_request", record.Clone()),
         };
     }

@@ -4,7 +4,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PiStation.App.ViewModels;
 using PiStation.Protocol.Models;
+using PiStation.Protocol.Projections;
 using Windows.Storage.Pickers;
+using Windows.Storage;
+using Windows.Storage.Streams;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Windows.UI.Core;
@@ -38,8 +41,21 @@ public sealed partial class ComposerSurface : UserControl
             return;
         }
 
-        if (TryReadFileMentionToken(PromptInput.Text, PromptInput.SelectionStart, out var token))
+        if (ComposerPowerViewModel.TryReadCommandToken(
+                PromptInput.Text,
+                PromptInput.SelectionStart,
+                out _,
+                out _,
+                out _,
+                out _))
         {
+            _activeFileMentionToken = null;
+            ViewModel.CloseFileMentionSuggestions();
+            ViewModel.UpdateComposerDiscoveryQuery(PromptInput.Text, PromptInput.SelectionStart);
+        }
+        else if (TryReadFileMentionToken(PromptInput.Text, PromptInput.SelectionStart, out var token))
+        {
+            ViewModel.CloseComposerDiscovery();
             _activeFileMentionToken = token;
             ViewModel.UpdateFileMentionQuery(token.Query);
         }
@@ -47,10 +63,13 @@ public sealed partial class ComposerSurface : UserControl
         {
             _activeFileMentionToken = null;
             ViewModel.CloseFileMentionSuggestions();
+            ViewModel.CloseComposerDiscovery();
         }
     }
 
     private void OnPromptInputSizeChanged(object sender, SizeChangedEventArgs e) => UpdatePromptHeight();
+
+    private void OnComposerSizeChanged(object sender, SizeChangedEventArgs e) => UpdatePromptHeight();
 
     private void UpdatePromptHeight()
     {
@@ -63,10 +82,21 @@ public sealed partial class ComposerSurface : UserControl
             .Sum(line => Math.Max(
                 1,
                 (int)Math.Ceiling(line.TrimEnd('\r').Length / (double)charactersPerLine)));
-        PromptInput.Height = Math.Clamp(
+        // Reserve the measured toolbar/rails before growing the input, including
+        // the second toolbar row and larger text profiles.
+        var maximumComposerHeight = (double)Application.Current.Resources["PiComposerMaxHeight"];
+        var maximumInputHeight = ComposerRoot.ActualHeight > 0
+            ? Math.Clamp(maximumComposerHeight - (ComposerRoot.ActualHeight - PromptInput.ActualHeight),
+                PromptInput.MinHeight, PromptInput.MaxHeight)
+            : PromptInput.MaxHeight;
+        var desiredHeight = Math.Clamp(
             PromptInput.MinHeight + ((visualLineCount - 1) * additionalLineHeight),
             PromptInput.MinHeight,
-            PromptInput.MaxHeight);
+            maximumInputHeight);
+        if (Math.Abs(PromptInput.Height - desiredHeight) > 0.1)
+        {
+            PromptInput.Height = desiredHeight;
+        }
     }
 
     private async void OnPromptInputPreviewKeyDown(object sender, KeyRoutedEventArgs e)
@@ -74,6 +104,40 @@ public sealed partial class ComposerSurface : UserControl
         if (e.Key == VirtualKey.Shift)
         {
             _isPromptShiftKeyDown = true;
+            return;
+        }
+
+        if (IsControlKeyDown() && e.Key == VirtualKey.V && await TryPasteImageOrFilesAsync())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (ViewModel.ComposerPower.SuggestionsVisibility == Visibility.Visible)
+        {
+            switch (e.Key)
+            {
+                case VirtualKey.Down:
+                    ViewModel.MoveComposerDiscoverySelection(1);
+                    ScrollSelectedComposerCommandIntoView();
+                    e.Handled = true;
+                    break;
+                case VirtualKey.Up:
+                    ViewModel.MoveComposerDiscoverySelection(-1);
+                    ScrollSelectedComposerCommandIntoView();
+                    e.Handled = true;
+                    break;
+                case VirtualKey.Enter:
+                case VirtualKey.Tab:
+                    await ApplySelectedComposerCommandAsync();
+                    e.Handled = true;
+                    break;
+                case VirtualKey.Escape:
+                    ViewModel.CloseComposerDiscovery();
+                    e.Handled = true;
+                    break;
+            }
+
             return;
         }
 
@@ -115,9 +179,21 @@ public sealed partial class ComposerSurface : UserControl
         }
 
         e.Handled = true;
+        if (IsControlKeyDown() && IsShiftKeyDown())
+        {
+            ViewModel.SendPromptInBackground();
+            return;
+        }
+
         if (IsShiftKeyDown())
         {
             InsertPromptLineBreak();
+            return;
+        }
+
+        if (IsControlKeyDown() && ViewModel.CanQueueFollowUp)
+        {
+            await ViewModel.QueueFollowUpAsync();
             return;
         }
 
@@ -138,6 +214,9 @@ public sealed partial class ComposerSurface : UserControl
     private bool IsShiftKeyDown() =>
         _isPromptShiftKeyDown ||
         (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) & CoreVirtualKeyStates.Down) != 0;
+
+    private static bool IsControlKeyDown() =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0;
 
     private void InsertPromptLineBreak()
     {
@@ -179,6 +258,86 @@ public sealed partial class ComposerSurface : UserControl
             picker,
             WinRT.Interop.WindowNative.GetWindowHandle(window));
         var files = await picker.PickMultipleFilesAsync();
+        await AddStorageFilesAsync(files.OfType<StorageFile>());
+    }
+
+    private async void OnRemoveAttachmentClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: DraftAttachmentViewModel attachment })
+        {
+            await ViewModel.RemoveAttachmentAsync(attachment);
+        }
+    }
+
+    private void OnComposerDragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat) ||
+            e.DataView.Contains(StandardDataFormats.StorageItems) ||
+            e.DataView.Contains(StandardDataFormats.Bitmap))
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat)
+                ? "Mention workspace file"
+                : "Attach to prompt";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.Handled = true;
+        }
+    }
+
+    private async void OnComposerDrop(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat))
+        {
+            e.Handled = true;
+            var value = await e.DataView.GetDataAsync(RightPanelHost.WorkspaceFileDragFormat);
+            if (value is string relativePath && !string.IsNullOrWhiteSpace(relativePath))
+            {
+                InsertFileMentionAtCaret(relativePath);
+            }
+
+            return;
+        }
+
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            e.Handled = true;
+            var items = await e.DataView.GetStorageItemsAsync();
+            await AddStorageFilesAsync(items.OfType<StorageFile>());
+            return;
+        }
+
+        if (e.DataView.Contains(StandardDataFormats.Bitmap))
+        {
+            e.Handled = true;
+            await AddBitmapAsync(await e.DataView.GetBitmapAsync());
+        }
+    }
+
+    private async Task<bool> TryPasteImageOrFilesAsync()
+    {
+        var content = Clipboard.GetContent();
+        if (content.Contains(StandardDataFormats.StorageItems))
+        {
+            var items = await content.GetStorageItemsAsync();
+            var files = items.OfType<StorageFile>().ToArray();
+            if (files.Length != 0)
+            {
+                await AddStorageFilesAsync(files);
+                return true;
+            }
+        }
+
+        if (content.Contains(StandardDataFormats.Bitmap))
+        {
+            await AddBitmapAsync(await content.GetBitmapAsync());
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task AddStorageFilesAsync(IEnumerable<StorageFile> files)
+    {
         foreach (var file in files)
         {
             if (!ViewModel.Composer.CanAttach)
@@ -196,37 +355,135 @@ public sealed partial class ComposerSurface : UserControl
         }
     }
 
-    private async void OnRemoveAttachmentClicked(object sender, RoutedEventArgs e)
+    private async Task AddBitmapAsync(RandomAccessStreamReference bitmap)
     {
-        if (sender is Button { DataContext: DraftAttachmentViewModel attachment })
-        {
-            await ViewModel.RemoveAttachmentAsync(attachment);
-        }
-    }
-
-    private void OnComposerDragOver(object sender, DragEventArgs e)
-    {
-        if (e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat))
-        {
-            e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Mention workspace file";
-            e.DragUIOverride.IsCaptionVisible = true;
-            e.Handled = true;
-        }
-    }
-
-    private async void OnComposerDrop(object sender, DragEventArgs e)
-    {
-        if (!e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat))
+        if (!ViewModel.Composer.CanAttach)
         {
             return;
         }
 
-        e.Handled = true;
-        var value = await e.DataView.GetDataAsync(RightPanelHost.WorkspaceFileDragFormat);
-        if (value is string relativePath && !string.IsNullOrWhiteSpace(relativePath))
+        using var randomAccessStream = await bitmap.OpenReadAsync();
+        await using var content = randomAccessStream.AsStreamForRead();
+        var mediaType = string.IsNullOrWhiteSpace(randomAccessStream.ContentType)
+            ? "image/png"
+            : randomAccessStream.ContentType;
+        await ViewModel.AddAttachmentAsync(
+            $"pasted-image-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.png",
+            mediaType,
+            content,
+            checked((long)randomAccessStream.Size));
+    }
+
+    private async void OnComposerCommandClicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is ComposerCommandDescriptor command)
         {
-            InsertFileMentionAtCaret(relativePath);
+            await ApplyComposerCommandAsync(command);
+        }
+    }
+
+    private async Task ApplySelectedComposerCommandAsync()
+    {
+        var index = ViewModel.ComposerPower.SelectedIndex;
+        if (index >= 0 && index < ViewModel.ComposerPower.Suggestions.Count)
+        {
+            await ApplyComposerCommandAsync(ViewModel.ComposerPower.Suggestions[index]);
+        }
+    }
+
+    private async Task ApplyComposerCommandAsync(ComposerCommandDescriptor command)
+    {
+        if (command.Source == ComposerCommandSource.BuiltIn)
+        {
+            RemoveActiveComposerToken();
+            await ViewModel.InvokeComposerCommandAsync(command);
+            return;
+        }
+
+        if (!ComposerPowerViewModel.TryReadCommandToken(
+                PromptInput.Text,
+                PromptInput.SelectionStart,
+                out var prefix,
+                out _,
+                out var start,
+                out var end))
+        {
+            return;
+        }
+
+        var invocationPrefix = command.Source == ComposerCommandSource.Skill ? '$' : prefix;
+        var replacement = $"{invocationPrefix}{command.Name} ";
+        PromptInput.Text = PromptInput.Text[..start] + replacement + PromptInput.Text[end..];
+        PromptInput.SelectionStart = start + replacement.Length;
+        PromptInput.SelectionLength = 0;
+        ViewModel.CloseComposerDiscovery();
+        PromptInput.Focus(FocusState.Programmatic);
+    }
+
+    private void RemoveActiveComposerToken()
+    {
+        if (!ComposerPowerViewModel.TryReadCommandToken(
+                PromptInput.Text,
+                PromptInput.SelectionStart,
+                out _,
+                out _,
+                out var start,
+                out var end))
+        {
+            return;
+        }
+
+        PromptInput.Text = PromptInput.Text.Remove(start, end - start).TrimStart();
+        PromptInput.SelectionStart = Math.Min(start, PromptInput.Text.Length);
+    }
+
+    private void ScrollSelectedComposerCommandIntoView()
+    {
+        var index = ViewModel.ComposerPower.SelectedIndex;
+        if (index >= 0 && index < ViewModel.ComposerPower.Suggestions.Count)
+        {
+            ComposerDiscoveryList.ScrollIntoView(ViewModel.ComposerPower.Suggestions[index]);
+        }
+    }
+
+    private async void OnCompactContextClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.CompactContextAsync();
+
+    private async void OnStashPromptClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.StashPromptAsync();
+
+    private async void OnRestorePromptStashClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: PromptStash stash })
+        {
+            await ViewModel.RestorePromptStashAsync(stash);
+            PromptInput.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private async void OnDeletePromptStashClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: PromptStash stash })
+        {
+            await ViewModel.DeletePromptStashAsync(stash);
+        }
+    }
+
+    private void OnAddTerminalContextClicked(object sender, RoutedEventArgs e) => ViewModel.AddTerminalContext();
+
+    private void OnAddDiffContextClicked(object sender, RoutedEventArgs e) => ViewModel.AddDiffContext();
+
+    private async void OnContextSourceClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ComposerContextChipViewModel chip })
+            await ViewModel.RevealComposerContextAsync(chip);
+    }
+
+    private void OnRemoveContextClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ComposerContextChipViewModel chip })
+        {
+            ViewModel.RemoveComposerContext(chip);
         }
     }
 
@@ -258,6 +515,21 @@ public sealed partial class ComposerSurface : UserControl
 
     private async void OnStopTurnClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.StopTurnAsync();
+
+    private async void OnFollowUpClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.QueueFollowUpAsync();
+
+    private async void OnClearTurnQueueClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.ClearTurnQueueAsync();
+
+    private async void OnRefreshTurnQueueClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.RefreshTurnQueueAsync();
+
+    private async void OnToggleSteeringDeliveryModeClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.ToggleQueueDeliveryModeAsync(QueuedMessageKind.Steering);
+
+    private async void OnToggleFollowUpDeliveryModeClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.ToggleQueueDeliveryModeAsync(QueuedMessageKind.FollowUp);
 
     private async void OnPiModelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {

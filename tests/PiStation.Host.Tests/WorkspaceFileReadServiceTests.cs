@@ -122,4 +122,31 @@ public sealed class WorkspaceFileReadServiceTests
         Assert.Equal("image/png", result.MediaType);
         Assert.NotEmpty(result.Revision);
     }
+
+    [Theory]
+    [InlineData("document.pdf", "application/pdf")]
+    [InlineData("sound.mp3", "audio/mpeg")]
+    [InlineData("sound.wav", "audio/wav")]
+    [InlineData("movie.mp4", "video/mp4")]
+    [InlineData("movie.webm", "video/webm")]
+    public async Task AssetReadClassifiesRenderedDocumentAndMediaTypes(
+        string fileName,
+        string expectedMediaType)
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        var options = temporaryDirectory.CreateOptions();
+        var projectRoot = temporaryDirectory.CreateDirectory("project");
+        await File.WriteAllBytesAsync(Path.Combine(projectRoot, fileName), [1, 2, 3, 4]);
+        var database = new HostDatabase(options);
+        await database.InitializeAsync();
+        var project = await new ProjectService(database).AddAsync(new AddProjectRequest(projectRoot));
+        var service = new WorkspaceFileReadService(database);
+
+        var result = await service.ReadAssetAsync(new ReadProjectFileAssetRequest(
+            project.ProjectId,
+            fileName));
+
+        Assert.Equal(expectedMediaType, result.MediaType);
+        Assert.Equal(4, result.ByteLength);
+    }
 }

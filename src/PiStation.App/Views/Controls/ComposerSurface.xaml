@@ -15,6 +15,7 @@
         automation:AutomationProperties.Name="Message composer"
         DragOver="OnComposerDragOver"
         Drop="OnComposerDrop"
+        SizeChanged="OnComposerSizeChanged"
         Style="{StaticResource PiComposerSurfaceStyle}">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="ComposerResponsiveStates">
@@ -72,7 +73,53 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
+
+            <Border
+                x:Name="ComposerDiscoveryPanel"
+                MaxHeight="260"
+                Margin="0,0,0,8"
+                Padding="8"
+                automation:AutomationProperties.AutomationId="ComposerDiscoveryPanel"
+                automation:AutomationProperties.Name="Slash commands and skills"
+                Style="{StaticResource PiElevatedSurfaceStyle}"
+                Visibility="{x:Bind ViewModel.ComposerPower.SuggestionsVisibility, Mode=OneWay}">
+                <Grid RowSpacing="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock
+                        Style="{StaticResource PiPanelHeaderTextStyle}"
+                        Text="{x:Bind ViewModel.ComposerPower.Status, Mode=OneWay}" />
+                    <ListView
+                        x:Name="ComposerDiscoveryList"
+                        Grid.Row="1"
+                        MaxHeight="200"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnComposerCommandClicked"
+                        ItemsSource="{x:Bind ViewModel.ComposerPower.Suggestions, Mode=OneWay}"
+                        SelectedIndex="{x:Bind ViewModel.ComposerPower.SelectedIndex, Mode=TwoWay}"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:ComposerCommandDescriptor">
+                                <Grid Padding="6,4" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontWeight="SemiBold" Text="{x:Bind Name}" />
+                                    <TextBlock Grid.Column="1" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind Description}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Source}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
 
             <Border
                 x:Name="FileMentionSuggestionsPanel"
@@ -144,8 +191,38 @@
             </Border>
 
             <ListView
-                x:Name="DraftAttachmentList"
+                x:Name="ComposerContextChipList"
                 Grid.Row="1"
+                MaxHeight="42"
+                Margin="0,0,0,6"
+                automation:AutomationProperties.AutomationId="ComposerContextChipList"
+                automation:AutomationProperties.Name="Prompt context"
+                ItemsSource="{x:Bind ViewModel.ComposerPower.ContextChips, Mode=OneWay}"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                SelectionMode="None"
+                Visibility="{x:Bind ViewModel.ComposerPower.ContextChipsVisibility, Mode=OneWay}">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="viewModels:ComposerContextChipViewModel">
+                        <Border Margin="0,0,6,0" Style="{StaticResource PiAttachmentChipStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock VerticalAlignment="Center" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiAccentBrush}" Text="{x:Bind Kind}" />
+                                <Button MaxWidth="220" Click="OnContextSourceClicked" Content="{x:Bind Label}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Go to source" />
+                                <Button Click="OnRemoveContextClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Remove context">
+                                    <FontIcon FontSize="10" Glyph="&#xE711;" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <ListView
+                x:Name="DraftAttachmentList"
+                Grid.Row="2"
                 Height="{x:Bind ViewModel.Composer.AttachmentRailHeight, Mode=OneWay}"
                 MaxHeight="42"
                 Margin="0,0,0,6"
@@ -168,23 +245,31 @@
                             Style="{StaticResource PiAttachmentChipStyle}">
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
+                                <Image
+                                    Width="26"
+                                    Height="26"
+                                    Source="{x:Bind PreviewUri}"
+                                    Stretch="UniformToFill"
+                                    Visibility="{x:Bind PreviewVisibility}" />
                                 <TextBlock
+                                    Grid.Column="1"
                                     VerticalAlignment="Center"
                                     FontWeight="SemiBold"
                                     Text="{x:Bind FileName}"
                                     TextTrimming="CharacterEllipsis" />
                                 <TextBlock
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     VerticalAlignment="Center"
                                     FontSize="{StaticResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind Detail}" />
                                 <Button
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     automation:AutomationProperties.AutomationId="RemoveAttachmentButton"
                                     automation:AutomationProperties.Name="Remove attachment"
                                     Click="OnRemoveAttachmentClicked"
@@ -200,7 +285,7 @@
 
             <TextBox
                 x:Name="PromptInput"
-                Grid.Row="2"
+                Grid.Row="3"
                 Height="48"
                 MinHeight="48"
                 MaxHeight="144"
@@ -220,7 +305,7 @@
 
             <TextBlock
                 x:Name="AttachmentNoticeText"
-                Grid.Row="3"
+                Grid.Row="4"
                 Height="{x:Bind ViewModel.Composer.AttachmentNoticeHeight, Mode=OneWay}"
                 Margin="4,2,4,0"
                 automation:AutomationProperties.AutomationId="AttachmentNoticeText"
@@ -229,18 +314,24 @@
                 Text="{x:Bind ViewModel.Composer.AttachmentNotice, Mode=OneWay}"
                 TextWrapping="Wrap" />
 
-            <Border Grid.Row="4" Style="{StaticResource PiComposerToolbarStyle}">
-                <Grid ColumnSpacing="6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
+            <Border Grid.Row="5" Style="{StaticResource PiComposerToolbarStyle}">
+                <Grid ColumnSpacing="6" RowSpacing="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ScrollViewer
+                        Grid.Row="0"
+                        HorizontalScrollBarVisibility="Auto"
+                        HorizontalScrollMode="Enabled"
+                        VerticalScrollBarVisibility="Hidden"
+                        VerticalScrollMode="Disabled">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
 
                     <Button
                         x:Name="AttachFilesButton"
+                        Grid.Row="0"
+                        HorizontalAlignment="Left"
                         automation:AutomationProperties.AutomationId="AttachFilesButton"
                         automation:AutomationProperties.Name="Attach files to draft"
                         Click="OnAttachFilesClicked"
@@ -250,9 +341,63 @@
                         <FontIcon FontSize="14" Glyph="&#xE723;" />
                     </Button>
 
+                    <Button
+                        Grid.Row="0"
+                        Grid.Column="1"
+                        HorizontalAlignment="Left"
+                        automation:AutomationProperties.AutomationId="AddComposerContextButton"
+                        automation:AutomationProperties.Name="Add terminal or diff context"
+                        Content="Context"
+                        Style="{StaticResource PiToolbarButtonStyle}">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Click="OnAddTerminalContextClicked" Text="Terminal output" />
+                                <MenuFlyoutItem Click="OnAddDiffContextClicked" Text="Selected diff" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+
+                    <Button
+                        Grid.Row="0"
+                        Grid.Column="2"
+                        HorizontalAlignment="Left"
+                        automation:AutomationProperties.AutomationId="PromptStashButton"
+                        automation:AutomationProperties.Name="Prompt stash"
+                        Content="Stash"
+                        Style="{StaticResource PiToolbarButtonStyle}">
+                        <Button.Flyout>
+                            <Flyout Placement="Top">
+                                <StackPanel Width="320" MaxHeight="360" Spacing="8">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Style="{StaticResource PiPanelHeaderTextStyle}" Text="Prompt stash" />
+                                        <Button Grid.Column="1" Click="OnStashPromptClicked" Content="Stash current" IsEnabled="{x:Bind ViewModel.CanStashPrompt, Mode=OneWay}" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                    </Grid>
+                                    <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Save a prompt for later without sending it." TextWrapping="Wrap" />
+                                    <ListView ItemsSource="{x:Bind ViewModel.ComposerPower.Stashes, Mode=OneWay}" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="models:PromptStash">
+                                                <Grid Padding="4" ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Text}" TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1" Click="OnRestorePromptStashClicked" Content="Restore" Style="{StaticResource PiToolbarButtonStyle}" />
+                                                    <Button Grid.Column="2" Click="OnDeletePromptStashClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Delete stash"><FontIcon FontSize="10" Glyph="&#xE74D;" /></Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+
                     <StackPanel
                         x:Name="PiConfigurationPanel"
-                        Grid.Column="1"
+                        Grid.Row="0"
+                        Grid.Column="3"
                         automation:AutomationProperties.AutomationId="PiConfigurationPanel"
                         automation:AutomationProperties.Name="Pi configuration"
                         Orientation="Horizontal"
@@ -286,9 +431,35 @@
                             Visibility="{x:Bind ViewModel.PiConfiguration.ThinkingLevelSelectorVisibility, Mode=OneWay}" />
                     </StackPanel>
 
+                    <Button
+                        automation:AutomationProperties.AutomationId="CompactContextButton"
+                        automation:AutomationProperties.Name="Compact Pi context"
+                        Click="OnCompactContextClicked"
+                        Content="Compact"
+                        IsEnabled="{x:Bind ViewModel.CanCompactContext, Mode=OneWay}"
+                        Style="{StaticResource PiToolbarButtonStyle}" />
+                    <Button
+                        x:Name="FollowUpButton"
+                        automation:AutomationProperties.AutomationId="FollowUpButton"
+                        automation:AutomationProperties.Name="Queue follow-up message"
+                        Click="OnFollowUpClicked"
+                        Content="Follow up"
+                        IsEnabled="{x:Bind ViewModel.CanQueueFollowUp, Mode=OneWay}"
+                        Style="{StaticResource PiToolbarButtonStyle}"
+                        ToolTipService.ToolTip="Queue after the current response (Ctrl+Enter)"
+                        Visibility="{x:Bind ViewModel.FollowUpButtonVisibility, Mode=OneWay}" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="1" ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                     <Grid
                         x:Name="ComposerStatusRegion"
-                        Grid.Column="2"
+                        Grid.Column="0"
                         Margin="4,0"
                         ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -318,7 +489,7 @@
 
                     <Button
                         x:Name="StopTurnButton"
-                        Grid.Column="3"
+                        Grid.Column="1"
                         automation:AutomationProperties.AutomationId="StopTurnButton"
                         automation:AutomationProperties.Name="Stop current turn"
                         Click="OnStopTurnClicked"
@@ -332,15 +503,125 @@
                     </Button>
                     <Button
                         x:Name="SendPromptButton"
-                        Grid.Column="4"
+                        Grid.Column="2"
                         automation:AutomationProperties.AutomationId="SendPromptButton"
-                        automation:AutomationProperties.Name="Send prompt"
+                        automation:AutomationProperties.Name="{x:Bind ViewModel.PrimarySendLabel, Mode=OneWay}"
                         Click="OnSendPromptClicked"
                         IsEnabled="{x:Bind ViewModel.CanSend, Mode=OneWay}"
                         Style="{StaticResource PiCircularPrimaryButtonStyle}"
-                        ToolTipService.ToolTip="Send prompt">
+                        ToolTipService.ToolTip="Send now; Ctrl+Shift+Enter submits in background">
                         <FontIcon FontSize="14" Glyph="&#xE724;" />
                     </Button>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border
+                Grid.Row="6"
+                Margin="0,8,0,0"
+                Padding="8"
+                automation:AutomationProperties.AutomationId="TurnQueueInspector"
+                automation:AutomationProperties.Name="Active turn message queue"
+                Style="{StaticResource PiElevatedSurfaceStyle}"
+                Visibility="{x:Bind ViewModel.Thread.Queue.InspectorVisibility, Mode=OneWay}">
+                <Grid RowSpacing="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Turn queue" />
+                            <TextBlock
+                                x:Name="TurnQueueSummaryText"
+                                VerticalAlignment="Center"
+                                automation:AutomationProperties.AutomationId="TurnQueueSummaryText"
+                                automation:AutomationProperties.LiveSetting="Polite"
+                                FontSize="{StaticResource PiFontSizeCaption}"
+                                Foreground="{ThemeResource PiTextMutedBrush}"
+                                Text="{x:Bind ViewModel.Thread.Queue.Summary, Mode=OneWay}" />
+                            <TextBlock
+                                x:Name="TurnQueueDeliveryStateText"
+                                VerticalAlignment="Center"
+                                automation:AutomationProperties.AutomationId="TurnQueueDeliveryStateText"
+                                automation:AutomationProperties.LiveSetting="Polite"
+                                FontSize="{StaticResource PiFontSizeCaption}"
+                                Foreground="{ThemeResource PiAccentBrush}"
+                                Text="{x:Bind ViewModel.Thread.Queue.DeliveryStateLabel, Mode=OneWay}" />
+                        </StackPanel>
+                        <Button
+                            Grid.Column="1"
+                            automation:AutomationProperties.AutomationId="RefreshTurnQueueButton"
+                            automation:AutomationProperties.Name="Refresh turn queue"
+                            Click="OnRefreshTurnQueueClicked"
+                            IsEnabled="{x:Bind ViewModel.CanManageQueue, Mode=OneWay}"
+                            Style="{StaticResource PiToolbarIconButtonStyle}"
+                            ToolTipService.ToolTip="Refresh queue">
+                            <FontIcon FontSize="12" Glyph="&#xE72C;" />
+                        </Button>
+                        <Button
+                            Grid.Column="2"
+                            automation:AutomationProperties.AutomationId="ClearTurnQueueButton"
+                            automation:AutomationProperties.Name="Clear queued messages"
+                            Click="OnClearTurnQueueClicked"
+                            Content="Clear"
+                            IsEnabled="{x:Bind ViewModel.CanClearQueue, Mode=OneWay}"
+                            Style="{StaticResource PiToolbarButtonStyle}" />
+                    </Grid>
+
+                    <ListView
+                        Grid.Row="1"
+                        MaxHeight="120"
+                        automation:AutomationProperties.AutomationId="TurnQueueMessageList"
+                        automation:AutomationProperties.Name="Queued steering and follow-up messages"
+                        ItemsSource="{x:Bind ViewModel.Thread.Queue.Messages, Mode=OneWay}"
+                        SelectionMode="None"
+                        Visibility="{x:Bind ViewModel.Thread.Queue.MessagesVisibility, Mode=OneWay}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="viewModels:QueuedMessageViewModel">
+                                <Grid Padding="2" ColumnSpacing="8" automation:AutomationProperties.Name="{x:Bind AccessibleName}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind KindLabel}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Text="{x:Bind Text}"
+                                        TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind Text}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="{StaticResource PiFontSizeCaption}"
+                            Foreground="{ThemeResource PiTextMutedBrush}"
+                            Text="Delivery" />
+                        <Button
+                            automation:AutomationProperties.AutomationId="ToggleSteeringDeliveryModeButton"
+                            automation:AutomationProperties.Name="Toggle steering delivery mode"
+                            Click="OnToggleSteeringDeliveryModeClicked"
+                            Content="{x:Bind ViewModel.Thread.Queue.SteeringModeLabel, Mode=OneWay}"
+                            IsEnabled="{x:Bind ViewModel.CanManageQueue, Mode=OneWay}"
+                            Style="{StaticResource PiToolbarButtonStyle}" />
+                        <Button
+                            automation:AutomationProperties.AutomationId="ToggleFollowUpDeliveryModeButton"
+                            automation:AutomationProperties.Name="Toggle follow-up delivery mode"
+                            Click="OnToggleFollowUpDeliveryModeClicked"
+                            Content="{x:Bind ViewModel.Thread.Queue.FollowUpModeLabel, Mode=OneWay}"
+                            IsEnabled="{x:Bind ViewModel.CanManageQueue, Mode=OneWay}"
+                            Style="{StaticResource PiToolbarButtonStyle}" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

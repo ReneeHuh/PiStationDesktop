@@ -75,6 +75,24 @@ public sealed class EnvironmentClient : IEnvironmentClient
         CancellationToken cancellationToken = default) =>
         InvokeAsync<ProjectDescriptor>("AddProject", request, cancellationToken);
 
+    public async Task RemoveProjectAsync(
+        RemoveProjectRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConnected();
+        await _supervisor.Connection.InvokeAsync("RemoveProject", request, cancellationToken).ConfigureAwait(false);
+        ThreadMetadata.RemoveProject(request.ProjectId);
+    }
+
+    public Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
+        UpdateProjectDefaultsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return InvokeAsync<ProjectDescriptor>("UpdateProjectDefaults", request, cancellationToken);
+    }
+
     public Task<ProjectDescriptor> SetProjectScriptsTrustAsync(
         SetProjectScriptsTrustRequest request,
         CancellationToken cancellationToken = default)
@@ -90,6 +108,110 @@ public sealed class EnvironmentClient : IEnvironmentClient
         ArgumentNullException.ThrowIfNull(request);
         return InvokeAsync<ProjectSetupScriptResult>("RunProjectSetupScript", request, cancellationToken);
     }
+
+    public Task<ProjectSetupScriptResult> RunProjectScriptAsync(
+        RunProjectScriptRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return InvokeAsync<ProjectSetupScriptResult>("RunProjectScript", request, cancellationToken);
+    }
+
+    public Task<ComposerDiscoveryResult> GetComposerDiscoveryAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<ComposerDiscoveryResult>("GetComposerDiscovery", threadId, cancellationToken);
+
+    public async Task<IReadOnlyList<PromptStash>> ListPromptStashesAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default) =>
+        await InvokeAsync<PromptStash[]>("ListPromptStashes", projectId, cancellationToken).ConfigureAwait(false);
+
+    public Task<PromptStash> SavePromptStashAsync(
+        SavePromptStashRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return InvokeAsync<PromptStash>("SavePromptStash", request, cancellationToken);
+    }
+
+    public Task DeletePromptStashAsync(
+        DeletePromptStashRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConnected();
+        return _supervisor.Connection.InvokeAsync("DeletePromptStash", request, cancellationToken);
+    }
+
+    public Task<SourceControlRepository> DetectSourceControlAsync(
+        DetectSourceControlRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<SourceControlRepository>("DetectSourceControl", request, cancellationToken);
+
+    public Task<ListPullRequestsResult> ListPullRequestsAsync(
+        ListPullRequestsRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<ListPullRequestsResult>("ListPullRequests", request, cancellationToken);
+
+    public Task<SourceControlOperationResult> CloneHostedRepositoryAsync(
+        CloneHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("CloneHostedRepository", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public Task<SourceControlOperationResult> PublishHostedRepositoryAsync(
+        PublishHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("PublishHostedRepository", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public Task<SourceControlOperationResult> CreatePullRequestAsync(
+        CreatePullRequestRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("CreatePullRequest", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public Task<SourceControlOperationResult> MutatePullRequestAsync(
+        MutatePullRequestRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("MutatePullRequest", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public async Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default) =>
+        await InvokeAsync<HostingOperation[]>("ListHostingOperations", cancellationToken).ConfigureAwait(false);
+
+    private async Task<SourceControlOperationResult> InvokeHostingAsync<T>(string method, CommandId? operationId,
+        Func<CommandId, T> createRequest, CancellationToken cancellationToken)
+    {
+        var id = operationId ?? CommandId.New();
+        try { return await InvokeAsync<SourceControlOperationResult>(method, createRequest(id)!, cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) when (CouldBeInterruptedDispatch(exception))
+        {
+            try
+            {
+                var operation = (await ListHostingOperationsAsync(CancellationToken.None).ConfigureAwait(false))
+                    .FirstOrDefault(candidate => candidate.OperationId == id);
+                if (operation?.Result is { } result) return result;
+            }
+            catch (Exception recoveryException) when (recoveryException is not OutOfMemoryException) { }
+            return new SourceControlOperationResult(false,
+                $"Connection interrupted during hosting operation {id.Value}. Reconnect and refresh operation history before retrying.",
+                OperationId: id, State: CommandReceiptState.DispatchUncertain);
+        }
+    }
+
+    public Task<GeneratedSourceControlText> GenerateSourceControlTextAsync(
+        GenerateSourceControlTextRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<GeneratedSourceControlText>("GenerateSourceControlText", request, cancellationToken);
+
+    public Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default) =>
+        InvokeAsync<DiagnosticsSnapshot>("GetDiagnostics", cancellationToken);
+
+    public Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiRuntimeSetupResult>("ConfigurePiRuntime", request, cancellationToken);
+
+    public Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
+        ExportDiagnosticsRequest request,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<ExportDiagnosticsResult>("ExportDiagnostics", request, cancellationToken);
 
     public Task<SearchProjectFilesResult> SearchProjectFilesAsync(
         SearchProjectFilesRequest request,
@@ -401,6 +523,52 @@ public sealed class EnvironmentClient : IEnvironmentClient
         return ThreadMetadata.GetCurrent(thread.ThreadId) ?? thread;
     }
 
+    public async Task DeleteThreadAsync(
+        DeleteThreadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConnected();
+        await _supervisor.Connection.InvokeAsync("DeleteThread", request, cancellationToken).ConfigureAwait(false);
+        ThreadMetadata.Remove(request.ThreadId);
+    }
+
+    public async Task<ApplyThreadBulkOperationResult> ApplyThreadBulkOperationAsync(
+        ApplyThreadBulkOperationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var descriptor = EnsureConnected();
+        var result = await _supervisor.Connection.InvokeAsync<ApplyThreadBulkOperationResult>(
+            "ApplyThreadBulkOperation", request, cancellationToken).ConfigureAwait(false);
+        ApplyThreadProjectSnapshot(descriptor, request.ProjectId, result.Threads, includeArchived: false, isComplete: true);
+        return result with { Threads = ThreadMetadata.GetProjectThreads(request.ProjectId) };
+    }
+
+    public async Task<IReadOnlyList<ThreadDescriptor>> SetThreadPinnedOrderAsync(
+        SetThreadPinnedOrderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var descriptor = EnsureConnected();
+        var threads = await _supervisor.Connection.InvokeAsync<ThreadDescriptor[]>(
+            "SetThreadPinnedOrder", request, cancellationToken).ConfigureAwait(false);
+        ApplyThreadProjectSnapshot(descriptor, request.ProjectId, threads, includeArchived: false, isComplete: true);
+        return ThreadMetadata.GetProjectThreads(request.ProjectId);
+    }
+
+    public async Task<ThreadDescriptor> LinkThreadPullRequestAsync(
+        LinkThreadPullRequestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var descriptor = EnsureConnected();
+        var thread = await _supervisor.Connection.InvokeAsync<ThreadDescriptor>(
+            "LinkThreadPullRequest", request, cancellationToken).ConfigureAwait(false);
+        ApplyThreadDescriptor(descriptor, thread, expectedThreadId: request.ThreadId);
+        return ThreadMetadata.GetCurrent(request.ThreadId) ?? thread;
+    }
+
     public Task<ThreadLifecycleUpdateResult> RenameThreadAsync(
         ThreadId threadId,
         long expectedRevision,
@@ -440,6 +608,41 @@ public sealed class EnvironmentClient : IEnvironmentClient
             new ThreadSetPinnedCommand(expectedRevision, isPinned),
             cancellationToken);
     }
+
+    public Task<ThreadLifecycleUpdateResult> SetThreadSettledAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        bool isSettled,
+        CancellationToken cancellationToken = default) => ExecuteThreadLifecycleAsync(
+        threadId,
+        new ThreadSetSettledCommand(expectedRevision, isSettled),
+        cancellationToken);
+
+    public Task<ThreadLifecycleUpdateResult> SetThreadSnoozedAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        DateTimeOffset? snoozedUntilUtc,
+        CancellationToken cancellationToken = default) => ExecuteThreadLifecycleAsync(
+        threadId,
+        new ThreadSetSnoozedCommand(expectedRevision, snoozedUntilUtc),
+        cancellationToken);
+
+    public Task<ThreadLifecycleUpdateResult> SetThreadPinnedOrderAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        long pinnedOrder,
+        CancellationToken cancellationToken = default) => ExecuteThreadLifecycleAsync(
+        threadId,
+        new ThreadSetPinnedOrderCommand(expectedRevision, pinnedOrder),
+        cancellationToken);
+
+    public Task<ThreadLifecycleUpdateResult> RegenerateThreadTitleAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default) => ExecuteThreadLifecycleAsync(
+        threadId,
+        new ThreadRegenerateTitleCommand(expectedRevision),
+        cancellationToken);
 
     public Task<ThreadDraft> GetThreadDraftAsync(
         ThreadId threadId,
@@ -570,11 +773,26 @@ public sealed class EnvironmentClient : IEnvironmentClient
         return new ThreadLifecycleUpdateResult(receipt, thread);
     }
 
+    public Task<ThreadDraftSaveResult> SaveThreadDraftAsync(
+        ThreadId threadId, DraftId draftId, long expectedRevision, string text,
+        CancellationToken cancellationToken = default) =>
+        SaveThreadDraftAsync(threadId, draftId, expectedRevision, text, null, cancellationToken);
+
+    public async Task<ThreadDraft> RestorePromptStashAsync(ThreadId threadId, DraftId draftId, long expectedRevision, string stashId, CancellationToken cancellationToken = default)
+    {
+        var receipt = await ExecuteAsync(threadId, null, null,
+            new ThreadRestoreStashCommand(stashId, draftId, expectedRevision), cancellationToken).ConfigureAwait(false);
+        if (receipt.State != CommandReceiptState.Completed)
+            throw new InvalidOperationException($"Prompt restore is {receipt.State}. Reload the draft before retrying.");
+        return await GetThreadDraftAsync(threadId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ThreadDraftSaveResult> SaveThreadDraftAsync(
         ThreadId threadId,
         DraftId draftId,
         long expectedRevision,
         string text,
+        IReadOnlyList<ComposerContext>? context,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -582,7 +800,7 @@ public sealed class EnvironmentClient : IEnvironmentClient
             threadId,
             null,
             null,
-            new ThreadSaveDraftCommand(draftId, expectedRevision, text),
+            new ThreadSaveDraftCommand(draftId, expectedRevision, text, context),
             cancellationToken).ConfigureAwait(false);
         var draft = receipt.State == CommandReceiptState.Completed
             ? await GetThreadDraftAsync(threadId, cancellationToken).ConfigureAwait(false)
@@ -750,6 +968,92 @@ public sealed class EnvironmentClient : IEnvironmentClient
             expectedTurnId,
             new ThreadStopTurnCommand(),
             cancellationToken);
+
+    public Task<CommandReceipt> QueueSteeringAsync(
+        ThreadId threadId,
+        string prompt,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        DraftId? draftId = null,
+        long? draftRevision = null,
+        IReadOnlyList<AttachmentId>? attachmentIds = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        expectedTurnId,
+        new ThreadQueueSteeringCommand(prompt, draftId, draftRevision, attachmentIds),
+        cancellationToken);
+
+    public Task<CommandReceipt> QueueFollowUpAsync(
+        ThreadId threadId,
+        string prompt,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        DraftId? draftId = null,
+        long? draftRevision = null,
+        IReadOnlyList<AttachmentId>? attachmentIds = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        expectedTurnId,
+        new ThreadQueueFollowUpCommand(prompt, draftId, draftRevision, attachmentIds),
+        cancellationToken);
+
+    public Task<CommandReceipt> ClearTurnQueueAsync(
+        ThreadId threadId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        expectedTurnId,
+        new ThreadClearQueueCommand(),
+        cancellationToken);
+
+    public Task<CommandReceipt> RefreshTurnQueueAsync(
+        ThreadId threadId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        null,
+        new ThreadRefreshQueueCommand(),
+        cancellationToken);
+
+    public Task<CommandReceipt> SetQueueDeliveryModeAsync(
+        ThreadId threadId,
+        QueuedMessageKind kind,
+        QueueDeliveryMode mode,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        null,
+        new ThreadSetQueueDeliveryModeCommand(kind, mode),
+        cancellationToken);
+
+    public Task<CommandReceipt> CompactThreadContextAsync(
+        ThreadId threadId,
+        string? customInstructions = null,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        null,
+        new ThreadCompactContextCommand(customInstructions),
+        cancellationToken);
+
+    public Task<CommandReceipt> InterruptAgentAsync(
+        ThreadId threadId,
+        string activityId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+        threadId,
+        expectedProjectionEpoch,
+        expectedTurnId,
+        new ThreadInterruptAgentCommand(activityId),
+        cancellationToken);
 
     public Task<CommandReceipt> RestartThreadAsync(
         ThreadId threadId,

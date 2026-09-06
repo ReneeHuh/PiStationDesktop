@@ -45,7 +45,7 @@ public static class PiProcessLauncher
         startInfo.ArgumentList.Add(sessionDirectory);
         startInfo.ArgumentList.Add("--session-id");
         startInfo.ArgumentList.Add(options.SessionId);
-        startInfo.ArgumentList.Add("--no-extensions");
+        if (!options.DiscoverExtensions) startInfo.ArgumentList.Add("--no-extensions");
 
         foreach (var argument in options.AdditionalArguments)
         {

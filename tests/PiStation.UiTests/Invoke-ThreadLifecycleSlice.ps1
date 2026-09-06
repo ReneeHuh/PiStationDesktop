@@ -19,6 +19,7 @@ $projectPath = Join-Path $dataRoot 'lifecycle-project'
 $logFile = Join-Path $dataRoot 'app.jsonl'
 $launchedProcessId = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -71,9 +72,13 @@ function Stop-TestApp {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -139,46 +144,56 @@ try {
     Invoke-Ui 'set-value' 'ProjectPathInput' $projectPath | Out-Null
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
     Invoke-Ui 'wait-for' 'lifecycle-project' '--timeout' '10000' | Out-Null
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 0
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Thread 1'
 
     Invoke-ThreadAction -Selector 'RenameThreadMenuItem'
     Invoke-Ui 'wait-for' 'ThreadRenameInput' '--timeout' '5000' | Out-Null
     Invoke-Ui 'set-value' 'ThreadRenameInput' 'Roadmap thread' | Out-Null
     Invoke-Ui 'invoke' 'CommitThreadRenameButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '15000' | Out-Null
+    Invoke-Ui 'wait-for' 'ThreadRenameInput' '--gone' '--timeout' '5000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 15000
     Wait-UiValue -Selector 'ThreadLifecycleStatusText' -Value 'Renamed thread to Roadmap thread'
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Roadmap thread'
 
     Invoke-ThreadAction -Selector 'ToggleThreadPinMenuItem'
     Invoke-Ui 'wait-for' 'PinnedThreadIndicator' '--timeout' '15000' | Out-Null
     Wait-UiValue -Selector 'ThreadLifecycleStatusText' -Value 'Pinned Roadmap thread'
 
     Invoke-Ui 'set-value' 'ThreadSearchInput' 'roadmap' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '10000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 10000
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Roadmap thread'
     Invoke-Ui 'set-value' 'ThreadSearchInput' 'missing' | Out-Null
     Wait-UiValue -Selector 'ThreadListStatusText' -Value 'No threads match “missing”'
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Roadmap thread'
     Invoke-Ui 'invoke' 'ClearThreadSearchButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '10000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 10000
 
     Invoke-ThreadAction -Selector 'ToggleThreadArchiveMenuItem'
     Wait-UiValue -Selector 'ThreadListStatusText' -Value 'No threads yet'
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 0
     Invoke-Ui 'invoke' 'ArchivedThreadsToggle' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 15000
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 0
 
     Invoke-Ui 'set-value' 'ThreadSearchInput' 'roadmap' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '10000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 10000
     Invoke-Ui 'invoke' 'ClearThreadSearchButton' | Out-Null
     Invoke-ThreadAction -Selector 'ToggleThreadArchiveMenuItem'
     Wait-UiValue -Selector 'ThreadListStatusText' -Value 'No archived threads'
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Roadmap thread'
     Invoke-Ui 'invoke' 'ArchivedThreadsToggle' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 15000
 
     Stop-TestApp
     Start-TestApp
     Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
     Invoke-Ui 'wait-for' 'lifecycle-project' '--timeout' '10000' | Out-Null
     Invoke-Ui 'invoke' 'lifecycle-project' | Out-Null
-    Invoke-Ui 'wait-for' 'Roadmap thread' '--timeout' '10000' | Out-Null
+    Wait-TestProjectSummary -ProjectName 'lifecycle-project' -Count 1 -ThreadTitle 'Roadmap thread'
+    Wait-TestThread -Title 'Roadmap thread' -Timeout 10000
     Invoke-Ui 'wait-for' 'PinnedThreadIndicator' '--timeout' '10000' | Out-Null
     Invoke-ThreadAction -Selector 'ToggleThreadPinMenuItem'
     Invoke-Ui 'wait-for' 'PinnedThreadIndicator' '--gone' '--timeout' '15000' | Out-Null

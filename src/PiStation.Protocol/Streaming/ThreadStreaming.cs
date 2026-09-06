@@ -24,6 +24,10 @@ public sealed record ThreadCursor(ProjectionEpoch ProjectionEpoch, Sequence Sequ
 [JsonDerivedType(typeof(QuestionRequestedEvent), "questionRequested")]
 [JsonDerivedType(typeof(InteractionResolvedEvent), "interactionResolved")]
 [JsonDerivedType(typeof(CheckpointCapturedEvent), "checkpointCaptured")]
+[JsonDerivedType(typeof(QueueStateChangedEvent), "queueStateChanged")]
+[JsonDerivedType(typeof(AgentActivityChangedEvent), "agentActivityChanged")]
+[JsonDerivedType(typeof(ContextCompactionChangedEvent), "contextCompactionChanged")]
+[JsonDerivedType(typeof(PiExtensionUiChangedEvent), "piExtensionUiChanged")]
 public abstract record ThreadEvent;
 
 public sealed record RuntimeStateChangedEvent(ThreadRuntimeState State) : ThreadEvent;
@@ -74,6 +78,14 @@ public sealed record InteractionResolvedEvent(
     string? Answer = null) : ThreadEvent;
 
 public sealed record CheckpointCapturedEvent(ThreadCheckpoint Checkpoint) : ThreadEvent;
+
+public sealed record QueueStateChangedEvent(ThreadQueueProjection Queue) : ThreadEvent;
+
+public sealed record AgentActivityChangedEvent(AgentActivityProjection Activity) : ThreadEvent;
+
+public sealed record ContextCompactionChangedEvent(ContextCompactionProjection Compaction) : ThreadEvent;
+
+public sealed record PiExtensionUiChangedEvent(PiExtensionUiUpdate Update) : ThreadEvent;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(ThreadSnapshotEnvelope), "snapshot")]

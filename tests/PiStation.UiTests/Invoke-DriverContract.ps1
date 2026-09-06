@@ -27,9 +27,16 @@ function Invoke-CheckedNative {
 
     $output = & $FilePath @ArgumentList 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
+        throw "$FilePath $($ArgumentList -join ' ') failed with exit code $LASTEXITCODE.`n$($output | Out-String)"
     }
 
+    if ($FilePath -eq 'winapp' -and $ArgumentList.Count -gt 1 -and $ArgumentList[0] -eq 'ui' -and $ArgumentList[1] -eq 'screenshot') {
+        $outputIndex = [Array]::IndexOf($ArgumentList, '--output')
+        if ($outputIndex -ge 0) {
+            $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath $FilePath -ArgumentList $ArgumentList
+            if ($fallbackResult) { $output = $fallbackResult }
+        }
+    }
     return ($output | Out-String).Trim()
 }
 
@@ -122,6 +129,24 @@ try {
         '--timeout', '5000', '--json'
     ) | Out-Null
     foreach ($selector in @(
+        'SettingsProjectsNavItem',
+        'SettingsRuntimeNavItem',
+        'SettingsSourceControlNavItem',
+        'SettingsAppearanceNavItem',
+        'SettingsIntegrationsNavItem',
+        'SettingsDiagnosticsNavItem',
+        'SettingsUsageNavItem',
+        'SettingsUpdatesNavItem'
+    )) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
+            '--timeout', '5000', '--json'
+        ) | Out-Null
+    }
+    Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+        'ui', 'invoke', 'SettingsAppearanceNavItem', '--app', "$launchedProcessId", '--json'
+    ) | Out-Null
+    foreach ($selector in @(
         'PiThemeSelector',
         'SettingsThemeStatusText',
         'SettingsTerminalAppearanceStatusText',
@@ -129,10 +154,17 @@ try {
         'TerminalFontSizeSelector',
         'ResetTerminalAppearanceButton',
         'SettingsLayoutSummaryText',
-        'ResetLayoutButton',
-        'SettingsConnectionStatusText',
-        'SettingsProjectPathText'
+        'ResetLayoutButton'
     )) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
+            '--timeout', '5000', '--json'
+        ) | Out-Null
+    }
+    Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+        'ui', 'invoke', 'SettingsRuntimeNavItem', '--app', "$launchedProcessId", '--json'
+    ) | Out-Null
+    foreach ($selector in @('SettingsConnectionStatusText', 'SettingsProjectPathText')) {
         Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
             'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
             '--timeout', '5000', '--json'

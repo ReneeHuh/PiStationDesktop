@@ -137,7 +137,7 @@
                 Style="{StaticResource PiCompactButtonStyle}"
                 ToolTipService.ToolTip="Add action">
                 <Button.Flyout>
-                    <MenuFlyout>
+                    <MenuFlyout x:Name="AddActionFlyout" Opening="OnAddActionFlyoutOpening">
                         <MenuFlyoutItem
                             x:Name="HeaderNewThreadMenuItem"
                             automation:AutomationProperties.AutomationId="HeaderNewThreadMenuItem"
@@ -171,6 +171,7 @@
                             automation:AutomationProperties.Name="Open command palette"
                             Click="OnCommandPaletteClicked"
                             Text="Command palette" />
+                        <MenuFlyoutSeparator x:Name="ProjectScriptsSeparator" />
                     </MenuFlyout>
                 </Button.Flyout>
                 <StackPanel Orientation="Horizontal" Spacing="5">

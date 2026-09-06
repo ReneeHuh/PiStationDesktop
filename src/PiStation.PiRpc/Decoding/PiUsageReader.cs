@@ -28,7 +28,15 @@ public static class PiUsageReader
             reasoning = reasoningValue;
         }
 
-        return new PiTokenUsage(input, output, cacheRead, cacheWrite, reasoning, totalTokens);
+        decimal? cost = null;
+        if (usage.TryGetProperty("cost", out var costs) && costs.ValueKind == JsonValueKind.Object &&
+            costs.TryGetProperty("total", out var total) && total.ValueKind == JsonValueKind.Number &&
+            total.TryGetDecimal(out var amount) && amount >= 0)
+        {
+            cost = amount;
+        }
+
+        return new PiTokenUsage(input, output, cacheRead, cacheWrite, reasoning, totalTokens, cost);
     }
 
     public static bool HasUsableContext(JsonElement message, PiTokenUsage usage)

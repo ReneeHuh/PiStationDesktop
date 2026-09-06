@@ -37,12 +37,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private long _threadSearchVersion;
     private readonly bool _uiTestFaultControlsEnabled;
     private readonly string _previewCaptureRoot;
+    private readonly string _browserAutomationRoot;
+    private ThreadRuntimeState? _lastProjectionRuntimeState;
 
     public ShellViewModel(
         DispatcherQueue dispatcherQueue,
         bool enableUiTestFaultControls = false,
         string? layoutSettingsPath = null,
-        string? previewCaptureRoot = null)
+        string? previewCaptureRoot = null,
+        string? browserAutomationRoot = null)
     {
         _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
         _uiTestFaultControlsEnabled = enableUiTestFaultControls;
@@ -50,15 +53,21 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PiStationDesktop",
             "preview-captures"));
+        _browserAutomationRoot = Path.GetFullPath(browserAutomationRoot ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PiStationDesktop",
+            "browser-automation"));
         Workspace = new WorkspaceViewModel();
         Layout = new ShellLayoutViewModel(layoutSettingsPath);
         PiConfiguration = new PiConfigurationViewModel();
         Connection = new ConnectionViewModel();
         FileMentions = new FileMentionViewModel();
+        Settings = new SettingsViewModel();
         WorkbenchFiles = new WorkbenchFilesViewModel();
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
         WorkbenchPreview = new WorkbenchPreviewViewModel();
+        WorkbenchAgents = new WorkbenchAgentsViewModel(_dispatcherQueue);
         Composer = new ComposerViewModel(
             _dispatcherQueue,
             LoadDraftAsync,
@@ -66,11 +75,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             UploadDraftAttachmentAsync,
             RemoveDraftAttachmentAsync,
             ClearDraftAsync);
+        ComposerPower = new ComposerPowerViewModel(Composer);
         Composer.PropertyChanged += OnComposerPropertyChanged;
         Composer.SaveFailed += OnComposerSaveFailed;
+        InitializeInbox();
     }
 
     public ThreadViewModel Thread { get; } = new();
+
+    public PiExtensionUiViewModel ExtensionUi { get; } = new();
 
     public ComposerViewModel Composer { get; }
 
@@ -84,6 +97,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public FileMentionViewModel FileMentions { get; }
 
+    public ComposerPowerViewModel ComposerPower { get; }
+
+    public SettingsViewModel Settings { get; }
+
     public WorkbenchFilesViewModel WorkbenchFiles { get; }
 
     public WorkbenchChangesViewModel WorkbenchChanges { get; }
@@ -92,7 +109,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public WorkbenchPreviewViewModel WorkbenchPreview { get; }
 
+    public WorkbenchAgentsViewModel WorkbenchAgents { get; }
+
     internal string PreviewCaptureRoot => _previewCaptureRoot;
+
+    internal string BrowserAutomationRoot => _browserAutomationRoot;
+
+    internal string PreviewProfileRoot => Path.Combine(
+        Path.GetDirectoryName(_browserAutomationRoot) ?? _browserAutomationRoot,
+        "browser-profiles");
 
     public Visibility UiTestFaultControlsVisibility =>
         _uiTestFaultControlsEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -198,10 +223,43 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public bool CanSend =>
         Workspace.SelectedThread is not null &&
+        Thread.Projection?.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running or ThreadRuntimeState.Stopped &&
+        _client?.ConnectionState == EnvironmentConnectionState.Connected &&
+        !_commandPending &&
+        (Composer.HasAttachments || Composer.ContextChips.Count > 0 || !string.IsNullOrWhiteSpace(PromptText));
+
+    public bool CanQueueFollowUp =>
+        CanSend && Thread.Projection?.RuntimeState == ThreadRuntimeState.Running;
+
+    public bool CanCompactContext =>
+        Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending &&
-        (Composer.HasAttachments || !string.IsNullOrWhiteSpace(PromptText));
+        !ComposerPower.IsBusy;
+
+    public bool CanStashPrompt =>
+        Workspace.SelectedProject is not null &&
+        (!string.IsNullOrWhiteSpace(PromptText) || Composer.HasAttachments || Composer.ContextChips.Count > 0) &&
+        _client?.ConnectionState == EnvironmentConnectionState.Connected &&
+        !ComposerPower.IsBusy;
+
+    public bool CanManageQueue =>
+        Workspace.SelectedThread is not null &&
+        Thread.Projection is not null &&
+        _client?.ConnectionState == EnvironmentConnectionState.Connected &&
+        !_commandPending;
+
+    public bool CanClearQueue =>
+        CanManageQueue && (Thread.Projection?.Queue?.PendingMessageCount ?? 0) > 0;
+
+    public Visibility FollowUpButtonVisibility => Thread.Projection?.RuntimeState == ThreadRuntimeState.Running
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public string PrimarySendLabel => Thread.Projection?.RuntimeState == ThreadRuntimeState.Running
+        ? "Steer current turn"
+        : "Send prompt";
 
     public bool CanStop =>
         Workspace.SelectedThread is not null &&
@@ -211,7 +269,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public bool CanAttachFiles =>
         Workspace.SelectedThread is not null &&
-        Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
+        Thread.Projection?.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running or ThreadRuntimeState.Stopped &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending &&
         !Connection.HasUncertainCommand &&
@@ -219,7 +277,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public bool CanRestartPi =>
         Workspace.SelectedThread is not null &&
-        Thread.Projection?.RuntimeState == ThreadRuntimeState.Crashed &&
+        Thread.Projection?.RuntimeState is ThreadRuntimeState.Crashed or ThreadRuntimeState.Stopped or ThreadRuntimeState.Ready &&
+        !Thread.Projection.Timeline.Any(item => item is ApprovalTimelineItem { State: InteractionState.Pending } or QuestionTimelineItem { State: InteractionState.Pending }) &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
@@ -243,6 +302,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _client = client;
         _client.ConnectionStateChanged += OnConnectionStateChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;
+        _client.ThreadMetadata.Changed += OnThreadMetadataChanged;
     }
 
     public async Task LoadProjectsAsync(CancellationToken cancellationToken = default)
@@ -255,6 +315,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 Replace(Projects, projects);
                 ClearError();
             });
+            await RefreshProjectGroupsAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -280,6 +341,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 if (Projects.All(item => item.ProjectId != project.ProjectId))
                 {
                     Projects.Add(project);
+                }
+
+                if (ProjectGroups.All(group => group.Project.ProjectId != project.ProjectId))
+                {
+                    ProjectGroups.Add(new ProjectGroupViewModel(project));
                 }
 
                 ClearError();
@@ -321,6 +387,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 ? "Select a workspace to see its threads"
                 : "Loading threads…";
             Thread.Clear(hasSelectedThread: false);
+            WorkbenchAgents.Apply([]);
             RaiseCommandStateChanged();
         });
         if (project is null)
@@ -334,7 +401,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 .ConfigureAwait(false);
             RunOnUiThread(() =>
             {
-                Replace(Threads, threads);
+                Replace(Threads, ThreadInbox.Select(threads, IsShowingArchivedThreads ? ThreadInboxShelf.Archived : InboxShelf, DateTimeOffset.UtcNow));
                 ThreadListStatus = threads.Count == 0 ? "No threads yet" : string.Empty;
                 ClearError();
             });
@@ -416,6 +483,331 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         });
     }
 
+    public async Task RunProjectScriptAsync(ProjectScript script, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(script);
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RequireClient().RunProjectScriptAsync(
+                new RunProjectScriptRequest(project.ProjectId, script.Id, SelectedThread?.ThreadId),
+                cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => ThreadLifecycleStatus = result.Message ??
+                $"Started {result.ScriptName ?? script.Name} in the terminal");
+            if (result.TerminalSessionId is not null)
+            {
+                RunOnUiThread(() =>
+                {
+                    Layout.SelectedPanel = WorkbenchPanelKind.Terminal;
+                    Layout.IsRightPanelOpen = true;
+                });
+                await ActivateWorkbenchTerminalAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task RemoveSelectedProjectAsync(CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
+            await RequireClient().RemoveProjectAsync(new RemoveProjectRequest(project.ProjectId), cancellationToken)
+                .ConfigureAwait(false);
+            await LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = $"Removed {project.DisplayName}. Project files were not deleted.");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task UpdateSelectedProjectDefaultsAsync(
+        ThreadWorkspaceMode workspaceMode,
+        bool autoPullDefaultBranch,
+        PiModelSelection? defaultModel,
+        PiThinkingLevel? defaultThinkingLevel,
+        string? defaultRuntimeModeId,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var updated = await RequireClient().UpdateProjectDefaultsAsync(
+                new UpdateProjectDefaultsRequest(
+                    project.ProjectId,
+                    workspaceMode,
+                    defaultModel,
+                    defaultThinkingLevel,
+                    string.IsNullOrWhiteSpace(defaultRuntimeModeId) ? null : defaultRuntimeModeId.Trim(),
+                    autoPullDefaultBranch),
+                cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                var index = Projects.ToList().FindIndex(candidate => candidate.ProjectId == updated.ProjectId);
+                if (index >= 0)
+                {
+                    Projects[index] = updated;
+                }
+
+                SelectedProject = updated;
+                Settings.Status = "Project defaults saved";
+            });
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task RefreshSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        RunOnUiThread(() =>
+        {
+            Settings.IsBusy = true;
+            Settings.Status = "Refreshing settings and diagnostics…";
+        });
+        try
+        {
+            var snapshot = await RequireClient().GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.ApplyDiagnostics(snapshot));
+            var operations = await RequireClient().ListHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.ApplyHostingOperations(operations));
+
+            var project = SelectedProject;
+            if (project is not null)
+            {
+                try
+                {
+                    var result = await RequireClient().ListPullRequestsAsync(
+                        new ListPullRequestsRequest(new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId)),
+                        cancellationToken).ConfigureAwait(false);
+                    RunOnUiThread(() => Settings.ApplyPullRequests(result));
+                }
+                catch (Exception exception)
+                {
+                    RunOnUiThread(() => Settings.ClearSourceControl($"Hosting unavailable: {exception.Message}"));
+                }
+            }
+            else
+            {
+                RunOnUiThread(() => Settings.ClearSourceControl("Select a project to inspect source-control hosting."));
+            }
+
+            RunOnUiThread(() => Settings.Status = "Settings refreshed");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+        finally
+        {
+            RunOnUiThread(() => Settings.IsBusy = false);
+        }
+    }
+
+    public async Task ExportDiagnosticsAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await RequireClient().ExportDiagnosticsAsync(
+                new ExportDiagnosticsRequest(destinationPath),
+                cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = $"Exported redacted diagnostics to {result.Path}");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task CreatePullRequestAsync(
+        string title,
+        string body,
+        bool isDraft,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null || string.IsNullOrWhiteSpace(title))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RequireClient().CreatePullRequestAsync(
+                new CreatePullRequestRequest(
+                    new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId),
+                    title.Trim(),
+                    body.Trim(),
+                    IsDraft: isDraft,
+                    ThreadId: SelectedThread?.ThreadId),
+                cancellationToken).ConfigureAwait(false);
+            await RefreshSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = result.Message);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task MutatePullRequestAsync(
+        PullRequestDescriptor pullRequest,
+        PullRequestMutationKind mutation,
+        string? value = null,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RequireClient().MutatePullRequestAsync(
+                new MutatePullRequestRequest(
+                    new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId),
+                    pullRequest.Number,
+                    mutation,
+                    value),
+                cancellationToken).ConfigureAwait(false);
+            await RefreshSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = result.Message);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task LinkPullRequestAsync(
+        PullRequestDescriptor pullRequest,
+        CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        if (thread is null)
+        {
+            Settings.Status = "Select a thread before linking a pull request";
+            return;
+        }
+
+        try
+        {
+            var linked = await RequireClient().LinkThreadPullRequestAsync(
+                new LinkThreadPullRequestRequest(
+                    thread.ThreadId,
+                    new PullRequestLink(
+                        pullRequest.Provider,
+                        pullRequest.Repository,
+                        pullRequest.Number,
+                        pullRequest.Url,
+                        pullRequest.State.ToString(),
+                        pullRequest.Title,
+                        pullRequest.UpdatedUtc)),
+                cancellationToken).ConfigureAwait(false);
+            ApplySelectedThreadMetadata(linked);
+            await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = $"Linked PR {pullRequest.Number} to {linked.Title}");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task<GeneratedSourceControlText?> GenerateSourceControlTextAsync(
+        bool forPullRequest,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await RequireClient().GenerateSourceControlTextAsync(
+                new GenerateSourceControlTextRequest(
+                    new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId),
+                    forPullRequest),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+            return null;
+        }
+    }
+
+    public async Task CloneHostedRepositoryAsync(
+        string remoteUrl,
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await RequireClient().CloneHostedRepositoryAsync(
+                new CloneHostedRepositoryRequest(remoteUrl.Trim(), destinationPath.Trim()),
+                cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = result.Message);
+            await LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task PublishSelectedProjectAsync(
+        SourceControlProvider provider,
+        string owner,
+        string repositoryName,
+        bool isPrivate,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RequireClient().PublishHostedRepositoryAsync(
+                new PublishHostedRepositoryRequest(project.ProjectId, provider, owner.Trim(), repositoryName.Trim(), isPrivate),
+                cancellationToken).ConfigureAwait(false);
+            await RefreshSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = result.Message);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
     public async Task SelectThreadAsync(
         ThreadDescriptor? thread,
         CancellationToken cancellationToken = default)
@@ -444,6 +836,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             RunOnUiThread(() =>
             {
                 Thread.Clear(hasSelectedThread: false);
+                WorkbenchAgents.Apply([]);
+                ComposerPower.Commands.Clear();
+                ComposerPower.ReplaceStashes([]);
+                ComposerPower.ClearContext();
                 RaiseCommandStateChanged();
             });
             return;
@@ -462,6 +858,43 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         await LoadPiConfigurationAsync(thread, cancellationToken).ConfigureAwait(false);
+        await RefreshComposerPowerAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RefreshComposerPowerAsync(CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        var project = SelectedProject;
+        if (thread is null || project is null)
+        {
+            return;
+        }
+
+        RunOnUiThread(() =>
+        {
+            ComposerPower.IsBusy = true;
+            ComposerPower.Status = "Loading commands and stashes…";
+        });
+        try
+        {
+            var client = RequireClient();
+            var discoveryTask = client.GetComposerDiscoveryAsync(thread.ThreadId, cancellationToken);
+            var stashesTask = client.ListPromptStashesAsync(project.ProjectId, cancellationToken);
+            await Task.WhenAll(discoveryTask, stashesTask).ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                ComposerPower.ApplyDiscovery(discoveryTask.Result);
+                ComposerPower.ReplaceStashes(stashesTask.Result);
+            });
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() => ComposerPower.Status = $"Composer discovery unavailable: {exception.Message}");
+        }
+        finally
+        {
+            RunOnUiThread(() => ComposerPower.IsBusy = false);
+        }
     }
 
     public void UpdateThreadSearchQuery(string? query)
@@ -677,6 +1110,52 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         WorkbenchPreview.RotateViewport();
         PersistWorkbenchPreview();
+    }
+
+    public void AdjustWorkbenchPreviewZoom(double delta)
+    {
+        WorkbenchPreview.AdjustZoom(delta);
+        PersistWorkbenchPreview();
+    }
+
+    public void ResetWorkbenchPreviewZoom()
+    {
+        WorkbenchPreview.ResetZoom();
+        PersistWorkbenchPreview();
+    }
+
+    public void SetWorkbenchPreviewColorScheme(int index)
+    {
+        WorkbenchPreview.SetColorScheme(index);
+        PersistWorkbenchPreview();
+    }
+
+    public void SelectWorkbenchPreviewProfile(BrowserProfilePreference profile)
+    {
+        WorkbenchPreview.SelectProfile(profile);
+        PersistWorkbenchPreview();
+    }
+
+    public BrowserProfilePreference AddWorkbenchPreviewProfile(string name)
+    {
+        var profile = Layout.AddBrowserProfile(name);
+        WorkbenchPreview.ReplaceProfiles(Layout.BrowserProfiles, Layout.DefaultBrowserProfileId);
+        return profile;
+    }
+
+    public void SetDefaultWorkbenchPreviewProfile(string profileId)
+    {
+        Layout.SetDefaultBrowserProfile(profileId);
+        WorkbenchPreview.ReplaceProfiles(Layout.BrowserProfiles, Layout.DefaultBrowserProfileId);
+    }
+
+    public void SetWorkbenchPreviewAutomationPermission(PreviewAutomationAccess permission)
+    {
+        WorkbenchPreview.SetAutomationPermission(permission);
+        if (GetWorkbenchPreviewContextKey() is { } contextKey)
+        {
+            Layout.SavePreviewAutomationPermission(contextKey, permission);
+        }
     }
 
     public void UpdateWorkbenchPreviewAddress(string? address) =>
@@ -1604,7 +2083,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Interlocked.Exchange(ref _workbenchFileReadCancellation, readCancellation)?.Cancel();
         try
         {
-            if (document.IsImage)
+            if (document.UsesAssetContent)
             {
                 var asset = await RequireClient().ReadProjectFileAssetAsync(
                     new ReadProjectFileAssetRequest(
@@ -1698,7 +2177,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public Task ReloadWorkbenchFileAsync(WorkbenchFileDocumentViewModel? document = null)
     {
         document ??= WorkbenchFiles.ActiveDocument;
-        return document is null
+        return document is null || !document.CanReloadFromWorkspace
             ? Task.CompletedTask
             : OpenWorkbenchFileAsync(document.RelativePath, document.RevealLine, forceReload: true);
     }
@@ -1707,7 +2186,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         var project = SelectedProject;
         document ??= WorkbenchFiles.ActiveDocument;
-        if (project is null || document is null)
+        if (project is null || document is null || !document.CanOpenInEditor)
         {
             return;
         }
@@ -1838,6 +2317,180 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         return true;
     }
 
+    public async Task<bool> SetThreadSettledAsync(
+        ThreadDescriptor thread,
+        bool isSettled,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        if (thread.IsSettled == isSettled)
+        {
+            return true;
+        }
+
+        var updated = await ExecuteThreadLifecycleAsync(
+            thread,
+            (client, current, token) => client.SetThreadSettledAsync(
+                current.ThreadId,
+                current.Revision,
+                isSettled,
+                token),
+            "The host could not confirm whether the thread settlement state changed.",
+            cancellationToken).ConfigureAwait(false);
+        if (updated is null)
+        {
+            return false;
+        }
+
+        ApplySelectedThreadMetadata(updated);
+        await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+        RunOnUiThread(() => ThreadLifecycleStatus = isSettled
+            ? $"Settled {updated.Title}"
+            : $"Returned {updated.Title} to the inbox");
+        return true;
+    }
+
+    public async Task<bool> SetThreadSnoozedAsync(
+        ThreadDescriptor thread,
+        DateTimeOffset? snoozedUntilUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        var updated = await ExecuteThreadLifecycleAsync(
+            thread,
+            (client, current, token) => client.SetThreadSnoozedAsync(
+                current.ThreadId,
+                current.Revision,
+                snoozedUntilUtc,
+                token),
+            "The host could not confirm whether the thread snooze state changed.",
+            cancellationToken).ConfigureAwait(false);
+        if (updated is null)
+        {
+            return false;
+        }
+
+        ApplySelectedThreadMetadata(updated);
+        await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+        RunOnUiThread(() => ThreadLifecycleStatus = snoozedUntilUtc is null
+            ? $"Unsnoozed {updated.Title}"
+            : $"Snoozed {updated.Title} until {snoozedUntilUtc.Value.LocalDateTime:g}");
+        return true;
+    }
+
+    public async Task<bool> RegenerateThreadTitleAsync(
+        ThreadDescriptor thread,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        var updated = await ExecuteThreadLifecycleAsync(
+            thread,
+            (client, current, token) => client.RegenerateThreadTitleAsync(
+                current.ThreadId,
+                current.Revision,
+                token),
+            "The host could not confirm the regenerated thread title.",
+            cancellationToken).ConfigureAwait(false);
+        if (updated is null)
+        {
+            return false;
+        }
+
+        ApplySelectedThreadMetadata(updated);
+        await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+        RunOnUiThread(() => ThreadLifecycleStatus = $"Generated title “{updated.Title}”");
+        return true;
+    }
+
+    public async Task DeleteThreadAsync(ThreadDescriptor thread, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        try
+        {
+            await RequireClient().DeleteThreadAsync(new DeleteThreadRequest(thread.ThreadId), cancellationToken)
+                .ConfigureAwait(false);
+            if (SelectedThread?.ThreadId == thread.ThreadId)
+            {
+                await SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
+            }
+
+            await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => ThreadLifecycleStatus = $"Deleted {thread.Title}");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task ApplyThreadBulkOperationAsync(
+        IReadOnlyList<ThreadDescriptor> threads,
+        ThreadBulkOperation operation,
+        DateTimeOffset? snoozedUntilUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        var threadIds = threads.Select(static thread => thread.ThreadId).Distinct().ToArray();
+        if (project is null || threadIds.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RequireClient().ApplyThreadBulkOperationAsync(
+                new ApplyThreadBulkOperationRequest(project.ProjectId, threadIds, operation, snoozedUntilUtc),
+                cancellationToken).ConfigureAwait(false);
+            if (operation is ThreadBulkOperation.Delete or ThreadBulkOperation.Archive &&
+                SelectedThread is { } selected && threadIds.Contains(selected.ThreadId))
+            {
+                await SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
+            }
+
+            await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => ThreadLifecycleStatus = $"{operation}: {result.AffectedCount} threads");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public async Task MovePinnedThreadAsync(
+        ThreadDescriptor thread,
+        int offset,
+        CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        if (project is null || !thread.IsPinned || offset == 0)
+        {
+            return;
+        }
+
+        var pinned = Threads.Where(static candidate => candidate.IsPinned).ToList();
+        var currentIndex = pinned.FindIndex(candidate => candidate.ThreadId == thread.ThreadId);
+        var destination = Math.Clamp(currentIndex + offset, 0, pinned.Count - 1);
+        if (currentIndex < 0 || destination == currentIndex)
+        {
+            return;
+        }
+
+        var moving = pinned[currentIndex];
+        pinned.RemoveAt(currentIndex);
+        pinned.Insert(destination, moving);
+        try
+        {
+            await RequireClient().SetThreadPinnedOrderAsync(
+                new SetThreadPinnedOrderRequest(project.ProjectId, pinned.Select(static item => item.ThreadId).ToArray()),
+                cancellationToken).ConfigureAwait(false);
+            await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
     public async Task<bool> SetThreadArchivedAsync(
         ThreadDescriptor thread,
         bool isArchived,
@@ -1918,6 +2571,255 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task SendPromptAsync(CancellationToken cancellationToken = default)
     {
+        var kind = Thread.Projection?.RuntimeState == ThreadRuntimeState.Running
+            ? QueuedMessageKind.Steering
+            : (QueuedMessageKind?)null;
+        await SubmitPromptAsync(kind, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task QueueFollowUpAsync(CancellationToken cancellationToken = default) =>
+        CanQueueFollowUp
+            ? SubmitPromptAsync(QueuedMessageKind.FollowUp, cancellationToken)
+            : Task.CompletedTask;
+
+    public void SendPromptInBackground()
+    {
+        if (!CanSend)
+        {
+            return;
+        }
+
+        ComposerPower.Status = "Submitting in background…";
+        _ = SubmitPromptInBackgroundAsync();
+    }
+
+    private async Task SubmitPromptInBackgroundAsync()
+    {
+        try
+        {
+            await SendPromptAsync().ConfigureAwait(false);
+            RunOnUiThread(() => ComposerPower.Status = "Submitted in background");
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError($"Background submission failed: {exception.Message}");
+        }
+    }
+
+    public void UpdateComposerDiscoveryQuery(string text, int caret) =>
+        ComposerPower.UpdateSuggestions(text, caret);
+
+    public void CloseComposerDiscovery() => ComposerPower.CloseSuggestions();
+
+    public void MoveComposerDiscoverySelection(int delta) => ComposerPower.MoveSelection(delta);
+
+    public async Task<bool> InvokeComposerCommandAsync(
+        ComposerCommandDescriptor command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ComposerPower.CloseSuggestions();
+        if (command.Source != ComposerCommandSource.BuiltIn)
+        {
+            return false;
+        }
+
+        switch (command.Name.ToLowerInvariant())
+        {
+            case "compact":
+                await CompactContextAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case "stash":
+                await StashPromptAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            case "background":
+                SendPromptInBackground();
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public async Task CompactContextAsync(
+        string? customInstructions = null,
+        CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        var projection = Thread.Projection;
+        if (thread is null || projection is null || !CanCompactContext)
+        {
+            return;
+        }
+
+        SetCommandPending(true);
+        RunOnUiThread(() =>
+        {
+            ComposerPower.IsBusy = true;
+            ComposerPower.Status = "Compacting Pi context…";
+        });
+        try
+        {
+            var receipt = await RequireClient().CompactThreadContextAsync(
+                thread.ThreadId,
+                customInstructions,
+                projection.ProjectionEpoch,
+                cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                HandleCommandReceipt(receipt);
+                ComposerPower.Status = receipt.State is CommandReceiptState.Accepted or CommandReceiptState.Completed
+                    ? "Context compacted"
+                    : $"Compaction {receipt.State.ToString().ToLowerInvariant()}";
+            });
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+        finally
+        {
+            RunOnUiThread(() => ComposerPower.IsBusy = false);
+            SetCommandPending(false);
+        }
+    }
+
+    public async Task StashPromptAsync(CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        var thread = SelectedThread;
+        var text = PromptText.Trim();
+        if (project is null || !CanStashPrompt)
+        {
+            return;
+        }
+
+        RunOnUiThread(() =>
+        {
+            ComposerPower.IsBusy = true;
+            ComposerPower.Status = "Stashing prompt…";
+        });
+        try
+        {
+            var draft = await Composer.PrepareTurnAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Select a thread before stashing a prompt.");
+            var saved = await RequireClient().SavePromptStashAsync(
+                new SavePromptStashRequest(project.ProjectId, thread?.ThreadId, draft.Text,
+                    StashId: Guid.NewGuid().ToString("N"), DraftId: draft.DraftId, ExpectedRevision: draft.Revision),
+                cancellationToken).ConfigureAwait(false);
+            await Composer.ClearAcceptedTurnAsync(draft, cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                var stashes = ComposerPower.Stashes.Where(stash => stash.StashId != saved.StashId)
+                    .Prepend(saved)
+                    .ToArray();
+                ComposerPower.ReplaceStashes(stashes);
+                ComposerPower.Status = $"Stashed “{saved.Title}”";
+            });
+            await Composer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+        finally
+        {
+            RunOnUiThread(() => ComposerPower.IsBusy = false);
+        }
+    }
+
+    public async Task RestorePromptStashAsync(PromptStash stash, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stash);
+        SetCommandPending(true);
+        try
+        {
+            var draft = await Composer.PrepareTurnAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Select a thread before restoring a prompt.");
+            var restored = await RequireClient().RestorePromptStashAsync(draft.ThreadId, draft.DraftId, draft.Revision, stash.StashId, cancellationToken).ConfigureAwait(false);
+            await Composer.ApplyRestoredDraftAsync(draft, restored).ConfigureAwait(false);
+            RunOnUiThread(() => ComposerPower.Status = $"Restored “{stash.Title}”");
+        }
+        catch (Exception exception) { ReportRuntimeError(exception); }
+        finally { SetCommandPending(false); }
+    }
+
+    public async Task DeletePromptStashAsync(PromptStash stash, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stash);
+        try
+        {
+            await RequireClient().DeletePromptStashAsync(new DeletePromptStashRequest(stash.StashId), cancellationToken)
+                .ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                ComposerPower.ReplaceStashes(ComposerPower.Stashes.Where(item => item.StashId != stash.StashId).ToArray());
+                ComposerPower.Status = "Deleted prompt stash";
+            });
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+    }
+
+    public void AddTerminalContext()
+    {
+        var output = WorkbenchTerminal.RawOutput;
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            ComposerPower.Status = "The active terminal has no output to attach";
+            return;
+        }
+
+        const int maximum = 12_000;
+        var excerpt = output.Length > maximum ? output[^maximum..] : output;
+        if (!ComposerPower.AddContext("terminal", "Terminal output", excerpt)) return;
+        ComposerPower.Status = "Added terminal output context";
+    }
+
+    public void AddDiffContext()
+    {
+        var diff = WorkbenchChanges.DiffContent;
+        if (string.IsNullOrWhiteSpace(diff))
+        {
+            ComposerPower.Status = "Select a changed file before adding diff context";
+            return;
+        }
+
+        if (!ComposerPower.AddContext("diff", WorkbenchChanges.DiffPath, diff, SelectedThread?.ThreadId, relativePath: WorkbenchChanges.DiffPath)) return;
+        ComposerPower.Status = $"Added diff context for {WorkbenchChanges.DiffPath}";
+    }
+
+    public void RemoveComposerContext(ComposerContextChipViewModel chip) => ComposerPower.RemoveContext(chip);
+
+    public void QuoteResponse(MessageTimelineItemViewModel message, string? selection = null)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        var quoted = string.Join(Environment.NewLine, (selection ?? message.Text).Split('\n').Select(static line => $"> {line.TrimEnd('\r')}"));
+        PromptText = string.IsNullOrWhiteSpace(PromptText)
+            ? $"{quoted}{Environment.NewLine}{Environment.NewLine}"
+            : $"{PromptText.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{quoted}{Environment.NewLine}{Environment.NewLine}";
+        ComposerPower.Status = "Quoted response in prompt";
+    }
+
+    public void CiteResponse(MessageTimelineItemViewModel message, string? selection = null)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        var sourceText = selection ?? message.Text;
+        var offset = message.Text.IndexOf(sourceText, StringComparison.Ordinal);
+        var startLine = offset >= 0 ? 1 + message.Text[..offset].Count(character => character == '\n') : (int?)null;
+        var endLine = startLine + sourceText.Count(character => character == '\n');
+        if (!ComposerPower.AddContext("response", $"Pi response {message.ItemId}", sourceText, SelectedThread?.ThreadId, message.ItemId,
+            startLine: startLine, endLine: endLine)) return;
+        ComposerPower.Status = "Cited response as context";
+    }
+
+    private async Task SubmitPromptAsync(
+        QueuedMessageKind? queuedKind,
+        CancellationToken cancellationToken)
+    {
         CloseFileMentionSuggestions();
         var thread = SelectedThread;
         var projection = Thread.Projection;
@@ -1932,19 +2834,41 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             var sentDraft = await Composer.PrepareTurnAsync(cancellationToken).ConfigureAwait(false) ??
                 throw new InvalidOperationException("The active draft is not ready yet.");
+            if (sentDraft.ThreadId != thread.ThreadId) throw new InvalidOperationException("The active thread changed before submission.");
+            prompt = ComposerPowerViewModel.AppendContext(sentDraft.Text.Trim(), sentDraft.Context);
             var attachmentIds = sentDraft.Attachments
                 .Select(static attachment => attachment.AttachmentId)
                 .ToArray();
-            var receipt = await RequireClient()
-                .StartTurnAsync(
+            var client = RequireClient();
+            var receipt = queuedKind switch
+            {
+                QueuedMessageKind.Steering => await client.QueueSteeringAsync(
+                    thread.ThreadId,
+                    prompt,
+                    projection.ProjectionEpoch,
+                    projection.CurrentTurnId,
+                    sentDraft.DraftId,
+                    sentDraft.Revision,
+                    attachmentIds,
+                    cancellationToken).ConfigureAwait(false),
+                QueuedMessageKind.FollowUp => await client.QueueFollowUpAsync(
+                    thread.ThreadId,
+                    prompt,
+                    projection.ProjectionEpoch,
+                    projection.CurrentTurnId,
+                    sentDraft.DraftId,
+                    sentDraft.Revision,
+                    attachmentIds,
+                    cancellationToken).ConfigureAwait(false),
+                _ => await client.StartTurnAsync(
                     thread.ThreadId,
                     prompt,
                     projection.ProjectionEpoch,
                     draftId: sentDraft.DraftId,
                     draftRevision: sentDraft.Revision,
                     attachmentIds: attachmentIds,
-                    cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+                    cancellationToken: cancellationToken).ConfigureAwait(false),
+            };
             RunOnUiThread(() => HandleCommandReceipt(receipt));
             if (receipt.State is CommandReceiptState.Accepted or CommandReceiptState.Completed)
             {
@@ -1954,8 +2878,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 }
                 catch (Exception exception)
                 {
-                    ReportRuntimeError($"The turn started, but its draft could not be cleared: {exception.Message}");
+                    ReportRuntimeError($"The message was accepted, but its draft could not be cleared: {exception.Message}");
                 }
+
             }
         }
         catch (CommandDispatchUncertainException exception)
@@ -2042,6 +2967,108 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var start = SelectedFileMentionIndex < 0 ? (delta > 0 ? -1 : 0) : SelectedFileMentionIndex;
         SelectedFileMentionIndex = (start + delta + FileMentionSuggestions.Count) %
             FileMentionSuggestions.Count;
+    }
+
+    public async Task ClearTurnQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        var projection = Thread.Projection;
+        if (thread is null || projection is null || !CanClearQueue)
+        {
+            return;
+        }
+
+        await RunQueueCommandAsync(
+            () => RequireClient().ClearTurnQueueAsync(
+                thread.ThreadId,
+                projection.ProjectionEpoch,
+                projection.CurrentTurnId,
+                cancellationToken)).ConfigureAwait(false);
+    }
+
+    public async Task RefreshTurnQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        var projection = Thread.Projection;
+        if (thread is null || projection is null || !CanManageQueue)
+        {
+            return;
+        }
+
+        await RunQueueCommandAsync(
+            () => RequireClient().RefreshTurnQueueAsync(
+                thread.ThreadId,
+                projection.ProjectionEpoch,
+                cancellationToken)).ConfigureAwait(false);
+    }
+
+    public async Task ToggleQueueDeliveryModeAsync(
+        QueuedMessageKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        var thread = SelectedThread;
+        var projection = Thread.Projection;
+        if (thread is null || projection is null || !CanManageQueue)
+        {
+            return;
+        }
+
+        var currentMode = kind == QueuedMessageKind.Steering
+            ? projection.Queue?.SteeringMode ?? QueueDeliveryMode.OneAtATime
+            : projection.Queue?.FollowUpMode ?? QueueDeliveryMode.OneAtATime;
+        var nextMode = currentMode == QueueDeliveryMode.All
+            ? QueueDeliveryMode.OneAtATime
+            : QueueDeliveryMode.All;
+        await RunQueueCommandAsync(
+            () => RequireClient().SetQueueDeliveryModeAsync(
+                thread.ThreadId,
+                kind,
+                nextMode,
+                projection.ProjectionEpoch,
+                cancellationToken)).ConfigureAwait(false);
+    }
+
+    public async Task InterruptAgentAsync(
+        AgentActivityRowViewModel activity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+        var thread = SelectedThread;
+        var projection = Thread.Projection;
+        if (thread is null || projection is null || !activity.CanInterrupt || !CanStop)
+        {
+            return;
+        }
+
+        await RunQueueCommandAsync(
+            () => RequireClient().InterruptAgentAsync(
+                thread.ThreadId,
+                activity.ActivityId,
+                projection.ProjectionEpoch,
+                projection.CurrentTurnId,
+                cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async Task RunQueueCommandAsync(Func<Task<CommandReceipt>> command)
+    {
+        SetCommandPending(true);
+        try
+        {
+            var receipt = await command().ConfigureAwait(false);
+            RunOnUiThread(() => HandleCommandReceipt(receipt));
+        }
+        catch (CommandDispatchUncertainException exception)
+        {
+            ShowUncertainCommand(exception.CommandId, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeError(exception);
+        }
+        finally
+        {
+            SetCommandPending(false);
+        }
     }
 
     public async Task StopTurnAsync(CancellationToken cancellationToken = default)
@@ -2331,6 +3358,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _renderShutdown.Cancel();
+        _inboxTimer?.Stop();
+        if (_inboxTimer is not null) _inboxTimer.Tick -= OnInboxTimer;
         CloseFileMentionSuggestions();
         CancelWorkbenchFiles();
         CancelWorkbenchChanges();
@@ -2350,10 +3380,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             _client.ConnectionStateChanged -= OnConnectionStateChanged;
             _client.PiConfigurations.Changed -= OnPiConfigurationChanged;
+            _client.ThreadMetadata.Changed -= OnThreadMetadataChanged;
         }
 
         Composer.PropertyChanged -= OnComposerPropertyChanged;
         Composer.SaveFailed -= OnComposerSaveFailed;
+        WorkbenchAgents.Dispose();
         await Composer.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -2400,8 +3432,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             RaiseCommandStateChanged();
         });
 
-    private void OnProjectionChanged(object? sender, ProjectionChangedEventArgs args) =>
-        RunOnUiThread(() => ApplyThreadProjection(args.Projection));
+    private void OnProjectionChanged(object? sender, ProjectionChangedEventArgs args)
+    {
+        if (!ReferenceEquals(sender, _subscription?.Store)) return;
+        if (args.Projection is { } projection) ScheduleProjection(projection);
+        else RunOnUiThread(() => { if (!ReferenceEquals(sender, _subscription?.Store)) return; Interlocked.Exchange(ref _pendingProjection, null); ApplyThreadProjection(null); });
+    }
 
     private void OnTerminalChanged(object? sender, TerminalChangedEventArgs args)
     {
@@ -2493,14 +3529,22 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void OnComposerPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
+        OnPropertyChanged(nameof(CanStashPrompt));
+        if (args.PropertyName == nameof(ComposerViewModel.ContextChips))
+        {
+            OnPropertyChanged(nameof(CanSend));
+            OnPropertyChanged(nameof(CanQueueFollowUp));
+        }
         if (args.PropertyName == nameof(ComposerViewModel.Text))
         {
             OnPropertyChanged(nameof(PromptText));
             OnPropertyChanged(nameof(CanSend));
+            OnPropertyChanged(nameof(CanQueueFollowUp));
         }
         else if (args.PropertyName == nameof(ComposerViewModel.HasAttachments))
         {
             OnPropertyChanged(nameof(CanSend));
+            OnPropertyChanged(nameof(CanQueueFollowUp));
         }
         else if (args.PropertyName == nameof(ComposerViewModel.CanAttach))
         {
@@ -2513,8 +3557,18 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void ApplyThreadProjection(ThreadProjection? projection)
     {
+        var previousRuntimeState = _lastProjectionRuntimeState;
+        _lastProjectionRuntimeState = projection?.RuntimeState;
         Thread.ApplyProjection(projection, SelectedThread is not null);
+        ExtensionUi.Apply(projection);
+        WorkbenchAgents.Apply(projection?.AgentActivities);
         RaiseCommandStateChanged();
+        if (previousRuntimeState == ThreadRuntimeState.Running &&
+            projection?.RuntimeState == ThreadRuntimeState.Ready &&
+            SelectedThread is { } selectedThread)
+        {
+            _ = RefreshThreadMetadataAsync(selectedThread.ThreadId);
+        }
     }
 
     private void ClearError()
@@ -2531,6 +3585,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void RaiseCommandStateChanged()
     {
         OnPropertyChanged(nameof(CanSend));
+        OnPropertyChanged(nameof(CanStashPrompt));
+        OnPropertyChanged(nameof(CanQueueFollowUp));
+        OnPropertyChanged(nameof(CanManageQueue));
+        OnPropertyChanged(nameof(CanClearQueue));
+        OnPropertyChanged(nameof(FollowUpButtonVisibility));
+        OnPropertyChanged(nameof(PrimarySendLabel));
         OnPropertyChanged(nameof(CanStop));
         OnPropertyChanged(nameof(CanRestartPi));
         OnPropertyChanged(nameof(CanManageThreads));
@@ -2615,7 +3675,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     return;
                 }
 
-                Replace(Threads, threads);
+                Replace(Threads, ThreadInbox.Select(threads, IsShowingArchivedThreads ? ThreadInboxShelf.Archived : InboxShelf, DateTimeOffset.UtcNow));
                 if (SelectedThread is not null &&
                     threads.FirstOrDefault(item => item.ThreadId == SelectedThread.ThreadId) is { } visibleSelected)
                 {
@@ -3497,7 +4557,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         WorkbenchPreview.Reset(
             project is not null,
             contextKey is null ? null : Layout.GetPreviewWorkspace(contextKey),
-            project is null ? null : Layout.GetPreviewUrl(project.ProjectId.Value));
+            project is null ? null : Layout.GetPreviewUrl(project.ProjectId.Value),
+            Layout.BrowserProfiles,
+            Layout.DefaultBrowserProfileId,
+            contextKey is null
+                ? PreviewAutomationAccess.Off
+                : Layout.GetPreviewAutomationPermission(contextKey));
         if (project is not null &&
             Layout.SelectedPanel == WorkbenchPanelKind.Preview &&
             string.IsNullOrWhiteSpace(WorkbenchPreview.CurrentUrl))
@@ -3638,6 +4703,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             draft.DraftId,
             draft.Revision,
             text,
+            draft.Context,
             cancellationToken).ConfigureAwait(false);
         if (result.Receipt.State == CommandReceiptState.DispatchUncertain)
         {

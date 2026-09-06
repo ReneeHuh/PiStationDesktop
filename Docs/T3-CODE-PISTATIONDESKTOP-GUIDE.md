@@ -9,7 +9,7 @@ Source snapshot reviewed:
 - T3 Code source: [`Core/t3code`](Core/t3code)
 - PiStationDesktop source: [`PiStationDesktop`](PiStationDesktop)
 
-PiStationDesktop implementation status last reviewed: **2026-09-02**.
+PiStationDesktop implementation status last reviewed: **2026-09-04**.
 
 The file map intentionally covers important entry points and ownership boundaries rather than every test, generated file, mobile native binding, or vendored artifact.
 
@@ -67,7 +67,7 @@ PiStationDesktop already follows much of this shape with `PiStation.Protocol`, `
 | Domain event | Persisted fact produced after deciding a command | PiStation has similarly shaped thread stream events, but not a durable orchestration event store yet |
 | Projection | Read-optimized state derived from events | `ThreadProjection` |
 | Reactor | Async side-effect worker triggered by domain intent | Pi process/controller operations currently perform this role directly |
-| Checkpoint | Hidden Git snapshot used for diff and restore | Not implemented yet |
+| Checkpoint | Hidden Git snapshot used for diff and restore | Implemented in protocol v16 with hidden refs, turn/thread diffs, coupled workspace/Pi rewind, and recovery refs |
 | Receipt | Durable result for an idempotent command | `CommandReceipt` and the receipt table |
 
 ## 3. How T3 Code works
@@ -475,13 +475,13 @@ PiStationDesktop already has the correct five-way separation:
 
 | File | What it does now |
 | --- | --- |
-| [`Protocol/Commands/ThreadCommands.cs`](PiStationDesktop/src/PiStation.Protocol/Commands/ThreadCommands.cs) | Runtime, interaction, draft, configuration, and revisioned lifecycle commands in an idempotent request envelope |
-| [`Protocol/Projections/ThreadProjection.cs`](PiStationDesktop/src/PiStation.Protocol/Projections/ThreadProjection.cs) | Authoritative runtime state, messages, thinking, tools, Pi session identity, cursor, and error |
+| [`Protocol/Commands/ThreadCommands.cs`](PiStationDesktop/src/PiStation.Protocol/Commands/ThreadCommands.cs) | Runtime, active-turn queue/steering, agent interruption, interaction, draft, configuration, and revisioned lifecycle commands in an idempotent request envelope |
+| [`Protocol/Projections/ThreadProjection.cs`](PiStationDesktop/src/PiStation.Protocol/Projections/ThreadProjection.cs) | Authoritative runtime state, messages, thinking, tools, active-turn queue, agent/workflow activity, Pi session identity, cursor, and error |
 | [`Protocol/Streaming/ThreadStreaming.cs`](PiStationDesktop/src/PiStation.Protocol/Streaming/ThreadStreaming.cs) | Snapshot, incremental event, and resync-required envelopes |
 | [`Host/EnvironmentService.cs`](PiStationDesktop/src/PiStation.Host/EnvironmentService.cs) | Environment facade, command receipt acquisition, dispatch, validation, and subscription |
 | [`Host/Threads/PiThreadController.cs`](PiStationDesktop/src/PiStation.Host/Threads/PiThreadController.cs) | Per-thread Pi process/session lifecycle and command handling |
 | [`Host/Threads/ThreadEventJournal.cs`](PiStationDesktop/src/PiStation.Host/Threads/ThreadEventJournal.cs) | In-memory projection updates, bounded event retention, replay from a retained cursor, and snapshot/resync fallback |
-| [`Host/Persistence/HostDatabase.cs`](PiStationDesktop/src/PiStation.Host/Persistence/HostDatabase.cs) | SQLite environment, revisioned project/thread metadata, lifecycle filtering/search, schema migration, and command receipts |
+| [`Host/Persistence/HostDatabase.cs`](PiStationDesktop/src/PiStation.Host/Persistence/HostDatabase.cs) | SQLite environment, revisioned project/thread metadata, lifecycle filtering/search, persisted agent/workflow events, schema migration, and command receipts |
 | [`Host/Hosting/EmbeddedEnvironmentHost.cs`](PiStationDesktop/src/PiStation.Host/Hosting/EmbeddedEnvironmentHost.cs) | Authenticated loopback Kestrel/SignalR host on an ephemeral port |
 | [`PiRpc/Transport/PiRpcConnection.cs`](PiStationDesktop/src/PiStation.PiRpc/Transport/PiRpcConnection.cs) | Pi JSONL request/response/event connection |
 | [`PiRpc/Decoding/PiEventDecoder.cs`](PiStationDesktop/src/PiStation.PiRpc/Decoding/PiEventDecoder.cs) | Native Pi event decoding |
@@ -496,6 +496,7 @@ PiStationDesktop already has the correct five-way separation:
 | [`App/ViewModels/PiConfigurationViewModel.cs`](PiStationDesktop/src/PiStation.App/ViewModels/PiConfigurationViewModel.cs) | Capability-driven model/reasoning selections and revision status |
 | [`App/ViewModels/ConnectionViewModel.cs`](PiStationDesktop/src/PiStation.App/ViewModels/ConnectionViewModel.cs) | Connection, runtime-error, transport-error, and uncertain-command presentation state |
 | [`App/ViewModels/FileMentionViewModel.cs`](PiStationDesktop/src/PiStation.App/ViewModels/FileMentionViewModel.cs) | File-mention suggestions, selection, visibility, and search feedback |
+| [`App/ViewModels/WorkbenchAgentsViewModel.cs`](PiStationDesktop/src/PiStation.App/ViewModels/WorkbenchAgentsViewModel.cs) | Persisted and live subagent/workflow hierarchy, activity, elapsed time, tool/token metrics, results, failures, and interrupt state |
 | [`App/Views/ShellPage.xaml`](PiStationDesktop/src/PiStation.App/Views/ShellPage.xaml) | Current project selector, thread tabs, transcript, tools, composer, and recovery UI |
 
 ### 6.2 Capability comparison
@@ -507,16 +508,22 @@ PiStationDesktop already has the correct five-way separation:
 | Durable command IDs/receipts | Implemented | Reuse for every new mutation; never retry an uncertain command with a new ID automatically |
 | Resumable thread stream | Implemented | Preserve snapshot plus cursor/event semantics |
 | Crash versus transport error | Implemented | Keep these as separate state families |
-| Durable project/thread metadata | Implemented for rename/archive/pin/search | Protocol v9 and SQLite own revisioned title, archive, and pin state with migration-safe persistence, filtering, and title search. ClientRuntime provides typed operations, a revision-safe cache, and reconnect refresh. WinUI exposes debounced search, active/archived shelves, inline rename, pin/archive actions, accessible status, and relaunch-tested persistence |
+| Durable project/thread metadata | Implemented through protocol v21 | In addition to rename/archive/search, the SQLite inbox model owns delete, settle/reactivate, snooze, draft indicators, PR links, user-defined pinned order, bulk operations, and generated-versus-manual title provenance. First-turn titles and automatic settlement refresh into the WinUI inbox without overwriting manual titles |
 | General event-sourced orchestration | Not implemented; related primitives exist | The current bounded journal supports streaming but is not a durable event store; commands call services directly. Introduce a pure decider/projector only when broader lifecycle features require it |
 | Rich conversation timeline | Implemented | Typed assistant, thinking, tool, approval, question, status, error, and turn-boundary items are projected end to end. Assistant messages render native CommonMark with safe links, inert raw HTML, selectable text, and highlighted copyable code. Native expanders collapse completed reasoning, keep active reasoning visible, and group adjacent tools with accessible running/completed/failed state plus bounded arguments/output. Protocol v11 aggregates Pi-reported token usage per user turn and combines the last trustworthy response usage with the active model context window; the compact completion footer also shows host-measured elapsed time and survives session hydration without estimating absent values |
 | Approvals and structured questions | Implemented for local flows | Typed approve, reject/cancel, and answer commands render inline, reject obsolete responses, and are covered by a packaged-app journey |
-| Attachments and file mentions | Core implemented | Host-owned durable drafts and attachments feed Pi turns; bounded workspace filename search backs the composer `@` picker |
+| Composer power workflows | Implemented in protocol v21 | Host-owned drafts now combine `@` files, native image paste/drop previews, Pi `get_commands` slash discovery, `$` skill discovery, prompt stash/restore, response quotes/citations, terminal/diff context chips, explicit background steering/follow-up submission, and native Pi context compaction |
 | Model/mode selection | Implemented for reported capabilities | Introduced in protocol v8, Pi-reported capabilities are validated, persisted, reapplied, and receipt-tracked by the host; ClientRuntime caches revisioned snapshots across reconnects; and WinUI renders model/reasoning selectors. Runtime-mode controls remain hidden while Pi reports none |
-| Checkpoint diff/revert | Missing | High-value differentiator; implement behind a VCS service |
-| Files, search, and editor integration | Partial | Host-owned bounded filename search and composer mentions are implemented. File browsing, content search, read/write, preview, and editor integration remain |
-| Terminal | Missing | Server-owned PTY with a separately streamed byte channel |
-| Git branches/worktrees/status | Missing | Add after checkpoint/VCS abstraction |
+| Active-turn steering and queues | Implemented in protocol v20 | Running turns accept explicit steering and follow-up messages, project Pi `queue_update` contents and delivery state, expose refresh/clear plus independent one-at-a-time/all modes, and retain receipt/epoch/turn guards |
+| Agent/workflow observability | Implemented in protocol v20 for Pi structured subagent tools | Structured tool details project persisted hierarchy, live/current activity, elapsed time, tool/token usage, result/failure summaries, and terminal state. Interrupt delegates to the parent Pi turn because Pi's extension abort signal owns child-process cancellation |
+| Checkpoint diff/revert | Implemented in protocol v16 | Hidden Git refs bracket turns, drive turn/thread/file diffs, and support confirmed coupled workspace/Pi rewind with recovery refs |
+| Files, search, and editor integration | Implemented in protocol v18 plus P2 client refinements | The thread workspace has a bounded tree, path/content search, revision-safe text editing, Markdown/image preview, sandboxed HTML/PDF and audio/video preview, safe read-only external-file viewing, selectable file/diff annotations, drag-to-mention, and host-owned external-editor launch |
+| Terminal | Implemented from protocol v14 onward | Host-owned ConPTY sessions stream resumable output to the isolated Ghostty/WebView2 renderer and support input, resize, restart/close, search, links, and persisted recursive split panes |
+| Git branches/worktrees/status | Implemented across protocols v13 and v17 | The host owns read-only status/diffs and guarded init/ref/branch/pull/commit/push/worktree mutations; managed worktrees, project trust, and setup scripts are persisted |
+| Project configuration | Implemented in protocol v21 | `t3.json` supplies confined icons/favicons, named runnable scripts, workspace/model/reasoning/runtime defaults, and safe clean-default-branch auto-pull. Projects can be removed without deleting their folders |
+| Source-control hosting | Implemented in protocol v21 with provider CLIs | Host-owned adapters detect, clone, and publish repositories and list/create/comment/label/review/merge/close pull requests for GitHub, GitLab, Bitbucket, and Azure DevOps. PR state can be linked to a thread; provider authentication remains delegated to `gh`, `glab`, `bb`, or `az` |
+| Settings, usage, and diagnostics | Implemented in protocol v21 | Routed WinUI sections cover projects, Pi/runtime, source control, appearance, integrations, diagnostics, usage, and updates. The host reports runtime/tool health, bounded logs, process/database telemetry, durable token/cost aggregates, quota state, and redacted JSON export |
+| Browser preview and human review tools | Implemented from protocol v15 onward | Loopback discovery feeds client-owned multi-tab WebView2 sessions with responsive viewports, zoom/color emulation, recents, profiles and bounded cookie import, screenshots, recording/PiP, one-use annotations, explicit DevTools policy, and permissioned Pi automation; remote proxying remains deferred |
 | Remote pairing/multiple environments | Architecture anticipated, not shipped | Strengthen auth and connection catalog before binding beyond loopback |
 | Mobile/web clients | Not in current scope | Do not distort the WinUI MVP for these until requested |
 
@@ -592,11 +599,11 @@ Add protocol commands for approve, reject/cancel, and structured answers. Pendin
 
 #### 3. Composer essentials
 
-Implementation status (2026-09-02): **partial**. Per-thread draft persistence, attachment
-validation, authenticated host-owned uploads, durable attachment IDs, image and generic file turns,
-receipt-led exact-revision clearing, bounded workspace filename search, and the keyboard/mouse `@`
-picker are implemented. General send/stop shortcuts, explicit prompt-length UX, slash commands/Pi
-skills, and prompt history or stash remain.
+Implementation status (protocol v21): **complete for Pi's current RPC surface**. Per-thread drafts,
+attachments, the `@` picker, image clipboard/drop previews, slash-command and `$` skill discovery,
+prompt stash/restore, quote/cite actions, terminal/diff context chips, explicit background delivery,
+and native `compact` are connected across protocol, host, client, and WinUI. Discovery uses Pi's
+`get_commands`; compaction preserves Pi's summary and token/cost report.
 
 Add:
 
@@ -636,8 +643,10 @@ Persist selections on the thread. The host should validate capability/version su
 
 #### 5. Thread lifecycle and organization
 
-Implementation status (2026-09-02): **complete end to end for rename, archive/unarchive, pin/unpin,
-and title search**. Protocol v9 adds lifecycle commands and revisioned descriptor fields.
+Implementation status (protocol v21): **complete for the local inbox model**. Protocol v9 adds
+lifecycle commands and revisioned descriptor fields, while v21 extends them with delete,
+settle/unsettle, snooze/unsnooze, explicit pinned order, multi-select operations, automatic
+settlement, unsent-draft and PR-linked state, and first-turn title generation/regeneration.
 The host validates optimistic revisions, persists lifecycle state through SQLite schema migration,
 uses durable command receipts, excludes archived threads from normal lists/search by default, and
 sorts pinned threads first. Host tests cover replay, stale conflicts, reverse operations, migration,
@@ -646,10 +655,9 @@ ClientRuntime exposes typed lifecycle/search methods, applies revision/timestamp
 refreshes tracked projects after reconnect, and separates conflict, invalid, disconnected, and
 uncertain-dispatch outcomes. WinUI adds debounced title search, separate active and archived shelves,
 inline keyboard-friendly rename, pin/unpin and archive/restore actions through both overflow and
-context menus, live empty/result/status feedback, and conflict-safe refresh. A packaged-app journey
-verifies search, rename, pinning, archive/restore, and persistence across relaunch. Delete/restore,
-manual ordering, title regeneration, snooze, and settled/reactivated remain later lifecycle
-extensions.
+context menus, live empty/result/status feedback, conflict-safe refresh, extended selection, inbox
+indicators, and destructive confirmation. Manual titles are marked explicitly and are never replaced
+by automatic first-turn naming.
 
 Add rename, delete, archive/unarchive, pin/unpin and ordering, search, and settled/reactivated states. Add reverse commands at the same time as forward commands. Keep timestamps and sorting rules in projections so multiple future clients agree.
 
@@ -657,26 +665,35 @@ Add rename, delete, archive/unarchive, pin/unpin and ordering, search, and settl
 
 #### 6. Checkpoints, changed files, diff, and revert
 
-This is the best next architectural feature after the conversation loop.
-
-- Add a `IVersionControlService`/driver boundary in `PiStation.Host`.
-- Capture a baseline and completion checkpoint for each turn as hidden Git refs.
-- Project changed-file summaries into the thread.
-- Query full patches separately so the main thread stream stays small.
-- Revert through a command with explicit confirmation, durable receipt, and conflict/error states.
-- Coordinate Pi conversation rewind if Pi provides a safe resume point; otherwise state clearly that workspace-only revert does not rewind agent memory.
+Implementation status (protocol v16): **complete**. `WorkspaceCheckpointService` captures isolated
+before/after snapshots as hidden refs without changing `HEAD` or the index. Bounded changed-file
+summaries are projected into turn cards; full turn, file, and thread patches are queried separately.
+Confirmed revert uses a durable command receipt and couples workspace restore to Pi session rewind,
+with a recovery ref if the provider rewind fails.
 
 #### 7. File explorer, search, and preview
 
-Add host-owned browse, filename search, content search, and read operations. Add writes only when the editor feature is ready. Normalize paths relative to the project root, enforce root containment, and return explicit binary/large-file errors. Start with source/Markdown/image preview and open-in-editor.
+Implementation status (protocol v18 plus P2 client refinements): **complete**. Host-confined directory
+listing, path/content search, text and bounded asset reads, revision-safe atomic writes, Markdown,
+sandboxed HTML/PDF, image, audio, and video preview, multi-tab dirty buffers, composer mentions, and
+host-owned Open in Editor are connected end to end. A client file picker provides bounded read-only
+viewing outside the workspace without widening host file authority. Selected source and diff ranges
+become bounded review-comment context chips. Unsupported binary, oversized, missing, stale, and
+escaping workspace paths remain explicit states rather than client-side guesses.
 
 #### 8. Git status, branches, and worktrees
 
-Add live status, refresh, branch list/create/switch, pull, and worktree create/remove. A thread worktree should be durable thread metadata and the Pi process working directory. Run setup scripts as an explicit, visible operation with logs and failure state.
+Implementation status (protocols v13 and v17): **complete for the local Git workflow**. Status/diff,
+branch discovery/create/switch, fetch plus fast-forward pull, commit/push, managed worktree
+create/remove, trusted `t3.json` setup scripts, and explicit failure/conflict states are host-owned.
+Thread worktree metadata determines the Pi, file, diff, checkpoint, and terminal working directory.
 
 #### 9. Integrated terminal
 
-Keep PTYs in the host. Use a dedicated terminal contract for open/attach/write/resize/restart/close and stream raw bytes independently of thread events. Preserve terminal metadata across reconnect while treating a dead PTY as different from a lost SignalR connection.
+Implementation status (protocol v14 plus later UI slices): **complete**. Host-owned ConPTY sessions
+support open/attach/write/resize/restart/close and resumable output independently of thread events.
+The client renders with the T3-derived Ghostty WebAssembly surface and provides search, OSC links,
+native clipboard actions, focus-aware commands, and persisted recursive split layouts.
 
 ### Priority 3: desktop power features
 
@@ -686,15 +703,27 @@ Create one command registry used by buttons, menus, palette entries, and keybind
 
 #### 11. Project configuration and scripts
 
-Introduce a small `pistation.json` only after there are at least two real project-level settings. Likely fields are icon path, setup script, named scripts, default model/mode, and worktree setup. Validate it on the host and surface errors without blocking unrelated project use.
+Implementation status (protocol v21): **complete using T3-compatible `t3.json` inputs**. The host
+confines icon paths, falls back to common favicons, parses named/setup scripts, persists trust,
+applies workspace/model/reasoning/runtime defaults to new threads, and optionally fast-forwards only
+a clean checked-out default branch. Any trusted named script can be launched in a host-owned terminal.
 
 #### 12. Browser preview
 
-Start with detected localhost ports and an embedded WebView2 panel. Add responsive sizes, navigation, reload, dev tools, screenshots, and element-to-prompt annotations in stages. Agent-driven browser automation should be a later, permissioned host/client bridge rather than direct automation from the chat ViewModel.
+Implementation status (protocol v15 plus later UI slices): **complete for local preview tooling**.
+The host discovers loopback servers while client-owned WebView2 tabs provide navigation, independent
+history, responsive viewports, per-tab zoom and color emulation, recent addresses, isolated named
+profiles with bounded cookie import, PNG capture, MP4 recording, picture-in-picture, and one-use
+element-to-prompt annotations. DevTools require an explicit persisted opt-in. Pi browser operations
+are supplied by a trusted explicit extension and brokered through the running client under a
+per-thread off/inspect/interact grant. Remote proxying and server-owned sessions remain deferred.
 
 #### 13. Usage and diagnostics
 
-Show Pi version, executable path, current session/process state, host/connection state, recent errors, and redacted diagnostic export. Add token/cost charts only when Pi supplies trustworthy usage data.
+Implementation status (protocol v21): **complete for locally trustworthy data**. Routed settings show
+Pi/host/tool status, bounded logs, process/database/resource telemetry, aggregate Pi-reported token
+usage, estimated cost, quota state, updates, and a redacted JSON export. No secrets or unrestricted
+environment values are included in the export.
 
 ### Priority 4: remote and multi-environment operation
 
@@ -843,16 +872,23 @@ Copy the invariants and boundaries, not incidental technologies.
    relaunch behavior. The sidebar now includes debounced search, active/archived shelves, inline
    rename, pin and archive actions, accessible live status, keyboard handling, and conflict-safe
    refresh. A packaged-app journey covers the full lifecycle and verifies persistence after relaunch.
-6. Rebuild the WinUI presentation shell through the staged GUI-first program in
-   `PISTATION-T3CODE-GUI-PARITY-PLAN.md`. The sidebar, header, continuous timeline, integrated
-   composer, responsive states, and right-panel host land before their future workbench backends.
-7. Add VCS abstraction, per-turn checkpoints, changed-file summary, diff, and revert.
-8. Add workspace file browse/search/preview and open-in-editor.
-9. Add Git branch/worktree workflows.
-10. Add host-owned terminal streaming.
-11. Add command palette/keybindings and project scripts.
-12. Add WebView2 local preview and annotations.
-13. Harden remote authentication, then add multiple saved environments.
+6. **Complete:** Rebuild the WinUI presentation shell through the staged GUI-first program in
+   `PISTATION-T3CODE-GUI-PARITY-PLAN.md`.
+7. **Complete (protocol v16):** Add VCS-backed per-turn checkpoints, changed-file summaries,
+   separate diffs, and coupled workspace/Pi revert.
+8. **Complete (protocol v18):** Add workspace file browse/search/edit/preview and Open in Editor.
+9. **Complete (protocol v17):** Add guarded Git branch, push/pull/commit, worktree, and setup-script workflows.
+10. **Complete (protocol v14):** Add host-owned terminal streaming and lifecycle; later UI slices
+    added the Ghostty renderer, search, links, and persisted split panes.
+11. **Complete (protocol v19):** Add a shared command palette/keybinding system and project setup configuration.
+12. **Complete for local use (protocol v15 plus later UI slices):** Add WebView2 local preview,
+    multi-tab sessions, responsive viewports, screenshots, element annotations, zoom/color/recents,
+    profiles and cookie import, explicit DevTools, recording/PiP, and permissioned Pi automation.
+13. **Complete (protocol v20):** Add active-turn steering/follow-up queues and persisted Pi
+    subagent/workflow observability with parent-turn interruption.
+14. **Complete (P2 client refinement):** Add sandboxed HTML/PDF and media preview, bounded read-only
+    external-file viewing, and selectable file/diff annotations.
+15. Harden remote authentication, then add multiple saved environments.
 
 This order preserves the working Pi vertical slice while growing outward from the highest-value agent workflow. It also avoids building remote, Git-hosting, or browser infrastructure before the conversation and recovery model can support them reliably.
 

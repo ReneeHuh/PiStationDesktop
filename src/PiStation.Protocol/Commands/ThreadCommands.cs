@@ -7,7 +7,13 @@ namespace PiStation.Protocol.Commands;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(ThreadStartTurnCommand), "threadStartTurn")]
+[JsonDerivedType(typeof(ThreadQueueSteeringCommand), "threadQueueSteering")]
+[JsonDerivedType(typeof(ThreadQueueFollowUpCommand), "threadQueueFollowUp")]
+[JsonDerivedType(typeof(ThreadClearQueueCommand), "threadClearQueue")]
+[JsonDerivedType(typeof(ThreadRefreshQueueCommand), "threadRefreshQueue")]
+[JsonDerivedType(typeof(ThreadSetQueueDeliveryModeCommand), "threadSetQueueDeliveryMode")]
 [JsonDerivedType(typeof(ThreadStopTurnCommand), "threadStopTurn")]
+[JsonDerivedType(typeof(ThreadInterruptAgentCommand), "threadInterruptAgent")]
 [JsonDerivedType(typeof(ThreadRestartRuntimeCommand), "threadRestartRuntime")]
 [JsonDerivedType(typeof(ThreadRespondToApprovalCommand), "threadRespondToApproval")]
 [JsonDerivedType(typeof(ThreadAnswerQuestionCommand), "threadAnswerQuestion")]
@@ -16,10 +22,16 @@ namespace PiStation.Protocol.Commands;
 [JsonDerivedType(typeof(ThreadAddDraftAttachmentCommand), "threadAddDraftAttachment")]
 [JsonDerivedType(typeof(ThreadRemoveDraftAttachmentCommand), "threadRemoveDraftAttachment")]
 [JsonDerivedType(typeof(ThreadClearDraftCommand), "threadClearDraft")]
+[JsonDerivedType(typeof(ThreadRestoreStashCommand), "threadRestoreStash")]
 [JsonDerivedType(typeof(ThreadUpdatePiConfigurationCommand), "threadUpdatePiConfiguration")]
 [JsonDerivedType(typeof(ThreadRenameCommand), "threadRename")]
 [JsonDerivedType(typeof(ThreadSetArchivedCommand), "threadSetArchived")]
 [JsonDerivedType(typeof(ThreadSetPinnedCommand), "threadSetPinned")]
+[JsonDerivedType(typeof(ThreadSetSettledCommand), "threadSetSettled")]
+[JsonDerivedType(typeof(ThreadSetSnoozedCommand), "threadSetSnoozed")]
+[JsonDerivedType(typeof(ThreadSetPinnedOrderCommand), "threadSetPinnedOrder")]
+[JsonDerivedType(typeof(ThreadRegenerateTitleCommand), "threadRegenerateTitle")]
+[JsonDerivedType(typeof(ThreadCompactContextCommand), "threadCompactContext")]
 [JsonDerivedType(typeof(ThreadRevertCheckpointCommand), "threadRevertCheckpoint")]
 public abstract record ThreadCommand;
 
@@ -29,7 +41,29 @@ public sealed record ThreadStartTurnCommand(
     long? DraftRevision = null,
     IReadOnlyList<AttachmentId>? AttachmentIds = null) : ThreadCommand;
 
+public sealed record ThreadQueueSteeringCommand(
+    string Prompt,
+    DraftId? DraftId = null,
+    long? DraftRevision = null,
+    IReadOnlyList<AttachmentId>? AttachmentIds = null) : ThreadCommand;
+
+public sealed record ThreadQueueFollowUpCommand(
+    string Prompt,
+    DraftId? DraftId = null,
+    long? DraftRevision = null,
+    IReadOnlyList<AttachmentId>? AttachmentIds = null) : ThreadCommand;
+
+public sealed record ThreadClearQueueCommand : ThreadCommand;
+
+public sealed record ThreadRefreshQueueCommand : ThreadCommand;
+
+public sealed record ThreadSetQueueDeliveryModeCommand(
+    QueuedMessageKind Kind,
+    QueueDeliveryMode Mode) : ThreadCommand;
+
 public sealed record ThreadStopTurnCommand : ThreadCommand;
+
+public sealed record ThreadInterruptAgentCommand(string ActivityId) : ThreadCommand;
 
 public sealed record ThreadRestartRuntimeCommand : ThreadCommand;
 
@@ -46,7 +80,8 @@ public sealed record ThreadCancelInteractionCommand(InteractionId InteractionId)
 public sealed record ThreadSaveDraftCommand(
     DraftId DraftId,
     long ExpectedRevision,
-    string Text) : ThreadCommand;
+    string Text,
+    IReadOnlyList<ComposerContext>? Context = null) : ThreadCommand;
 
 public sealed record ThreadAddDraftAttachmentCommand(
     DraftId DraftId,
@@ -68,6 +103,8 @@ public sealed record ThreadClearDraftCommand(
     long ExpectedRevision,
     IReadOnlyList<AttachmentId> ExpectedAttachmentIds) : ThreadCommand;
 
+public sealed record ThreadRestoreStashCommand(string StashId, DraftId DraftId, long ExpectedRevision) : ThreadCommand;
+
 public sealed record ThreadUpdatePiConfigurationCommand(
     long ExpectedRevision,
     PiModelSelection? Model,
@@ -85,6 +122,22 @@ public sealed record ThreadSetArchivedCommand(
 public sealed record ThreadSetPinnedCommand(
     long ExpectedRevision,
     bool IsPinned) : ThreadCommand;
+
+public sealed record ThreadSetSettledCommand(
+    long ExpectedRevision,
+    bool IsSettled) : ThreadCommand;
+
+public sealed record ThreadSetSnoozedCommand(
+    long ExpectedRevision,
+    DateTimeOffset? SnoozedUntilUtc) : ThreadCommand;
+
+public sealed record ThreadSetPinnedOrderCommand(
+    long ExpectedRevision,
+    long PinnedOrder) : ThreadCommand;
+
+public sealed record ThreadRegenerateTitleCommand(long ExpectedRevision) : ThreadCommand;
+
+public sealed record ThreadCompactContextCommand(string? CustomInstructions = null) : ThreadCommand;
 
 public sealed record ThreadRevertCheckpointCommand(int TurnCount) : ThreadCommand;
 

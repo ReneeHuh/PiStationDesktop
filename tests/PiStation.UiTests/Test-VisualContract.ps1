@@ -118,10 +118,10 @@ Assert-Contract (
 ) 'The normal-launch driver does not enforce the forbidden-control list.'
 
 $tokens = Get-Content -LiteralPath $tokenPath -Raw
-foreach ($key in $contract.RequiredThemeColorKeys) {
+foreach ($key in @($contract.RequiredThemeColorKeys) + @($contract.RequiredBrushKeys)) {
     Test-XamlKey -Xaml $tokens -Key $key -ExpectedCount $contract.ThemeVariants.Count
 }
-foreach ($key in @($contract.RequiredBrushKeys) + @($contract.RequiredMetricKeys) + @($contract.RequiredStyleKeys)) {
+foreach ($key in @($contract.RequiredMetricKeys) + @($contract.RequiredStyleKeys)) {
     Test-XamlKey -Xaml $tokens -Key $key
 }
 

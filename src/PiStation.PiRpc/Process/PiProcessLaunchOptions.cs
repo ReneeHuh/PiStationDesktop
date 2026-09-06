@@ -15,6 +15,8 @@ public sealed record PiProcessLaunchOptions
 
     public IReadOnlyList<string> AdditionalArguments { get; init; } = [];
 
+    public bool DiscoverExtensions { get; init; }
+
     public IReadOnlyDictionary<string, string?> EnvironmentVariables { get; init; } =
         new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 

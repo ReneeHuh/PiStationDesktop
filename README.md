@@ -1,5 +1,12 @@
 # Pi Station Desktop
 
+[Install and recovery](Docs/INSTALL-AND-RECOVERY.md) · [Current implementation status](Docs/IMPLEMENTATION-STATUS-2026-09-05.md) · [Distribution TODOs](Docs/RELEASE-TODO.md)
+
+The [first Pi integration parity milestone](Docs/PI-INTEGRATION-MILESTONE-2026-09-05.md) adds configurable extension discovery and explicit paths, working inline skill invocation, current command metadata, supported extension UI, and idle runtime restart. Installed Pi 0.84.4 was exercised with an isolated offline provider. The [48-item completion audit](Docs/FEATURE-COMPLETION-AUDIT-2026-09-05.md) tracks the remaining local and full-product parity work.
+
+The T3-inspired implementation now includes durable thread context and complete draft stashes, a project inbox, structured diff review, Markdown navigation, Pi setup/retry, recoverable hosting operations, and Release packaging tools. Production publisher/signing/feed configuration is deferred. Current visual and authenticated-provider acceptance remains outstanding; see the status document before treating older completion claims below as release certification.
+
+
 Pi Station Desktop is a packaged, x64 WinUI 3 client for Pi. This folder is the application
 solution; the parent workspace holds planning documents and reference source checkouts.
 
@@ -34,9 +41,12 @@ upstream divergence, staged/working-tree/untracked file states, line totals, ini
 push workflows, managed worktree controls, refresh, and bounded diffs.
 Its Files tab exposes the active thread workspace as a directory tree, supports ranked path and
 case/whole-word/regex content search, opens multiple editable file tabs, reveals content-search
-lines, saves through revision-conflict checks, renders Markdown and bounded image previews, creates
-composer mentions by drag-and-drop, and launches files in an available external editor. Binary
-content, oversized files, missing files, and paths outside the workspace are handled explicitly.
+lines, saves through revision-conflict checks, renders Markdown, sandboxed HTML, PDF, image, audio,
+and video previews, creates composer mentions by drag-and-drop, and launches workspace files in an
+available external editor. A file picker can also open bounded files outside the workspace in a
+strictly read-only preview. Selected source or diff ranges become bounded review-comment context
+chips in the composer. Unsupported binary content, oversized files, missing files, and escaping
+workspace paths are handled explicitly.
 Its Terminal tab now manages host-owned PowerShell and Command
 Prompt sessions with resumable output, session switching, start/stop/restart/close actions, local
 clear, command and focused-viewport keyboard input, native copy/paste/select-all/clear context actions,
@@ -49,11 +59,18 @@ tab discovers browser-ready loopback development servers and opens HTTP/HTTPS ad
 separately locked-down WebView2 surface with address, back/forward, reload/stop, external-open,
 loading, and recoverable failure controls. Preview sessions are scoped per project/thread and retain multiple
 live WebView2 tabs with independent history plus responsive, desktop, tablet, and phone viewports.
-Human-triggered screenshot and element-annotation actions save PNG artifacts, append bounded DOM
-context to the composer, and upload annotation screenshots through the existing attachment path.
-Web messaging is enabled only for a one-use picker token; permissions, downloads, host objects, and
-agent automation remain disabled. Future agent browser control requires a separately advertised
-capability and an explicit user permission grant. Agents remains an honest unavailable state. The
+Each tab persists a zoom level, system/light/dark page-color emulation, recent addresses, and an
+isolated browser profile. Cookie import is explicit and bounded. Human-triggered screenshot,
+recording, picture-in-picture, and element-annotation actions produce local artifacts; annotations
+append bounded DOM context and upload their screenshot through the normal attachment path. DevTools
+remain disabled until the user enables the explicit policy. Pi receives browser tools through a
+trusted explicit extension, but every request is brokered by the visible desktop client and rejected
+unless the current thread has been granted inspect-only or inspect-and-interact access. Web messages
+remain limited to one-use element-picker tokens; page permissions, downloads, host objects, and
+implicit browser access stay blocked. The Agents tab now projects Pi structured-subagent
+and workflow tools as a persisted hierarchy with live state, current activity, elapsed time,
+tool/token usage, model, result/failure summaries, and an interrupt action where the parent Pi turn
+can propagate cancellation. The
 selected workbench tab persists locally. The header's Add action
 menu creates real threads, Open launches the selected local folder, and the workspace status rail
 shows local-project identity with a live Git summary. Sidebar collapse, workbench
@@ -70,6 +87,20 @@ journeys verify these UI slices and persistence. `ShellViewModel` now acts as th
 coordinator while focused workspace, thread, composer, Pi-configuration, connection/recovery, and
 file-mention ViewModels own their observable presentation state; `ShellPage` binds to those child
 models directly.
+
+Protocol v21 completes the next T3-inspired productivity slice. The composer discovers Pi slash
+commands and `$` skills, stashes and restores prompts, compacts context through Pi's native RPC,
+quotes/cites responses, attaches selected diff or terminal output as visible context chips, previews
+pasted/dropped images, and can submit steering or follow-up work in the background. The sidebar is
+now an inbox with automatic settlement, manual reactivation, snooze, delete, extended multi-select,
+explicit pinned ordering, unsent-draft and PR indicators, and generated titles that preserve manual
+names. Project metadata includes confined icons, model/reasoning/runtime/workspace defaults, clean
+default-branch auto-pull, removal, and runnable trusted `t3.json` scripts. Host-owned source-control
+adapters use `gh`, `glab`, `bb`, and `az` for clone/publish and pull-request listing, creation,
+comments, labels, reviewers, checks, reviews, merge/close, generated text, and thread linking.
+Settings now routes across projects, Pi/runtime, source control, appearance, integrations,
+diagnostics, usage, and updates, including bounded logs, resource telemetry, durable usage/cost
+aggregation, quota state, and redacted JSON export.
 
 Settings is now a first-class sidebar destination with workspace-layout summary/reset, local
 environment details, and About information. Transport, Pi-crash, uncertain-command, and runtime
@@ -163,6 +194,16 @@ Settings persists per-command shortcut overrides, validates key syntax, evaluate
 and parenthesized context conditions, and rejects bindings whose contexts can overlap. File save,
 workbench navigation, thread navigation, Git actions, terminal pane operations, and preview actions
 all participate in the same registry; focused text-entry behavior remains local to its editor.
+
+Protocol v20 adds active-turn steering, follow-up, and observability. While Pi is streaming, the
+composer can deliver the next draft as an immediate steering message or an ordered follow-up, with
+the same attachment resolution and epoch/turn guards as ordinary turns. Pi `queue_update` events
+project steering/follow-up contents, pending count, cleared/delivering state, and independent
+one-at-a-time/all delivery modes; the UI exposes explicit follow-up, refresh, clear, and mode
+controls. Structured subagent tool details become bounded, persisted agent/workflow events with
+hierarchy, live activity, elapsed time, tool/token metrics, model, and result/failure summaries.
+Pi currently exposes abort at the parent-turn boundary, so an agent interrupt stops that turn and
+lets the extension propagate its abort signal to child processes.
 
 The per-thread Pi configuration layer introduced in protocol v8 reads model
 and thinking-level capabilities from Pi RPC, validates receipt-backed updates, persists desired
@@ -304,7 +345,7 @@ pwsh .\tests\PiStation.UiTests\Invoke-InputAccessibilitySlice.ps1
 
 This packaged-app journey verifies Git branch/status/diff rendering; project-file discovery,
 filtering, selection, and text previews; a real host-owned terminal command lifecycle; embedded
-Preview navigation and the remaining honest Agents state; terminal scrollback search, result navigation, and case filtering;
+Preview navigation and the connected Agents empty state; terminal scrollback search, result navigation, and case filtering;
 split-right/split-down terminal panes with isolated output and focus-driven session targeting; live
 pointer/UI Automation divider resizing, per-project split persistence, stale-session fallback, and
 terminal shortcut resolution; live terminal-font changes, fallback-safe sizing, and persistence; real header thread creation;

@@ -88,6 +88,44 @@ public sealed class PiProcessIntegrationTests
     }
 
     [Fact]
+    public async Task ComposerCommandsCompactionAndSessionNamesUseNativeRpcCommands()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        await using var process = await FakePiTestHost.StartAsync(temporaryDirectory);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var commands = await process.Connection.GetCommandsAsync(cancellation.Token);
+        await process.Connection.SetSessionNameAsync("Generated thread title", cancellation.Token);
+        var compaction = await process.Connection.CompactAsync("Keep decisions", cancellation.Token);
+        var state = await process.Connection.GetStateAsync(cancellation.Token);
+
+        Assert.Collection(
+            commands,
+            command => Assert.Equal(("review", "extension"), (command.Name, command.Source)),
+            command => Assert.Equal(("release-notes", "prompt"), (command.Name, command.Source)),
+            command => Assert.Equal(("skill:fake-skill", "skill"), (command.Name, command.Source)));
+        Assert.Equal("user", commands[2].SourceInfo?.Scope);
+        Assert.EndsWith("SKILL.md", commands[2].Path);
+        Assert.Equal("Generated thread title", state.SessionName);
+        Assert.True(state.AutoCompactionEnabled);
+        Assert.Equal("Fake compacted context summary.", compaction.Summary);
+        Assert.Equal(1200, compaction.TokensBefore);
+        Assert.Equal(320, compaction.EstimatedTokensAfter);
+        Assert.Equal(1330, compaction.Usage?.TotalTokens);
+        Assert.Equal(0.0125m, compaction.Usage?.TotalCost);
+
+        var log = File.ReadLines(Path.Combine(temporaryDirectory.GetPath("sessions"), "command-log.jsonl"))
+            .Select(static line => JsonNode.Parse(line) as JsonObject)
+            .Where(static record => record is not null)
+            .ToArray();
+        Assert.Contains(log, static record => record!["command"]?.GetValue<string>() == "get_commands");
+        Assert.Contains(log, static record => record!["command"]?.GetValue<string>() == "compact" &&
+            record["request"]?["customInstructions"]?.GetValue<string>() == "Keep decisions");
+        Assert.Contains(log, static record => record!["command"]?.GetValue<string>() == "set_session_name" &&
+            record["request"]?["name"]?.GetValue<string>() == "Generated thread title");
+    }
+
+    [Fact]
     public async Task PromptSendsNativeImagesAndAPathManifestForEveryAttachment()
     {
         using var temporaryDirectory = new TemporaryDirectory();
@@ -225,6 +263,46 @@ public sealed class PiProcessIntegrationTests
         Assert.Contains(afterStop, static @event => @event is PiAgentSettledEvent);
         Assert.True(Array.IndexOf(commands, "clear_queue") < Array.IndexOf(commands, "abort"));
         Assert.DoesNotContain("abort_retry", commands);
+    }
+
+    [Fact]
+    public async Task ActiveTurnMessagesExposeQueueUpdatesModesAndClearing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        await using var process = await FakePiTestHost.StartAsync(temporaryDirectory, "queue");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await process.Connection.PromptAsync("Start working", cancellation.Token);
+        await ReadUntilAsync<PiTurnStartedEvent>(process.Connection, cancellation.Token);
+        await process.Connection.SteerAsync("Change direction", [], cancellation.Token);
+        var steered = await ReadUntilAsync<PiQueueUpdatedEvent>(process.Connection, cancellation.Token);
+        await process.Connection.FollowUpAsync("Then summarize", [], cancellation.Token);
+        var followed = await ReadUntilAsync<PiQueueUpdatedEvent>(process.Connection, cancellation.Token);
+        var queuedState = await process.Connection.GetStateAsync(cancellation.Token);
+
+        await process.Connection.SetSteeringModeAsync("one-at-a-time", cancellation.Token);
+        await process.Connection.SetFollowUpModeAsync("one-at-a-time", cancellation.Token);
+        var configuredState = await process.Connection.GetStateAsync(cancellation.Token);
+        var cleared = await process.Connection.ClearQueueAsync(cancellation.Token);
+        var clearedUpdate = await ReadUntilAsync<PiQueueUpdatedEvent>(process.Connection, cancellation.Token);
+
+        Assert.Equal(["Change direction"], steered.Steering);
+        Assert.Empty(steered.FollowUp);
+        Assert.Equal(["Change direction"], followed.Steering);
+        Assert.Equal(["Then summarize"], followed.FollowUp);
+        Assert.True(queuedState.IsStreaming);
+        Assert.Equal(2, queuedState.PendingMessageCount);
+        Assert.Equal("all", queuedState.SteeringMode);
+        Assert.Equal("all", queuedState.FollowUpMode);
+        Assert.Equal("one-at-a-time", configuredState.SteeringMode);
+        Assert.Equal("one-at-a-time", configuredState.FollowUpMode);
+        Assert.Equal(["Change direction"], cleared.Steering);
+        Assert.Equal(["Then summarize"], cleared.FollowUp);
+        Assert.Empty(clearedUpdate.Steering);
+        Assert.Empty(clearedUpdate.FollowUp);
+
+        await process.Connection.AbortAsync(cancellation.Token);
+        await FakePiTestHost.ReadUntilSettledAsync(process.Connection, cancellation.Token);
     }
 
     [Fact]
@@ -417,6 +495,22 @@ public sealed class PiProcessIntegrationTests
         }
 
         return assembler;
+    }
+
+    private static async Task<TEvent> ReadUntilAsync<TEvent>(
+        PiRpcConnection connection,
+        CancellationToken cancellationToken)
+        where TEvent : PiRpcEvent
+    {
+        await foreach (var @event in connection.ReadEventsAsync(cancellationToken))
+        {
+            if (@event is TEvent result)
+            {
+                return result;
+            }
+        }
+
+        throw new EndOfStreamException($"Pi exited before emitting {typeof(TEvent).Name}.");
     }
 
     private static PiRpcConnectionOptions ShortTimeouts() => new()

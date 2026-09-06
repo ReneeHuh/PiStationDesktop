@@ -22,11 +22,31 @@ public enum AppThemePreference
     Light,
 }
 
+public enum PreviewColorScheme
+{
+    System,
+    Light,
+    Dark,
+}
+
+public enum PreviewDevToolsPolicy
+{
+    Disabled,
+    UserInitiated,
+}
+
+public enum PreviewAutomationAccess
+{
+    Off,
+    Inspect,
+    Interact,
+}
+
 public sealed class ShellLayoutViewModel : ObservableObject
 {
     public const double DefaultRightPanelWidth = 420;
     public const double MinimumRightPanelWidth = 360;
-    public const double MaximumRightPanelWidth = 520;
+    public const double MaximumRightPanelWidth = 720;
     public const string DefaultTerminalFontFamily = "Cascadia Mono, Consolas";
     public const double DefaultTerminalFontSize = 12;
     public const double MinimumTerminalFontSize = 6;
@@ -61,6 +81,12 @@ public sealed class ShellLayoutViewModel : ObservableObject
     private readonly Dictionary<string, string> _previewUrls = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PreviewWorkspacePreference> _previewWorkspaces =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PreviewAutomationAccess> _previewAutomationPermissions =
+        new(StringComparer.Ordinal);
+    private readonly List<BrowserProfilePreference> _browserProfiles =
+        [new BrowserProfilePreference("default", "Default")];
+    private string _defaultBrowserProfileId = "default";
+    private PreviewDevToolsPolicy _previewDevToolsPolicy;
     private readonly List<CommandKeybindingPreference> _commandKeybindings = [];
 
     public ShellLayoutViewModel(string? settingsPath = null)
@@ -125,6 +151,7 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 OnPropertyChanged(nameof(FilesPanelVisibility));
                 OnPropertyChanged(nameof(TerminalPanelVisibility));
                 OnPropertyChanged(nameof(PreviewPanelVisibility));
+                OnPropertyChanged(nameof(AgentsPanelVisibility));
                 OnPropertyChanged(nameof(LayoutSummary));
                 Save();
             }
@@ -202,11 +229,11 @@ public sealed class ShellLayoutViewModel : ObservableObject
         WorkbenchPanelKind.Preview =>
             "Browse local development servers in persistent WebView2 tabs.",
         WorkbenchPanelKind.Agents =>
-            "Agent observability is not connected yet.",
+            "Inspect live and completed agents and workflows for this thread.",
         _ => "This workbench view is not available.",
     };
 
-    public Visibility WorkbenchEmptyStateVisibility => SelectedPanel is WorkbenchPanelKind.Changes or WorkbenchPanelKind.Files or WorkbenchPanelKind.Terminal or WorkbenchPanelKind.Preview
+    public Visibility WorkbenchEmptyStateVisibility => SelectedPanel is WorkbenchPanelKind.Changes or WorkbenchPanelKind.Files or WorkbenchPanelKind.Terminal or WorkbenchPanelKind.Preview or WorkbenchPanelKind.Agents
         ? Visibility.Collapsed
         : Visibility.Visible;
 
@@ -226,12 +253,33 @@ public sealed class ShellLayoutViewModel : ObservableObject
         ? Visibility.Visible
         : Visibility.Collapsed;
 
+    public Visibility AgentsPanelVisibility => SelectedPanel == WorkbenchPanelKind.Agents
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public string LayoutSummary =>
         $"Sidebar {(IsSidebarCollapsed ? "collapsed" : "expanded")} • " +
         $"Workbench {(IsRightPanelOpen ? SelectedPanelTitle : "closed")} • " +
         $"{Math.Round(RightPanelWidth)} px";
 
     public IReadOnlyList<CommandKeybindingPreference> CommandKeybindings => _commandKeybindings.ToArray();
+
+    public IReadOnlyList<BrowserProfilePreference> BrowserProfiles => _browserProfiles.ToArray();
+
+    public string DefaultBrowserProfileId => _defaultBrowserProfileId;
+
+    public PreviewDevToolsPolicy PreviewDevToolsPolicy
+    {
+        get => _previewDevToolsPolicy;
+        set
+        {
+            var normalized = Enum.IsDefined(value) ? value : PreviewDevToolsPolicy.Disabled;
+            if (SetProperty(ref _previewDevToolsPolicy, normalized))
+            {
+                Save();
+            }
+        }
+    }
 
     public void ToggleRightPanel() => IsRightPanelOpen = !IsRightPanelOpen;
 
@@ -248,11 +296,70 @@ public sealed class ShellLayoutViewModel : ObservableObject
         _terminalPaneLayouts.Clear();
         _previewUrls.Clear();
         _previewWorkspaces.Clear();
+        _previewAutomationPermissions.Clear();
+        _browserProfiles.Clear();
+        _browserProfiles.Add(new BrowserProfilePreference("default", "Default"));
+        _defaultBrowserProfileId = "default";
+        _previewDevToolsPolicy = PreviewDevToolsPolicy.Disabled;
         IsSidebarCollapsed = false;
         IsRightPanelOpen = false;
         SelectedPanel = WorkbenchPanelKind.Changes;
         RightPanelWidth = DefaultRightPanelWidth;
         OnPropertyChanged(nameof(LayoutSummary));
+        Save();
+    }
+
+    public BrowserProfilePreference AddBrowserProfile(string name)
+    {
+        var normalized = name?.Trim() ?? string.Empty;
+        if (normalized.Length is 0 or > 48)
+        {
+            throw new ArgumentException("Browser profile names contain between 1 and 48 characters.", nameof(name));
+        }
+
+        if (_browserProfiles.Count >= 12)
+        {
+            throw new InvalidOperationException("At most 12 browser profiles may be retained.");
+        }
+
+        var profile = new BrowserProfilePreference(Guid.NewGuid().ToString("N"), normalized);
+        _browserProfiles.Add(profile);
+        OnPropertyChanged(nameof(BrowserProfiles));
+        Save();
+        return profile;
+    }
+
+    public void SetDefaultBrowserProfile(string profileId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+        if (_browserProfiles.Any(profile => profile.Id == profileId) &&
+            !string.Equals(_defaultBrowserProfileId, profileId, StringComparison.Ordinal))
+        {
+            _defaultBrowserProfileId = profileId;
+            OnPropertyChanged(nameof(DefaultBrowserProfileId));
+            Save();
+        }
+    }
+
+    public PreviewAutomationAccess GetPreviewAutomationPermission(string contextKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(contextKey);
+        return _previewAutomationPermissions.GetValueOrDefault(contextKey, PreviewAutomationAccess.Off);
+    }
+
+    public void SavePreviewAutomationPermission(string contextKey, PreviewAutomationAccess permission)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(contextKey);
+        var normalized = Enum.IsDefined(permission) ? permission : PreviewAutomationAccess.Off;
+        if (normalized == PreviewAutomationAccess.Off)
+        {
+            _previewAutomationPermissions.Remove(contextKey);
+        }
+        else
+        {
+            _previewAutomationPermissions[contextKey] = normalized;
+        }
+
         Save();
     }
 
@@ -461,14 +568,22 @@ public sealed class ShellLayoutViewModel : ObservableObject
                     string.IsNullOrWhiteSpace(tab.Title) ? "New preview" : tab.Title.Trim(),
                     preset,
                     width,
-                    height);
+                    height,
+                    double.IsFinite(tab.ZoomFactor) ? Math.Clamp(tab.ZoomFactor, 0.25, 3) : 1,
+                    Enum.IsDefined(tab.ColorScheme) ? tab.ColorScheme : PreviewColorScheme.System,
+                    string.IsNullOrWhiteSpace(tab.ProfileId) ? "default" : tab.ProfileId.Trim());
             })
             .ToArray();
         var activeTabId = tabs.Any(tab =>
             string.Equals(tab.TabId, preference.ActiveTabId, StringComparison.Ordinal))
             ? preference.ActiveTabId
             : tabs.LastOrDefault()?.TabId;
-        return new PreviewWorkspacePreference(activeTabId, tabs);
+        var recentUrls = (preference.RecentUrls ?? [])
+            .Where(url => WorkbenchPreviewViewModel.TryNormalizeAddress(url, out _, out _))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .ToArray();
+        return new PreviewWorkspacePreference(activeTabId, tabs, recentUrls);
     }
 
     private void Load()
@@ -540,6 +655,41 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 }
             }
 
+            _previewAutomationPermissions.Clear();
+            if (snapshot.PreviewAutomationPermissions is not null)
+            {
+                foreach (var (contextKey, permission) in snapshot.PreviewAutomationPermissions)
+                {
+                    if (!string.IsNullOrWhiteSpace(contextKey) && Enum.IsDefined(permission) &&
+                        permission != PreviewAutomationAccess.Off)
+                    {
+                        _previewAutomationPermissions[contextKey] = permission;
+                    }
+                }
+            }
+
+            _browserProfiles.Clear();
+            _browserProfiles.Add(new BrowserProfilePreference("default", "Default"));
+            foreach (var profile in snapshot.BrowserProfiles ?? [])
+            {
+                var id = profile?.Id?.Trim() ?? string.Empty;
+                var name = profile?.Name?.Trim() ?? string.Empty;
+                if (id is { Length: > 0 and <= 64 } && name is { Length: > 0 and <= 48 } &&
+                    !string.Equals(id, "default", StringComparison.Ordinal) &&
+                    !_browserProfiles.Any(candidate => candidate.Id == id) &&
+                    _browserProfiles.Count < 12)
+                {
+                    _browserProfiles.Add(new BrowserProfilePreference(id, name));
+                }
+            }
+
+            _defaultBrowserProfileId = _browserProfiles.Any(profile => profile.Id == snapshot.DefaultBrowserProfileId)
+                ? snapshot.DefaultBrowserProfileId!
+                : "default";
+            _previewDevToolsPolicy = snapshot.PreviewDevToolsPolicy is { } devToolsPolicy && Enum.IsDefined(devToolsPolicy)
+                ? devToolsPolicy
+                : PreviewDevToolsPolicy.Disabled;
+
             _commandKeybindings.Clear();
             foreach (var binding in snapshot.CommandKeybindings ?? [])
             {
@@ -594,7 +744,11 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 _terminalPaneLayouts,
                 _previewUrls,
                 _previewWorkspaces,
-                _commandKeybindings);
+                _commandKeybindings,
+                _previewAutomationPermissions,
+                _browserProfiles,
+                _defaultBrowserProfileId,
+                _previewDevToolsPolicy);
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(snapshot, SerializerOptions));
@@ -635,7 +789,11 @@ public sealed class ShellLayoutViewModel : ObservableObject
         IReadOnlyDictionary<string, TerminalPaneLayoutPreference>? TerminalPaneLayouts = null,
         IReadOnlyDictionary<string, string>? PreviewUrls = null,
         IReadOnlyDictionary<string, PreviewWorkspacePreference>? PreviewWorkspaces = null,
-        IReadOnlyList<CommandKeybindingPreference>? CommandKeybindings = null);
+        IReadOnlyList<CommandKeybindingPreference>? CommandKeybindings = null,
+        IReadOnlyDictionary<string, PreviewAutomationAccess>? PreviewAutomationPermissions = null,
+        IReadOnlyList<BrowserProfilePreference>? BrowserProfiles = null,
+        string? DefaultBrowserProfileId = null,
+        PreviewDevToolsPolicy? PreviewDevToolsPolicy = null);
 }
 
 public sealed record CommandKeybindingPreference(
@@ -645,7 +803,8 @@ public sealed record CommandKeybindingPreference(
 
 public sealed record PreviewWorkspacePreference(
     string? ActiveTabId,
-    IReadOnlyList<PreviewTabPreference> Tabs);
+    IReadOnlyList<PreviewTabPreference> Tabs,
+    IReadOnlyList<string>? RecentUrls = null);
 
 public sealed record PreviewTabPreference(
     string TabId,
@@ -653,7 +812,12 @@ public sealed record PreviewTabPreference(
     string Title,
     PreviewViewportPreset ViewportPreset,
     int ViewportWidth,
-    int ViewportHeight);
+    int ViewportHeight,
+    double ZoomFactor = 1,
+    PreviewColorScheme ColorScheme = PreviewColorScheme.System,
+    string ProfileId = "default");
+
+public sealed record BrowserProfilePreference(string Id, string Name);
 
 public sealed record TerminalPaneLayoutPreference(
     bool IsSplit,

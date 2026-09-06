@@ -18,6 +18,7 @@ $dataRoot = $null
 $projectPath = $null
 $logFile = $null
 $testError = $null
+. (Join-Path $PSScriptRoot 'Select-TestThread.ps1')
 
 function Invoke-CheckedNative {
     param(
@@ -36,9 +37,13 @@ function Invoke-CheckedNative {
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
 
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+    $result = Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
         '--app', "$script:launchedProcessId", '--json'
     ))
+    if ($Arguments[0] -eq 'screenshot' -and ($outputIndex = [Array]::IndexOf($Arguments, '--output')) -ge 0) {
+        $fallbackResult = & (Join-Path $PSScriptRoot 'Invoke-ValidatedScreenshot.ps1') -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json')); if ($fallbackResult) { $result = $fallbackResult }
+    }
+    return $result
 }
 
 function Wait-UiValue {
@@ -60,6 +65,7 @@ function Wait-UiValue {
 function Invoke-TransportDropDiagnostic {
     Invoke-Ui 'invoke' 'SettingsButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'invoke' 'SettingsDiagnosticsNavItem' | Out-Null
     Invoke-Ui 'wait-for' 'SimulateTransportDropButton' '--timeout' '5000' | Out-Null
     Invoke-Ui 'invoke' 'SimulateTransportDropButton' | Out-Null
     Invoke-Ui 'wait-for' 'SettingsShell' '--gone' '--timeout' '5000' | Out-Null
@@ -224,7 +230,7 @@ function Initialize-Workspace {
     Invoke-Ui 'wait-for' $projectName '--timeout' '10000' | Out-Null
     Wait-UiValue -Selector 'NewThreadButton' -Value 'True' -Property 'IsEnabled'
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 1' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 1' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
 }
 
@@ -251,21 +257,22 @@ function Test-StopAndThreadIsolation {
     Wait-UiValue -Selector 'NewThreadButton' -Value 'True' -Property 'IsEnabled'
 
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
-    Invoke-Ui 'wait-for' 'Thread 2' '--timeout' '15000' | Out-Null
+    Wait-TestThread -Title 'Thread 2' -Timeout 15000
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Invoke-Ui 'set-value' 'PromptInput' $secondPrompt | Out-Null
     Invoke-Ui 'invoke' 'SendPromptButton' | Out-Null
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Pi is working'
     Wait-UiValue -Selector 'StopTurnButton' -Value 'True' -Property 'IsEnabled'
 
-    Invoke-Ui 'invoke' 'Thread 1' | Out-Null
+    # Automatic naming uses the first prompt once the turn starts.
+    Select-TestThread -Title $firstPrompt
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Pi is working'
     Assert-CurrentTranscript -ExpectedPrompt $firstPrompt -ExcludedPrompt $secondPrompt
     Invoke-Ui 'invoke' 'StopTurnButton' | Out-Null
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Idle'
     Wait-UiValue -Selector 'StopTurnButton' -Value 'False' -Property 'IsEnabled'
 
-    Invoke-Ui 'invoke' 'Thread 2' | Out-Null
+    Select-TestThread -Title $secondPrompt
     Wait-UiValue -Selector 'TurnStatusText' -Value 'Pi is working'
     Assert-CurrentTranscript -ExpectedPrompt $secondPrompt -ExcludedPrompt $firstPrompt
     Invoke-Ui 'invoke' 'StopTurnButton' | Out-Null
@@ -311,7 +318,7 @@ function Test-TransportReconnectAndResync {
     $tree = Invoke-Ui 'inspect' 'TranscriptList' '--depth' '16' |
         ConvertFrom-Json -Depth 100
     $finalMessages = @($tree.windows | ForEach-Object { Get-UiNodes -Node $_ } | Where-Object {
-        $_.type -eq 'Text' -and $_.name.TrimEnd() -eq 'Tool finished.'
+        $_.className -eq 'RichTextBlock' -and $_.name.TrimEnd() -eq 'Tool finished.'
     })
     if ($finalMessages.Count -ne 1) {
         throw "Expected one recovered final response after snapshot resync; found $($finalMessages.Count)."

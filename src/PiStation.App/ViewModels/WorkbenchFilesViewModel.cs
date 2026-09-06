@@ -11,6 +11,18 @@ public enum WorkspaceFileSearchMode
     Contents,
 }
 
+public enum WorkbenchFilePreviewKind
+{
+    Text,
+    Markdown,
+    Html,
+    Image,
+    Pdf,
+    Audio,
+    Video,
+    Binary,
+}
+
 public sealed class WorkbenchFilesViewModel : ObservableObject
 {
     private readonly Dictionary<string, WorkspaceFileSession> _sessions = new(StringComparer.Ordinal);
@@ -271,6 +283,23 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
         return document;
     }
 
+    internal WorkbenchFileDocumentViewModel OpenExternalDocument(string absolutePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(absolutePath);
+        var normalized = Path.GetFullPath(absolutePath);
+        var document = OpenDocuments.FirstOrDefault(candidate =>
+            candidate.IsExternal &&
+            string.Equals(candidate.RelativePath, normalized, StringComparison.OrdinalIgnoreCase));
+        if (document is null)
+        {
+            document = new WorkbenchFileDocumentViewModel(normalized, isExternal: true);
+            OpenDocuments.Add(document);
+        }
+
+        ActiveDocument = document;
+        return document;
+    }
+
     internal void CloseDocument(WorkbenchFileDocumentViewModel document)
     {
         var index = OpenDocuments.IndexOf(document);
@@ -391,13 +420,15 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     private int _revealRequestId;
     private int? _revealLine;
     private string _revision = string.Empty;
-    private bool _showRenderedMarkdown;
+    private bool _showRenderedContent;
+    private string? _localPreviewPath;
     private string _status = "Loading…";
 
-    public WorkbenchFileDocumentViewModel(string relativePath)
+    public WorkbenchFileDocumentViewModel(string relativePath, bool isExternal = false)
     {
         RelativePath = relativePath;
         FileName = Path.GetFileName(relativePath);
+        IsExternal = isExternal;
         var extension = Path.GetExtension(relativePath);
         IsMarkdown = extension.Equals(".md", StringComparison.OrdinalIgnoreCase) ||
                      extension.Equals(".markdown", StringComparison.OrdinalIgnoreCase) ||
@@ -410,14 +441,51 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
                   extension.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
                   extension.Equals(".svg", StringComparison.OrdinalIgnoreCase) ||
                   extension.Equals(".webp", StringComparison.OrdinalIgnoreCase);
+        IsHtml = extension.Equals(".html", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".htm", StringComparison.OrdinalIgnoreCase);
+        IsPdf = extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase);
+        IsAudio = extension.Equals(".aac", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".flac", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".m4a", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".mp3", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".oga", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".wma", StringComparison.OrdinalIgnoreCase);
+        IsVideo = extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".webm", StringComparison.OrdinalIgnoreCase) ||
+                  extension.Equals(".wmv", StringComparison.OrdinalIgnoreCase);
+        PreviewKind = IsMarkdown
+            ? WorkbenchFilePreviewKind.Markdown
+            : IsHtml
+                ? WorkbenchFilePreviewKind.Html
+                : IsImage
+                    ? WorkbenchFilePreviewKind.Image
+                    : IsPdf
+                        ? WorkbenchFilePreviewKind.Pdf
+                        : IsAudio
+                            ? WorkbenchFilePreviewKind.Audio
+                            : IsVideo
+                                ? WorkbenchFilePreviewKind.Video
+                                : WorkbenchFilePreviewKind.Text;
         // Match T3's source-first default while keeping rendered Markdown one click away.
-        _showRenderedMarkdown = false;
+        _showRenderedContent = IsHtml;
     }
 
     public string RelativePath { get; }
     public string FileName { get; }
     public bool IsMarkdown { get; }
     public bool IsImage { get; }
+    public bool IsHtml { get; }
+    public bool IsPdf { get; }
+    public bool IsAudio { get; }
+    public bool IsVideo { get; }
+    public bool IsMedia => IsAudio || IsVideo;
+    public bool IsExternal { get; }
+    public WorkbenchFilePreviewKind PreviewKind { get; private set; }
+    public bool UsesAssetContent => IsImage || IsPdf || IsMedia;
     public bool IsBinary => _isBinary;
 
     public string Content
@@ -427,7 +495,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         {
             if (SetProperty(ref _content, value))
             {
-                IsDirty = !_isLoading && !IsImage;
+                IsDirty = !_isLoading && !IsExternal && !UsesAssetContent;
                 OnPropertyChanged(nameof(CanSave));
             }
         }
@@ -437,6 +505,12 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     {
         get => _assetContent;
         internal set => SetProperty(ref _assetContent, value);
+    }
+
+    public string? LocalPreviewPath
+    {
+        get => _localPreviewPath;
+        internal set => SetProperty(ref _localPreviewPath, value);
     }
 
     public string Revision
@@ -502,29 +576,53 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     }
 
     public string DisplayTitle => IsDirty ? $"{FileName} ●" : FileName;
-    public bool CanSave => IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsImage && !IsBinary;
-    public bool IsReadOnly => IsTruncated || IsImage || IsBinary;
+    public bool CanSave => IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsExternal && !UsesAssetContent && !IsBinary;
+    public bool CanReloadFromWorkspace => !IsExternal;
+    public bool CanOpenInEditor => !IsExternal;
+    public bool IsReadOnly => IsExternal || IsTruncated || UsesAssetContent || IsBinary;
 
-    public bool ShowRenderedMarkdown
+    public bool ShowRenderedContent
     {
-        get => _showRenderedMarkdown;
+        get => _showRenderedContent;
         set
         {
-            if (SetProperty(ref _showRenderedMarkdown, IsMarkdown && value))
+            if (SetProperty(ref _showRenderedContent, (IsMarkdown || IsHtml) && value))
             {
                 RaisePreviewVisibility();
             }
         }
     }
 
-    public Visibility SourceVisibility => !IsImage && (!IsMarkdown || !ShowRenderedMarkdown)
+    public bool ShowRenderedMarkdown
+    {
+        get => ShowRenderedContent;
+        set => ShowRenderedContent = value;
+    }
+
+    public Visibility SourceVisibility => !UsesAssetContent &&
+                                          (!(IsMarkdown || IsHtml) || !ShowRenderedContent) &&
+                                          PreviewKind != WorkbenchFilePreviewKind.Binary
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public Visibility MarkdownVisibility => IsMarkdown && ShowRenderedMarkdown
+    public Visibility MarkdownVisibility => IsMarkdown && ShowRenderedContent
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility HtmlVisibility => IsHtml && ShowRenderedContent
         ? Visibility.Visible
         : Visibility.Collapsed;
     public Visibility ImageVisibility => IsImage ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility MarkdownToggleVisibility => IsMarkdown ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PdfVisibility => IsPdf ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility WebPreviewVisibility => (IsHtml && ShowRenderedContent) || IsPdf
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility MediaVisibility => IsMedia ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UnsupportedBinaryVisibility => PreviewKind == WorkbenchFilePreviewKind.Binary
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility RenderedToggleVisibility => IsMarkdown || IsHtml
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility MarkdownToggleVisibility => RenderedToggleVisibility;
 
     public int? RevealLine
     {
@@ -542,6 +640,10 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     {
         _isLoading = true;
         _isBinary = result.IsBinary;
+        if (result.IsBinary && !UsesAssetContent)
+        {
+            PreviewKind = WorkbenchFilePreviewKind.Binary;
+        }
         Content = result.Content;
         Revision = result.Revision;
         IsTruncated = result.IsTruncated;
@@ -554,7 +656,9 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
                 : $"{result.ByteLength:N0} bytes • editable";
         OnPropertyChanged(nameof(IsReadOnly));
         OnPropertyChanged(nameof(IsBinary));
+        OnPropertyChanged(nameof(PreviewKind));
         OnPropertyChanged(nameof(CanSave));
+        RaisePreviewVisibility();
     }
 
     internal void ApplyAsset(ReadProjectFileAssetResult result)
@@ -568,6 +672,53 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         OnPropertyChanged(nameof(IsBinary));
         OnPropertyChanged(nameof(IsReadOnly));
         OnPropertyChanged(nameof(CanSave));
+        RaisePreviewVisibility();
+    }
+
+    internal void ApplyExternalText(string content, long byteLength, bool isTruncated)
+    {
+        _isLoading = true;
+        _isBinary = false;
+        Content = content;
+        Revision = string.Empty;
+        IsTruncated = isTruncated;
+        IsDirty = false;
+        IsLoading = false;
+        Status = isTruncated
+            ? $"External read-only file • {byteLength:N0} bytes • preview truncated"
+            : $"External read-only file • {byteLength:N0} bytes";
+        OnPropertyChanged(nameof(IsReadOnly));
+        OnPropertyChanged(nameof(CanSave));
+        RaisePreviewVisibility();
+    }
+
+    internal void ApplyExternalAsset(string localPreviewPath, long byteLength)
+    {
+        _isBinary = true;
+        LocalPreviewPath = localPreviewPath;
+        Revision = string.Empty;
+        IsDirty = false;
+        IsLoading = false;
+        Status = $"External read-only file • {byteLength:N0} bytes";
+        OnPropertyChanged(nameof(IsBinary));
+        OnPropertyChanged(nameof(IsReadOnly));
+        OnPropertyChanged(nameof(CanSave));
+        RaisePreviewVisibility();
+    }
+
+    internal void ApplyExternalImage(byte[] content, long byteLength)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        _isBinary = true;
+        AssetContent = content;
+        Revision = string.Empty;
+        IsDirty = false;
+        IsLoading = false;
+        Status = $"External read-only image • {byteLength:N0} bytes";
+        OnPropertyChanged(nameof(IsBinary));
+        OnPropertyChanged(nameof(IsReadOnly));
+        OnPropertyChanged(nameof(CanSave));
+        RaisePreviewVisibility();
     }
 
     internal void ApplySaved(SaveProjectFileResult result)
@@ -588,9 +739,9 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     {
         RevealLine = line;
         RevealRequestId++;
-        if (line is not null && IsMarkdown)
+        if (line is not null && (IsMarkdown || IsHtml))
         {
-            ShowRenderedMarkdown = false;
+            ShowRenderedContent = false;
         }
     }
 
@@ -598,6 +749,11 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SourceVisibility));
         OnPropertyChanged(nameof(MarkdownVisibility));
+        OnPropertyChanged(nameof(HtmlVisibility));
         OnPropertyChanged(nameof(ImageVisibility));
+        OnPropertyChanged(nameof(PdfVisibility));
+        OnPropertyChanged(nameof(WebPreviewVisibility));
+        OnPropertyChanged(nameof(MediaVisibility));
+        OnPropertyChanged(nameof(UnsupportedBinaryVisibility));
     }
 }

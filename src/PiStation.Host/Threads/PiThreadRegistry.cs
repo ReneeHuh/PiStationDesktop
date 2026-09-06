@@ -11,6 +11,8 @@ namespace PiStation.Host.Threads;
 public sealed class PiThreadRegistry : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<ThreadId, Lazy<Task<PiThreadController>>> _controllers = [];
+    private readonly CancellationTokenSource _reaperShutdown = new();
+    private readonly Task _reaper;
     private readonly HostDatabase _database;
     private readonly HostEnvironmentRecord _environment;
     private readonly HostOptions _options;
@@ -29,6 +31,7 @@ public sealed class PiThreadRegistry : IAsyncDisposable
         _processFactory = processFactory ?? throw new ArgumentNullException(nameof(processFactory));
         _checkpoints = checkpoints ?? throw new ArgumentNullException(nameof(checkpoints));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _reaper = ReapIdleRuntimesAsync();
     }
 
     public Task<PiThreadController> GetAsync(
@@ -57,6 +60,26 @@ public sealed class PiThreadRegistry : IAsyncDisposable
         return false;
     }
 
+    public bool TryGetController(ThreadId threadId, out PiThreadController? controller)
+    {
+        if (_controllers.TryGetValue(threadId, out var lazy) &&
+            lazy.IsValueCreated &&
+            lazy.Value.IsCompletedSuccessfully)
+        {
+            controller = lazy.Value.Result;
+            return true;
+        }
+
+        controller = null;
+        return false;
+    }
+
+    public int ActiveCount => _controllers.Values.Count(static controller =>
+        controller.IsValueCreated && controller.Value.IsCompletedSuccessfully &&
+        controller.Value.Result.Journal.Projection.RuntimeState is
+            ThreadRuntimeState.Starting or ThreadRuntimeState.Hydrating or
+            ThreadRuntimeState.Ready or ThreadRuntimeState.Running or ThreadRuntimeState.Stopping);
+
     public async Task StopAndForgetAsync(
         ThreadId threadId,
         CancellationToken cancellationToken = default)
@@ -72,6 +95,9 @@ public sealed class PiThreadRegistry : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _reaperShutdown.Cancel();
+        await _reaper.ConfigureAwait(false);
+        _reaperShutdown.Dispose();
         foreach (var controller in _controllers.Values)
         {
             if (!controller.IsValueCreated)
@@ -83,6 +109,24 @@ public sealed class PiThreadRegistry : IAsyncDisposable
         }
 
         _controllers.Clear();
+    }
+
+    private async Task ReapIdleRuntimesAsync()
+    {
+        using var timer = new PeriodicTimer(_options.IdleRuntimeSweepInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_reaperShutdown.Token).ConfigureAwait(false))
+            {
+                foreach (var lazy in _controllers.Values)
+                {
+                    if (!lazy.IsValueCreated || !lazy.Value.IsCompletedSuccessfully) continue;
+                    try { await lazy.Value.Result.StopIfIdleAsync(DateTimeOffset.UtcNow, _options.IdleRuntimeTimeout, _reaperShutdown.Token).ConfigureAwait(false); }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_reaperShutdown.IsCancellationRequested) { }
     }
 
     private async Task<PiThreadController> CreateAsync(ThreadId threadId, CancellationToken cancellationToken)

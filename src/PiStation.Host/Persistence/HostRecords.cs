@@ -27,7 +27,10 @@ public sealed record HostThreadRecord(
     SetupScriptState SetupScriptState = SetupScriptState.None,
     string? SetupScriptMessage = null)
 {
-    public ThreadDescriptor ToDescriptor(EnvironmentId environmentId) => new(
+    public ThreadDescriptor ToDescriptor(
+        EnvironmentId environmentId,
+        HostThreadInboxRecord? inbox = null,
+        bool hasUnsentDraft = false) => new(
         environmentId,
         ThreadId,
         ProjectId,
@@ -44,8 +47,22 @@ public sealed record HostThreadRecord(
         WorktreePath,
         WorkspaceGeneration,
         SetupScriptState,
-        SetupScriptMessage);
+        SetupScriptMessage,
+        inbox?.IsSettled ?? false,
+        inbox?.SnoozedUntilUtc,
+        inbox?.PinnedOrder,
+        hasUnsentDraft,
+        inbox?.TitleKind ?? ThreadTitleKind.Placeholder,
+        inbox?.PullRequest);
 }
+
+public sealed record HostThreadInboxRecord(
+    ThreadId ThreadId,
+    bool IsSettled,
+    DateTimeOffset? SnoozedUntilUtc,
+    long? PinnedOrder,
+    ThreadTitleKind TitleKind,
+    PullRequestLink? PullRequest);
 
 public sealed record StoredCommandReceipt(
     CommandReceipt Receipt,

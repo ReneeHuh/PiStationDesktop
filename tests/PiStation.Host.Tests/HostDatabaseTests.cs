@@ -3,7 +3,9 @@ using PiStation.Host.Persistence;
 using PiStation.Host.Projects;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
+using PiStation.Protocol.Projections;
 using PiStation.Protocol.Receipts;
+using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host.Tests;
 
@@ -447,6 +449,55 @@ public sealed class HostDatabaseTests
     }
 
     [Fact]
+    public async Task AgentActivityEventsSurviveRestartAndFollowCheckpointRewind()
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        var options = temporaryDirectory.CreateOptions();
+        var database = new HostDatabase(options);
+        await database.InitializeAsync();
+        var projects = new ProjectService(database);
+        var project = await projects.AddAsync(new AddProjectRequest(
+            temporaryDirectory.CreateDirectory("agent-events-project")));
+        var thread = await projects.CreateThreadAsync(new CreateThreadRequest(project.ProjectId));
+        var started = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        AgentActivityChangedEvent CreateEvent(string id, TurnId turnId) => new(new AgentActivityProjection(
+            id,
+            turnId,
+            null,
+            AgentActivityKind.Agent,
+            AgentActivityState.Completed,
+            "reviewer",
+            "Review the change",
+            "Completed",
+            started,
+            started.AddSeconds(2),
+            started.AddSeconds(2),
+            2,
+            new TokenUsage(100, 20, 0, 0, null, 120),
+            "fake-standard",
+            "high",
+            "Looks good",
+            null,
+            null,
+            0,
+            false));
+        var first = CreateEvent("agent-1", TurnId.Parse("turn-1"));
+        var second = CreateEvent("agent-2", TurnId.Parse("turn-2"));
+
+        await database.AppendThreadAgentEventAsync(thread.ThreadId, first.Activity.TurnId, 1, first);
+        await database.AppendThreadAgentEventAsync(thread.ThreadId, second.Activity.TurnId, 2, second);
+
+        var restarted = new HostDatabase(options);
+        await restarted.InitializeAsync();
+        var restored = await restarted.ListThreadAgentEventsAsync(thread.ThreadId);
+        await restarted.DeleteThreadAgentEventsAfterTurnAsync(thread.ThreadId, 1);
+        var rewound = await restarted.ListThreadAgentEventsAsync(thread.ThreadId);
+
+        Assert.Equal(["agent-1", "agent-2"], restored.Select(static @event => @event.Activity.ActivityId));
+        Assert.Equal("agent-1", Assert.Single(rewound).Activity.ActivityId);
+    }
+
+    [Fact]
     public async Task AddingAfterAnEarlierAttachmentWasRemovedKeepsStableOrdering()
     {
         using var temporaryDirectory = new HostTestDirectory();
@@ -485,5 +536,78 @@ public sealed class HostDatabaseTests
         Assert.Equal(
             [second.AttachmentId, third.AttachmentId],
             afterThird.Draft!.Attachments.Select(static item => item.AttachmentId));
+    }
+
+    [Fact]
+    public async Task InboxMetadataPromptStashesPinnedOrderAndUsageSurviveRestart()
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        var options = temporaryDirectory.CreateOptions();
+        var database = new HostDatabase(options);
+        await database.InitializeAsync();
+        var projects = new ProjectService(database);
+        var project = await projects.AddAsync(new AddProjectRequest(temporaryDirectory.CreateDirectory("p1-project")));
+        var first = await projects.CreateThreadAsync(new CreateThreadRequest(project.ProjectId));
+        var second = await projects.CreateThreadAsync(new CreateThreadRequest(project.ProjectId, "Manual work"));
+        var draft = await database.GetOrCreateThreadDraftAsync(first.ThreadId);
+        _ = await database.UpdateThreadDraftAsync(first.ThreadId, draft.DraftId, draft.Revision, "unsent work");
+        var settled = await database.UpdateThreadInboxAsync(
+            first.ThreadId,
+            first.Revision,
+            isSettled: true,
+            snoozedUntilUtc: DateTimeOffset.UtcNow.AddHours(4),
+            updateSnooze: true,
+            titleKind: ThreadTitleKind.Generated);
+        var pinnedFirst = await database.UpdateThreadMetadataAsync(
+            first.ThreadId, settled.Thread!.Revision, null, null, true);
+        var pinnedSecond = await database.UpdateThreadMetadataAsync(
+            second.ThreadId, second.Revision, null, null, true);
+        var initiallyOrderedFirst = await database.EnrichThreadDescriptorAsync(pinnedFirst.Thread!);
+        var initiallyOrderedSecond = await database.EnrichThreadDescriptorAsync(pinnedSecond.Thread!);
+        Assert.Equal(0, initiallyOrderedFirst.PinnedOrder);
+        Assert.Equal(1, initiallyOrderedSecond.PinnedOrder);
+
+        Assert.Equal(2, await database.ApplyThreadBulkOperationAsync(new ApplyThreadBulkOperationRequest(
+            project.ProjectId,
+            [first.ThreadId, second.ThreadId],
+            ThreadBulkOperation.Unpin)));
+        Assert.Null((await database.EnrichThreadDescriptorAsync((await database.GetThreadAsync(first.ThreadId))!)).PinnedOrder);
+        Assert.Null((await database.EnrichThreadDescriptorAsync((await database.GetThreadAsync(second.ThreadId))!)).PinnedOrder);
+
+        Assert.Equal(2, await database.ApplyThreadBulkOperationAsync(new ApplyThreadBulkOperationRequest(
+            project.ProjectId,
+            [second.ThreadId, first.ThreadId],
+            ThreadBulkOperation.Pin)));
+        await database.SetThreadPinnedOrderAsync(new SetThreadPinnedOrderRequest(
+            project.ProjectId,
+            [second.ThreadId, first.ThreadId]));
+        var stash = await database.SavePromptStashAsync(new SavePromptStashRequest(
+            project.ProjectId,
+            first.ThreadId,
+            "Write a careful migration plan for the protocol"));
+        await database.AppendUsageAsync(first.ThreadId, "fake", "fake-standard", 100, 20, 5, 125, 0.01m);
+
+        var restarted = new HostDatabase(options);
+        await restarted.InitializeAsync();
+        var restoredFirst = await restarted.EnrichThreadDescriptorAsync((await restarted.GetThreadAsync(first.ThreadId))!);
+        var restoredSecond = await restarted.EnrichThreadDescriptorAsync((await restarted.GetThreadAsync(second.ThreadId))!);
+        var stashes = await restarted.ListPromptStashesAsync(project.ProjectId);
+        var usage = await restarted.GetUsageSummaryAsync(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+
+        Assert.True(pinnedFirst.WasUpdated);
+        Assert.True(pinnedSecond.WasUpdated);
+        Assert.True(restoredFirst.IsSettled);
+        Assert.NotNull(restoredFirst.SnoozedUntilUtc);
+        Assert.True(restoredFirst.HasUnsentDraft);
+        Assert.Equal(ThreadTitleKind.Generated, restoredFirst.TitleKind);
+        Assert.Equal(1, restoredFirst.PinnedOrder);
+        Assert.Equal(0, restoredSecond.PinnedOrder);
+        Assert.Equal(stash.StashId, Assert.Single(stashes).StashId);
+        Assert.Equal("Write a careful migration plan for the protocol", stashes[0].Text);
+        Assert.Equal(125, usage.TotalTokens);
+        Assert.Equal(0.01m, usage.EstimatedCost);
+
+        await restarted.DeletePromptStashAsync(stash.StashId);
+        Assert.Empty(await restarted.ListPromptStashesAsync(project.ProjectId));
     }
 }

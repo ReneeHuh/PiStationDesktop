@@ -27,12 +27,78 @@ public interface IEnvironmentClient : IAsyncDisposable
         AddProjectRequest request,
         CancellationToken cancellationToken = default);
 
+    Task RemoveProjectAsync(RemoveProjectRequest request, CancellationToken cancellationToken = default);
+
+    Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
+        UpdateProjectDefaultsRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ProjectDescriptor> SetProjectScriptsTrustAsync(
         SetProjectScriptsTrustRequest request,
         CancellationToken cancellationToken = default);
 
     Task<ProjectSetupScriptResult> RunProjectSetupScriptAsync(
         RunProjectSetupScriptRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectSetupScriptResult> RunProjectScriptAsync(
+        RunProjectScriptRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ComposerDiscoveryResult> GetComposerDiscoveryAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PromptStash>> ListPromptStashesAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<PromptStash> SavePromptStashAsync(
+        SavePromptStashRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task DeletePromptStashAsync(
+        DeletePromptStashRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadDraft> RestorePromptStashAsync(ThreadId threadId, DraftId draftId, long expectedRevision, string stashId, CancellationToken cancellationToken = default);
+
+    Task<SourceControlRepository> DetectSourceControlAsync(
+        DetectSourceControlRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ListPullRequestsResult> ListPullRequestsAsync(
+        ListPullRequestsRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> CloneHostedRepositoryAsync(
+        CloneHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> PublishHostedRepositoryAsync(
+        PublishHostedRepositoryRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> CreatePullRequestAsync(
+        CreatePullRequestRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> MutatePullRequestAsync(
+        MutatePullRequestRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<GeneratedSourceControlText> GenerateSourceControlTextAsync(
+        GenerateSourceControlTextRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default);
+
+    Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default);
+
+    Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
+        ExportDiagnosticsRequest request,
         CancellationToken cancellationToken = default);
 
     Task<SearchProjectFilesResult> SearchProjectFilesAsync(
@@ -144,6 +210,20 @@ public interface IEnvironmentClient : IAsyncDisposable
         CreateThreadRequest request,
         CancellationToken cancellationToken = default);
 
+    Task DeleteThreadAsync(DeleteThreadRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApplyThreadBulkOperationResult> ApplyThreadBulkOperationAsync(
+        ApplyThreadBulkOperationRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ThreadDescriptor>> SetThreadPinnedOrderAsync(
+        SetThreadPinnedOrderRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadDescriptor> LinkThreadPullRequestAsync(
+        LinkThreadPullRequestRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ThreadLifecycleUpdateResult> RenameThreadAsync(
         ThreadId threadId,
         long expectedRevision,
@@ -160,6 +240,35 @@ public interface IEnvironmentClient : IAsyncDisposable
         ThreadId threadId,
         long expectedRevision,
         bool isPinned,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadLifecycleUpdateResult> SetThreadSettledAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        bool isSettled,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadLifecycleUpdateResult> SetThreadSnoozedAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        DateTimeOffset? snoozedUntilUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadLifecycleUpdateResult> SetThreadPinnedOrderAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        long pinnedOrder,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadLifecycleUpdateResult> RegenerateThreadTitleAsync(
+        ThreadId threadId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> CompactThreadContextAsync(
+        ThreadId threadId,
+        string? customInstructions = null,
+        ProjectionEpoch? expectedProjectionEpoch = null,
         CancellationToken cancellationToken = default);
 
     Task<ThreadDraft> GetThreadDraftAsync(
@@ -179,10 +288,15 @@ public interface IEnvironmentClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     Task<ThreadDraftSaveResult> SaveThreadDraftAsync(
+        ThreadId threadId, DraftId draftId, long expectedRevision, string text,
+        CancellationToken cancellationToken = default);
+
+    Task<ThreadDraftSaveResult> SaveThreadDraftAsync(
         ThreadId threadId,
         DraftId draftId,
         long expectedRevision,
         string text,
+        IReadOnlyList<ComposerContext>? context,
         CancellationToken cancellationToken = default);
 
     Task<DraftAttachmentUploadResult> UploadDraftAttachmentAsync(
@@ -218,8 +332,53 @@ public interface IEnvironmentClient : IAsyncDisposable
         IReadOnlyList<AttachmentId>? attachmentIds = null,
         CancellationToken cancellationToken = default);
 
+    Task<CommandReceipt> QueueSteeringAsync(
+        ThreadId threadId,
+        string prompt,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        DraftId? draftId = null,
+        long? draftRevision = null,
+        IReadOnlyList<AttachmentId>? attachmentIds = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> QueueFollowUpAsync(
+        ThreadId threadId,
+        string prompt,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        DraftId? draftId = null,
+        long? draftRevision = null,
+        IReadOnlyList<AttachmentId>? attachmentIds = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> ClearTurnQueueAsync(
+        ThreadId threadId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> RefreshTurnQueueAsync(
+        ThreadId threadId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> SetQueueDeliveryModeAsync(
+        ThreadId threadId,
+        QueuedMessageKind kind,
+        QueueDeliveryMode mode,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        CancellationToken cancellationToken = default);
+
     Task<CommandReceipt> StopTurnAsync(
         ThreadId threadId,
+        ProjectionEpoch? expectedProjectionEpoch = null,
+        TurnId? expectedTurnId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> InterruptAgentAsync(
+        ThreadId threadId,
+        string activityId,
         ProjectionEpoch? expectedProjectionEpoch = null,
         TurnId? expectedTurnId = null,
         CancellationToken cancellationToken = default);

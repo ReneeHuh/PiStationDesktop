@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PiStation.App.ViewModels;
+using PiStation.ClientRuntime;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 using Windows.System;
@@ -14,6 +15,9 @@ public sealed partial class AppSidebar : UserControl
 {
     private bool _isCollapsed;
     private ThreadId? _renamingThreadId;
+    private TextBlock? _renamingTitle;
+    private Grid? _renamingEditor;
+    private int _renameSessionVersion;
 
     public AppSidebar(ShellViewModel viewModel)
     {
@@ -44,7 +48,7 @@ public sealed partial class AppSidebar : UserControl
 
     public void SynchronizeSelection()
     {
-        ProjectSelector.SelectedItem = ViewModel.Workspace.SelectedProject;
+        ProjectSelector.SelectedItem = ViewModel.ProjectGroups.FirstOrDefault(group => group.Project.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId);
         ThreadTabList.SelectedItem = ViewModel.Workspace.SelectedThread;
     }
 
@@ -56,16 +60,32 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        await ViewModel.SelectProjectAsync(ProjectSelector.SelectedItem as ProjectDescriptor);
+        await ViewModel.SelectProjectAsync((ProjectSelector.SelectedItem as ProjectGroupViewModel)?.Project);
+    }
+
+    private async void OnGroupedProjectClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectGroupViewModel group }) await ViewModel.SelectProjectAsync(group.Project);
+    }
+
+    private async void OnGroupedThreadClicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is ThreadDescriptor thread) await ViewModel.SelectGroupedThreadAsync(thread);
+    }
+
+    private async void OnInboxShelfChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && InboxShelfSelector.SelectedIndex >= 0)
+            await ViewModel.SetInboxShelfAsync((ThreadInboxShelf)InboxShelfSelector.SelectedIndex);
     }
 
     private async void OnThreadSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ThreadTabList.SelectedItem is ThreadDescriptor thread)
+        if (ThreadTabList.SelectedItems.Count == 1 && ThreadTabList.SelectedItem is ThreadDescriptor thread)
         {
             await ViewModel.SelectThreadAsync(thread);
         }
-        else if (ViewModel.Workspace.SelectedThread is null)
+        else if (ThreadTabList.SelectedItems.Count == 0 && ViewModel.Workspace.SelectedThread is null)
         {
             await ViewModel.SelectThreadAsync(null);
         }
@@ -176,6 +196,125 @@ public sealed partial class AppSidebar : UserControl
         ThreadTabList.SelectedItem = ViewModel.Workspace.SelectedThread;
     }
 
+    private async void OnToggleThreadSettledClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread)
+        {
+            await ViewModel.SetThreadSettledAsync(thread, !thread.IsSettled);
+            SynchronizeSelection();
+        }
+    }
+
+    private async void OnToggleThreadSnoozeClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread)
+        {
+            var until = thread.SnoozedUntilUtc is null ? DateTimeOffset.Now.AddDays(1) : (DateTimeOffset?)null;
+            await ViewModel.SetThreadSnoozedAsync(thread, until);
+            SynchronizeSelection();
+        }
+    }
+
+    private async void OnRegenerateThreadTitleClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread)
+        {
+            await ViewModel.RegenerateThreadTitleAsync(thread);
+            SynchronizeSelection();
+        }
+    }
+
+    private async void OnMovePinnedThreadUpClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread)
+        {
+            await ViewModel.MovePinnedThreadAsync(thread, -1);
+            SynchronizeSelection();
+        }
+    }
+
+    private async void OnMovePinnedThreadDownClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread)
+        {
+            await ViewModel.MovePinnedThreadAsync(thread, 1);
+            SynchronizeSelection();
+        }
+    }
+
+    private async void OnDeleteThreadClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is not { } thread || !await ConfirmDeleteAsync([thread]))
+        {
+            return;
+        }
+
+        await ViewModel.DeleteThreadAsync(thread);
+        SynchronizeSelection();
+    }
+
+    private async void OnBulkSettleClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Settle);
+
+    private async void OnBulkUnsettleClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Unsettle);
+
+    private async void OnBulkSnoozeClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Snooze, DateTimeOffset.Now.AddDays(1));
+
+    private async void OnBulkUnsnoozeClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Unsnooze);
+
+    private async void OnBulkPinClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Pin);
+
+    private async void OnBulkUnpinClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Unpin);
+
+    private async void OnBulkArchiveClicked(object sender, RoutedEventArgs e) =>
+        await RunBulkOperationAsync(ThreadBulkOperation.Archive);
+
+    private async void OnBulkDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        var threads = SelectedThreads();
+        if (threads.Length != 0 && await ConfirmDeleteAsync(threads))
+        {
+            await ViewModel.ApplyThreadBulkOperationAsync(threads, ThreadBulkOperation.Delete);
+            SynchronizeSelection();
+        }
+    }
+
+    private async Task RunBulkOperationAsync(
+        ThreadBulkOperation operation,
+        DateTimeOffset? snoozedUntilUtc = null)
+    {
+        var threads = SelectedThreads();
+        if (threads.Length == 0)
+        {
+            return;
+        }
+
+        await ViewModel.ApplyThreadBulkOperationAsync(threads, operation, snoozedUntilUtc);
+        SynchronizeSelection();
+    }
+
+    private ThreadDescriptor[] SelectedThreads() =>
+        ThreadTabList.SelectedItems.OfType<ThreadDescriptor>().ToArray();
+
+    private async Task<bool> ConfirmDeleteAsync(ThreadDescriptor[] threads)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = threads.Length == 1 ? $"Delete {threads[0].Title}?" : $"Delete {threads.Length} threads?",
+            Content = "Thread history, drafts, attachments, and Pi Station metadata will be removed. Project files are not deleted.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
     private void OnThreadRowRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         if (sender is not FrameworkElement row || ResolveThread(sender) is not { } thread)
@@ -213,11 +352,48 @@ public sealed partial class AppSidebar : UserControl
         AutomationProperties.SetName(archive, "Change thread archive state");
         archive.Click += OnToggleThreadArchiveClicked;
 
+        var settled = new MenuFlyoutItem
+        {
+            Text = thread.IsSettled ? "Unsettle" : "Settle",
+            Tag = thread.ThreadId.Value,
+            Icon = new FontIcon { Glyph = "\uE73E" },
+        };
+        settled.Click += OnToggleThreadSettledClicked;
+
+        var snooze = new MenuFlyoutItem
+        {
+            Text = thread.SnoozedUntilUtc is null ? "Snooze for one day" : "Unsnooze",
+            Tag = thread.ThreadId.Value,
+            Icon = new FontIcon { Glyph = "\uE823" },
+        };
+        snooze.Click += OnToggleThreadSnoozeClicked;
+
+        var regenerate = new MenuFlyoutItem
+        {
+            Text = "Regenerate title",
+            Tag = thread.ThreadId.Value,
+            Icon = new FontIcon { Glyph = "\uE72C" },
+        };
+        regenerate.Click += OnRegenerateThreadTitleClicked;
+
+        var delete = new MenuFlyoutItem
+        {
+            Text = "Delete",
+            Tag = thread.ThreadId.Value,
+            Icon = new FontIcon { Glyph = "\uE74D" },
+        };
+        delete.Click += OnDeleteThreadClicked;
+
         var flyout = new MenuFlyout();
         flyout.Items.Add(rename);
         flyout.Items.Add(pin);
+        flyout.Items.Add(settled);
+        flyout.Items.Add(snooze);
+        flyout.Items.Add(regenerate);
         flyout.Items.Add(new MenuFlyoutSeparator());
         flyout.Items.Add(archive);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        flyout.Items.Add(delete);
         flyout.ShowAt(row);
         e.Handled = true;
     }
@@ -273,6 +449,9 @@ public sealed partial class AppSidebar : UserControl
         }
 
         _renamingThreadId = thread.ThreadId;
+        _renameSessionVersion++;
+        _renamingTitle = title;
+        _renamingEditor = editor;
         title.Visibility = Visibility.Collapsed;
         editor.Visibility = Visibility.Visible;
         input.Text = thread.Title;
@@ -286,6 +465,8 @@ public sealed partial class AppSidebar : UserControl
         {
             return;
         }
+
+        HideRenameVisuals(_renamingTitle, _renamingEditor);
 
         var thread = ViewModel.FindThread(threadId.Value);
         if (thread is not null)
@@ -302,16 +483,58 @@ public sealed partial class AppSidebar : UserControl
         }
 
         _renamingThreadId = null;
+        _renamingTitle = null;
+        _renamingEditor = null;
+    }
+
+    private static void HideRenameVisuals(TextBlock? title, Grid? editor)
+    {
+        if (title is not null)
+        {
+            title.Visibility = Visibility.Visible;
+        }
+
+        if (editor is not null)
+        {
+            editor.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void HideThreadRenameEditor(ThreadId threadId)
+    {
+        var thread = ViewModel.FindThread(threadId.Value);
+        if (thread is null)
+        {
+            return;
+        }
+
+        HideRenameVisuals(
+            FindThreadRowElement<TextBlock>(thread, "ThreadTitleText"),
+            FindThreadRowElement<Grid>(thread, "ThreadRenameEditor"));
     }
 
     private async Task CommitThreadRenameAsync(ThreadDescriptor thread, TextBox input)
     {
+        var sessionVersion = _renameSessionVersion;
         if (await ViewModel.RenameThreadAsync(thread, input.Text))
         {
-            _renamingThreadId = null;
+            if (_renamingThreadId == thread.ThreadId && _renameSessionVersion == sessionVersion)
+            {
+                CancelThreadRename();
+                // A successful rename can refresh and recycle the ListView container after
+                // the original editor was hidden. Hide the newly materialized template too,
+                // but only while this rename session is still current.
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_renameSessionVersion == sessionVersion)
+                    {
+                        HideThreadRenameEditor(thread.ThreadId);
+                    }
+                });
+            }
             ThreadTabList.SelectedItem = ViewModel.Workspace.SelectedThread;
         }
-        else
+        else if (_renamingThreadId == thread.ThreadId && _renameSessionVersion == sessionVersion)
         {
             input.SelectAll();
             input.Focus(FocusState.Programmatic);

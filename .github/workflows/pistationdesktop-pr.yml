@@ -17,7 +17,7 @@ jobs:
   build-test-ui:
     name: Build, code tests, and packaged UI journeys
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     defaults:
       run:
@@ -32,6 +32,26 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/PiStation.App/TerminalWeb/package-lock.json
+
+      - name: Check terminal source and generated assets
+        working-directory: src/PiStation.App/TerminalWeb
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- dist
+
       - name: Setup WinApp CLI
         uses: microsoft/setup-WinAppCli@v0.1
         with:
@@ -45,6 +65,26 @@ jobs:
 
       - name: Run pull-request gate
         run: pwsh ./Invoke-PullRequestTests.ps1
+
+      - name: Build Release
+        run: |
+          dotnet build PiStationDesktop.slnx -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test PiStationDesktop.slnx -c Release --no-build --filter 'Category!=RealPi' --logger trx --results-directory TestResults/Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh ./tests/PiStation.UiTests/Invoke-DriverContract.ps1 -Configuration Release -NoBuild
+
+      - name: Package Release
+        run: pwsh ./Build-Release.ps1
+
+      - name: Upload unsigned Release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: pistationdesktop-release-unsigned
+          path: |
+            artifacts/release/**/*.msix
+            artifacts/release/**/SHA256SUMS.txt
+          retention-days: 14
 
       - name: Upload test results and UI diagnostics
         if: always()

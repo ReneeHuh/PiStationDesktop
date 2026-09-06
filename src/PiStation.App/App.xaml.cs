@@ -49,7 +49,8 @@ public partial class App : Application
                 dispatcherQueue,
                 enableUiTestFaultControls,
                 Path.Combine(_launchOptions.DataRoot, "layout-settings.json"),
-                Path.Combine(_launchOptions.DataRoot, "preview-captures"));
+                Path.Combine(_launchOptions.DataRoot, "preview-captures"),
+                Path.Combine(_launchOptions.DataRoot, "browser-automation"));
         }
         catch (Exception exception)
         {

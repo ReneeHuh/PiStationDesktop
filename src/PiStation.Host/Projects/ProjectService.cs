@@ -33,16 +33,31 @@ public sealed class ProjectService(HostDatabase database)
             displayName,
             configuration.DefaultWorkspaceMode,
             configuration.Scripts,
+            configuration.Icon,
+            configuration.DefaultModel,
+            configuration.DefaultThinkingLevel,
+            configuration.DefaultRuntimeModeId,
+            configuration.AutoPullDefaultBranch,
             cancellationToken).ConfigureAwait(false);
         await _database.UpdateProjectConfigurationAsync(
             project.ProjectId,
             configuration.DefaultWorkspaceMode,
             configuration.Scripts,
+            configuration.Icon,
+            configuration.DefaultModel,
+            configuration.DefaultThinkingLevel,
+            configuration.DefaultRuntimeModeId,
+            configuration.AutoPullDefaultBranch,
             cancellationToken).ConfigureAwait(false);
         return project with
         {
             DefaultWorkspaceMode = configuration.DefaultWorkspaceMode,
             Scripts = configuration.Scripts,
+            Icon = configuration.Icon,
+            DefaultModel = configuration.DefaultModel,
+            DefaultThinkingLevel = configuration.DefaultThinkingLevel,
+            DefaultRuntimeModeId = configuration.DefaultRuntimeModeId,
+            AutoPullDefaultBranch = configuration.AutoPullDefaultBranch,
         };
     }
 
@@ -55,17 +70,32 @@ public sealed class ProjectService(HostDatabase database)
             var configuration = await ProjectConfigurationLoader.LoadAsync(project.CanonicalPath, cancellationToken)
                 .ConfigureAwait(false);
             if (configuration.DefaultWorkspaceMode != project.DefaultWorkspaceMode ||
-                !configuration.Scripts.SequenceEqual(project.Scripts ?? []))
+                !configuration.Scripts.SequenceEqual(project.Scripts ?? []) ||
+                configuration.Icon != project.Icon ||
+                configuration.DefaultModel != project.DefaultModel ||
+                configuration.DefaultThinkingLevel != project.DefaultThinkingLevel ||
+                configuration.DefaultRuntimeModeId != project.DefaultRuntimeModeId ||
+                configuration.AutoPullDefaultBranch != project.AutoPullDefaultBranch)
             {
                 await _database.UpdateProjectConfigurationAsync(
                     project.ProjectId,
                     configuration.DefaultWorkspaceMode,
                     configuration.Scripts,
+                    configuration.Icon,
+                    configuration.DefaultModel,
+                    configuration.DefaultThinkingLevel,
+                    configuration.DefaultRuntimeModeId,
+                    configuration.AutoPullDefaultBranch,
                     cancellationToken).ConfigureAwait(false);
                 refreshed.Add(project with
                 {
                     DefaultWorkspaceMode = configuration.DefaultWorkspaceMode,
                     Scripts = configuration.Scripts,
+                    Icon = configuration.Icon,
+                    DefaultModel = configuration.DefaultModel,
+                    DefaultThinkingLevel = configuration.DefaultThinkingLevel,
+                    DefaultRuntimeModeId = configuration.DefaultRuntimeModeId,
+                    AutoPullDefaultBranch = configuration.AutoPullDefaultBranch,
                 });
             }
             else
@@ -93,6 +123,41 @@ public sealed class ProjectService(HostDatabase database)
             .ConfigureAwait(false);
     }
 
+    public async Task RemoveAsync(RemoveProjectRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            await _database.DeleteProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException exception)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ProjectNotFound, exception.Message);
+        }
+    }
+
+    public async Task<ProjectDescriptor> UpdateDefaultsAsync(
+        UpdateProjectDefaultsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var project = await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+            ?? throw new HostOperationException(
+                ProtocolErrorCodes.ProjectNotFound,
+                $"Project '{request.ProjectId}' was not found.");
+        await _database.UpdateProjectConfigurationAsync(
+            request.ProjectId,
+            request.DefaultWorkspaceMode,
+            project.Scripts ?? [],
+            project.Icon,
+            request.DefaultModel,
+            request.DefaultThinkingLevel,
+            request.DefaultRuntimeModeId,
+            request.AutoPullDefaultBranch,
+            cancellationToken).ConfigureAwait(false);
+        return (await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false))!;
+    }
+
     public async Task<ThreadDescriptor> CreateThreadAsync(
         CreateThreadRequest request,
         CancellationToken cancellationToken = default)
@@ -113,7 +178,21 @@ public sealed class ProjectService(HostDatabase database)
             branchName: null,
             worktreePath: null,
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        return thread.ToDescriptor(_database.EnvironmentId);
+        if (project.DefaultModel is not null || project.DefaultThinkingLevel is not null ||
+            !string.IsNullOrWhiteSpace(project.DefaultRuntimeModeId))
+        {
+            _ = await _database.GetOrCreateThreadPiConfigurationAsync(thread.ThreadId, cancellationToken)
+                .ConfigureAwait(false);
+            _ = await _database.UpdateThreadPiConfigurationAsync(
+                thread.ThreadId,
+                0,
+                project.DefaultModel,
+                project.DefaultThinkingLevel,
+                project.DefaultRuntimeModeId,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return await _database.EnrichThreadDescriptorAsync(thread, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ThreadDescriptor>> ListThreadsAsync(
@@ -121,7 +200,13 @@ public sealed class ProjectService(HostDatabase database)
         CancellationToken cancellationToken = default)
     {
         var threads = await _database.ListThreadsAsync(projectId, cancellationToken).ConfigureAwait(false);
-        return threads.Select(thread => thread.ToDescriptor(_database.EnvironmentId)).ToArray();
+        var descriptors = new List<ThreadDescriptor>(threads.Count);
+        foreach (var thread in threads)
+        {
+            descriptors.Add(await _database.EnrichThreadDescriptorAsync(thread, cancellationToken).ConfigureAwait(false));
+        }
+
+        return ThreadOrdering.Apply(descriptors).ToArray();
     }
 
     public async Task<SearchThreadsResult> SearchThreadsAsync(
@@ -150,10 +235,12 @@ public sealed class ProjectService(HostDatabase database)
             request.IncludeArchived,
             request.Limit + 1,
             cancellationToken).ConfigureAwait(false);
-        return new SearchThreadsResult(
-            threads.Take(request.Limit)
-                .Select(thread => thread.ToDescriptor(_database.EnvironmentId))
-                .ToArray(),
-            threads.Count > request.Limit);
+        var descriptors = new List<ThreadDescriptor>();
+        foreach (var thread in threads.Take(request.Limit))
+        {
+            descriptors.Add(await _database.EnrichThreadDescriptorAsync(thread, cancellationToken).ConfigureAwait(false));
+        }
+
+        return new SearchThreadsResult(descriptors, threads.Count > request.Limit);
     }
 }
