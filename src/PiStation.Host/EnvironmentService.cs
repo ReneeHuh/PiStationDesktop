@@ -93,6 +93,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
     public static async Task<EnvironmentService> CreateAsync(
         HostOptions options,
         IPiProcessFactory? processFactory = null,
+        Func<ThreadWorkspaceResolver, ProjectService, SourceControlHostingService>? sourceControlFactory = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -118,7 +119,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
             options);
         var terminals = new TerminalSessionRegistry(database, options, workspaceResolver);
         var setupScripts = new ProjectSetupScriptRunner(database, terminals);
-        var sourceControl = new SourceControlHostingService(workspaceResolver, projects);
+        var sourceControl = sourceControlFactory?.Invoke(workspaceResolver, projects) ?? new SourceControlHostingService(workspaceResolver, projects);
         var diagnostics = new HostDiagnosticsService(options, database, threads, terminals);
         var service = new EnvironmentService(
             options,

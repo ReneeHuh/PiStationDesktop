@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void PiPlanWorkflowProtocolVersionIsTwentySix()
+    public void PullRequestReviewProtocolVersionIsTwentyEight()
     {
-        Assert.Equal(26, ProtocolVersion.Current);
+        Assert.Equal(28, ProtocolVersion.Current);
     }
 }

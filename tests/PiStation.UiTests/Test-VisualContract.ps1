@@ -164,6 +164,19 @@ foreach ($checkpointAutomationId in @(
         "Conversation timeline is missing checkpoint control '$checkpointAutomationId'."
 }
 
+$reviewSource = Get-Content -LiteralPath (Join-Path $viewRoot 'ShellPage.Review.cs') -Raw
+Assert-Contract ($reviewSource -match 'side\.SetBinding\(ComboBox\.SelectedItemProperty,[^;]*nameof\(review\.SelectedSide\)[^;]*BindingMode\.TwoWay') `
+    'PR diff side must bind bidirectionally to the retained review model.'
+Assert-Contract ($reviewSource -notmatch 'var side = new ComboBox[^;]*SelectedIndex') `
+    'PR diff side must not reset to a fixed selection when the dialog reopens.'
+foreach ($reviewSection in @('discussion', 'commits', 'checks')) {
+    $reviewPanelPattern = 'var ' + $reviewSection + 'Panel = new ScrollViewer\s*\{[^;]*Content = ' + $reviewSection + '[^;]*MaxHeight = \d+[^;]*VerticalScrollBarVisibility = ScrollBarVisibility.Auto'
+    Assert-Contract ($reviewSource -match $reviewPanelPattern) `
+        "PR $reviewSection must have a bounded scrollable panel."
+    Assert-Contract ($reviewSource -notmatch ($reviewSection + '\.MaxHeight\s*=')) `
+        "PR $reviewSection text must not be clipped inside its scrollable panel."
+}
+
 Write-Output (
     "Visual contract passed: $($contract.States.Count) states, " +
     "$($contract.ResponsiveLayouts.Count) responsive layouts, $($contract.TextScaleProfiles.Count) text scales, " +

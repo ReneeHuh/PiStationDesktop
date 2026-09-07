@@ -7,7 +7,10 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using PiStation.Host.Hubs;
 using PiStation.Host.Security;
+using PiStation.Host.Projects;
+using PiStation.Host.SourceControl;
 using PiStation.Host.Threads;
+using PiStation.Host.Workspaces;
 using PiStation.Protocol.Serialization;
 
 namespace PiStation.Host.Hosting;
@@ -41,9 +44,10 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
     public static async Task<EmbeddedEnvironmentHost> StartAsync(
         HostOptions options,
         IPiProcessFactory? processFactory = null,
+        Func<ThreadWorkspaceResolver, ProjectService, SourceControlHostingService>? sourceControlFactory = null,
         CancellationToken cancellationToken = default)
     {
-        var environment = await EnvironmentService.CreateAsync(options, processFactory, cancellationToken)
+        var environment = await EnvironmentService.CreateAsync(options, processFactory, sourceControlFactory, cancellationToken)
             .ConfigureAwait(false);
         var credential = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var builder = WebApplication.CreateSlimBuilder();
@@ -53,12 +57,13 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
             kestrel.Listen(IPAddress.Loopback, 0);
         });
         builder.Services.AddSingleton(environment);
-        builder.Services.AddSignalR().AddJsonProtocol(json =>
+        // Bounded multi-task workflows can exceed SignalR's 32 KiB default.
+        builder.Services.AddSignalR(hub => hub.MaximumReceiveMessageSize = 1024 * 1024).AddJsonProtocol(json =>
             json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
         var application = builder.Build();
         application.Use((context, next) => LoopbackAuthentication.InvokeAsync(context, credential, next));
         application.MapPost(DraftAttachmentEndpoint.Route, DraftAttachmentEndpoint.HandleAsync);
-        application.MapHub<EnvironmentHub>(HubPath);
+        application.MapHub<EnvironmentHub>(HubPath, hub => hub.ApplicationMaxBufferSize = 1024 * 1024);
         try
         {
             await application.StartAsync(cancellationToken).ConfigureAwait(false);

@@ -3367,6 +3367,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _renderShutdown.Cancel();
+        if (_pullRequestReview is not null)
+        {
+            try { await _pullRequestReview.SaveNowAsync(); }
+            finally { _pullRequestReview.Dispose(); }
+        }
         _inboxTimer?.Stop();
         if (_inboxTimer is not null) _inboxTimer.Tick -= OnInboxTimer;
         CloseFileMentionSuggestions();

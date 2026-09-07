@@ -67,6 +67,14 @@ public interface IEnvironmentClient : IAsyncDisposable
         DetectSourceControlRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<PullRequestReviewSnapshot> GetPullRequestReviewAsync(GetPullRequestReviewRequest request, CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> SubmitPullRequestReviewAsync(SubmitPullRequestReviewRequest request, CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> ReplyPullRequestThreadAsync(ReplyPullRequestThreadRequest request, CancellationToken cancellationToken = default);
+
+    Task<SourceControlOperationResult> SetPullRequestThreadResolvedAsync(SetPullRequestThreadResolvedRequest request, CancellationToken cancellationToken = default);
+
     Task<ListPullRequestsResult> ListPullRequestsAsync(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default);

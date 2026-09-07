@@ -149,6 +149,18 @@ public sealed class EnvironmentClient : IEnvironmentClient
         CancellationToken cancellationToken = default) =>
         InvokeAsync<SourceControlRepository>("DetectSourceControl", request, cancellationToken);
 
+    public Task<PullRequestReviewSnapshot> GetPullRequestReviewAsync(GetPullRequestReviewRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PullRequestReviewSnapshot>("GetPullRequestReview", request, cancellationToken);
+
+    public Task<SourceControlOperationResult> SubmitPullRequestReviewAsync(SubmitPullRequestReviewRequest request, CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("SubmitPullRequestReview", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public Task<SourceControlOperationResult> ReplyPullRequestThreadAsync(ReplyPullRequestThreadRequest request, CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("ReplyPullRequestThread", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
+    public Task<SourceControlOperationResult> SetPullRequestThreadResolvedAsync(SetPullRequestThreadResolvedRequest request, CancellationToken cancellationToken = default) =>
+        InvokeHostingAsync("SetPullRequestThreadResolved", request.OperationId, id => request with { OperationId = id }, cancellationToken);
+
     public Task<ListPullRequestsResult> ListPullRequestsAsync(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default) =>

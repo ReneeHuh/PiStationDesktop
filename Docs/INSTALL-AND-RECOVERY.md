@@ -79,6 +79,8 @@ Production publisher identity, signing, and the HTTPS update feed are [TODO late
 
 ## Hosting support
 
+The GitHub [PR review workspace](PI-PR-REVIEW-2026-09-06.md) adds hosted patches, inline drafts/submission, replies and resolve/reopen. Back up `pr-review-drafts` with application data. Pending writes stay locked until operation history confirms an outcome. Detailed GitLab/Azure review is not included.
+
 GitHub supports repository publishing and PR actions. GitLab supports MR listing, creation, comments, labels, reviewers, approval, merge, close, and reopen. Azure DevOps supports PR listing/creation, reviewers, votes, merge, close, and reopen. Unsupported operations are disabled or rejected before dispatch. GitLab/Azure publishing and a verified Bitbucket integration remain future work; no generic `bb` executable is assumed.
 
 Authenticate with each provider's own CLI. Pi Station checks authentication when detecting a repository; the presence of a CLI alone is labeled as installation status. GitLab filters follow its [documented list flags](https://docs.gitlab.com/cli/mr/list/), GitHub authentication follows [`gh auth status`](https://cli.github.com/manual/gh_auth_status), and Azure actions follow the [Azure Repos CLI reference](https://learn.microsoft.com/en-us/cli/azure/repos/pr?view=azure-cli-latest).

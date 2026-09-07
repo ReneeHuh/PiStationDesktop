@@ -2,6 +2,8 @@ namespace PiStation.Protocol.Models;
 
 public static class HostingCapabilities
 {
+    public static bool CanReadReview(SourceControlProvider provider) => provider == SourceControlProvider.GitHub;
+    public static bool CanWriteReview(SourceControlProvider provider) => CanReadReview(provider);
     public static bool CanList(SourceControlProvider provider) => provider is SourceControlProvider.GitHub or SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps;
     public static bool CanCreate(SourceControlProvider provider) => CanList(provider);
     public static bool CanPublish(SourceControlProvider provider) => provider == SourceControlProvider.GitHub;

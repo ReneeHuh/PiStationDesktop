@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\PiStation.App\ViewModels\PullRequestReviewViewModel.cs" Link="Presentation\PullRequestReviewViewModel.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

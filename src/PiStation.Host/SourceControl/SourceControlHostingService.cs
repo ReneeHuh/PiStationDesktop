@@ -10,9 +10,10 @@ using PiStation.Protocol.Models;
 
 namespace PiStation.Host.SourceControl;
 
-public sealed class SourceControlHostingService(
+public sealed partial class SourceControlHostingService(
     ThreadWorkspaceResolver resolver,
-    ProjectService projects)
+    ProjectService projects,
+    Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? reviewCommandExecutor = null)
 {
     private const int MaximumStandardErrorCharacters = 64 * 1024;
     private const int MaximumStandardOutputCharacters = 2 * 1024 * 1024;
@@ -20,6 +21,7 @@ public sealed class SourceControlHostingService(
     private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
     private readonly ThreadWorkspaceResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
     private readonly ProjectService _projects = projects ?? throw new ArgumentNullException(nameof(projects));
+    private readonly Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? _reviewCommandExecutor = reviewCommandExecutor;
 
     public async Task<SourceControlRepository> DetectAsync(
         DetectSourceControlRequest request,
@@ -573,7 +575,8 @@ public sealed class SourceControlHostingService(
         string workingDirectory,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool throwWhenMissing = true)
+        bool throwWhenMissing = true,
+        string? standardInput = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -583,9 +586,12 @@ public sealed class SourceControlHostingService(
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = standardInput is not null,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        if (standardInput is not null)
+            startInfo.StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
         startInfo.Environment["GH_PAGER"] = "cat";
         startInfo.Environment["GLAB_PAGER"] = "cat";
@@ -612,23 +618,29 @@ public sealed class SourceControlHostingService(
             return new ProcessResult(-1, string.Empty, exception.Message);
         }
 
-        var stdout = ReadBoundedAsync(process.StandardOutput, MaximumStandardOutputCharacters, cancellationToken);
-        var stderr = ReadBoundedAsync(process.StandardError, MaximumStandardErrorCharacters, cancellationToken);
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(timeout);
         try
         {
+            var stdout = ReadBoundedAsync(process.StandardOutput, MaximumStandardOutputCharacters, timeoutSource.Token);
+            var stderr = ReadBoundedAsync(process.StandardError, MaximumStandardErrorCharacters, timeoutSource.Token);
+            if (standardInput is not null)
+            {
+                await process.StandardInput.WriteAsync(standardInput.AsMemory(), timeoutSource.Token).ConfigureAwait(false);
+                process.StandardInput.Close();
+            }
             await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            return new ProcessResult(
+                process.ExitCode,
+                await stdout.ConfigureAwait(false),
+                await stderr.ConfigureAwait(false));
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            if (cancellationToken.IsCancellationRequested) throw;
             throw new HostOperationException(ProtocolErrorCodes.SourceControlUnavailable, $"'{fileName}' timed out.");
         }
-        return new ProcessResult(
-            process.ExitCode,
-            await stdout.ConfigureAwait(false),
-            await stderr.ConfigureAwait(false));
     }
 
     private static async Task<string> ReadBoundedAsync(
