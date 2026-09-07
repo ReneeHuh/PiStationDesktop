@@ -591,6 +591,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         try
         {
             var settlement = await RequireClient().GetSettlementSettingsAsync(cancellationToken).ConfigureAwait(false);
+            var automation = await RequireClient().GetPiAutomationSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.ApplyAutomationSettings(automation));
             RunOnUiThread(() => Settings.ApplySettlement(settlement));
             var snapshot = await RequireClient().GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.ApplyDiagnostics(snapshot));

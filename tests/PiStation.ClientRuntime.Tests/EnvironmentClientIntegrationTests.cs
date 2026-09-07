@@ -1029,6 +1029,123 @@ public sealed class EnvironmentClientIntegrationTests
         Assert.Equal(new SettlementSettings(7, false, true), await restarted.Environment.GetSettlementSettingsAsync());
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PiAutomationPreferencesApplyAcrossThreadsAndHostRestart(bool compaction, bool retry)
+    {
+        using var directory = new ClientTestDirectory();
+        var options = directory.CreateHostOptions();
+        PiStation.Protocol.Identifiers.ThreadId firstId;
+        PiAutomationSettings saved;
+        await using (var host = await EmbeddedEnvironmentHost.StartAsync(options))
+        await using (var client = CreateClient(host))
+        {
+            await client.ConnectAsync();
+            Assert.Equal(new PiAutomationSettings(), await client.GetPiAutomationSettingsAsync());
+            var project = await client.AddProjectAsync(new(directory.CreateDirectory("automation")));
+            var first = await client.CreateThreadAsync(new(project.ProjectId));
+            firstId = first.ThreadId;
+            var second = await client.CreateThreadAsync(new(project.ProjectId));
+            await client.ApplyPiAutomationAsync(first.ThreadId);
+            Assert.False(File.Exists(Path.Combine(options.SessionRoot, "automation-" + first.PiSessionId + ".json")));
+            saved = await client.SavePiAutomationSettingsAsync(new(compaction, retry));
+            var pending = await client.GetPiAutomationStatusAsync(first.ThreadId);
+            Assert.NotEqual(saved.Revision, pending.AppliedRevision);
+            foreach (var thread in new[] { first, second })
+            {
+                var applied = await client.ApplyPiAutomationAsync(thread.ThreadId);
+                Assert.Equal(saved.Revision, applied.AppliedRevision);
+                Assert.Equal(compaction, applied.VerifiedAutoCompaction);
+                Assert.Equal(retry, applied.AcknowledgedAutoRetry);
+                var trace = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(options.SessionRoot, "automation-" + thread.PiSessionId + ".json")))!;
+                Assert.Equal(retry, trace["retry"]!.GetValue<bool>());
+            }
+            await Assert.ThrowsAnyAsync<Exception>(() => client.SavePiAutomationSettingsAsync(new(false, false, 0)));
+            Assert.Equal(saved, await client.GetPiAutomationSettingsAsync());
+        }
+        await using var restarted = await EmbeddedEnvironmentHost.StartAsync(options);
+        Assert.Equal(saved, await restarted.Environment.GetPiAutomationSettingsAsync());
+        var restored = await restarted.Environment.ApplyPiAutomationAsync(firstId);
+        Assert.Equal(compaction, restored.VerifiedAutoCompaction);
+        Assert.Equal(retry, restored.AcknowledgedAutoRetry);
+    }
+
+    [Fact]
+    public async Task PiAutomationFailureDoesNotReportAppliedAndReleasingControlDoesNotResetPi()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions("automation-rejected"));
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("automation-failure")));
+        var thread = await client.CreateThreadAsync(new(project.ProjectId));
+        await client.ApplyPiAutomationAsync(thread.ThreadId);
+        var saved = await client.SavePiAutomationSettingsAsync(new(false, false));
+        await Assert.ThrowsAnyAsync<Exception>(() => client.ApplyPiAutomationAsync(thread.ThreadId));
+        var status = await client.GetPiAutomationStatusAsync(thread.ThreadId);
+        Assert.Null(status.AppliedRevision);
+        Assert.Contains("not fully verified", status.Message, StringComparison.Ordinal);
+        Assert.Equal(saved, status.Saved);
+        await using var subscription = client.SubscribeThread(thread.ThreadId);
+        var ready = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready);
+        var draft = await client.GetThreadDraftAsync(thread.ThreadId);
+        var edited = (await client.SaveThreadDraftAsync(thread.ThreadId, draft.DraftId, draft.Revision, "Keep this draft", [])).Draft!;
+        await Assert.ThrowsAnyAsync<Exception>(() => client.StartTurnAsync(thread.ThreadId, edited.Text, ready.ProjectionEpoch,
+            draftId: edited.DraftId, draftRevision: edited.Revision));
+        Assert.Equal(edited.Text, (await client.GetThreadDraftAsync(thread.ThreadId)).Text);
+        Assert.Empty(subscription.Store.Current!.Messages);
+        await client.SavePiAutomationSettingsAsync(new(null, null, saved.Revision));
+        var released = await client.ApplyPiAutomationAsync(thread.ThreadId);
+        Assert.False(released.VerifiedAutoCompaction); // Partial earlier RPC success is not silently undone.
+        Assert.Null(released.AcknowledgedAutoRetry);
+    }
+
+    [Fact]
+    public async Task PiAutomationSaveDuringTurnWaitsUntilIdleRestart()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions("stop"));
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("automation-busy")));
+        var thread = await client.CreateThreadAsync(new(project.ProjectId));
+        await using var subscription = client.SubscribeThread(thread.ThreadId);
+        var ready = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready);
+        await client.StartTurnAsync(thread.ThreadId, "wait for stop", ready.ProjectionEpoch);
+        var running = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Running);
+        var saved = await client.SavePiAutomationSettingsAsync(new(false, false));
+        var pending = await client.GetPiAutomationStatusAsync(thread.ThreadId);
+        Assert.NotEqual(saved.Revision, pending.AppliedRevision);
+        Assert.True(pending.VerifiedAutoCompaction);
+        await Assert.ThrowsAnyAsync<Exception>(() => client.ApplyPiAutomationAsync(thread.ThreadId));
+        await client.StopTurnAsync(thread.ThreadId, running.ProjectionEpoch);
+        var stopped = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready);
+        await client.RestartThreadAsync(thread.ThreadId, stopped.ProjectionEpoch);
+        await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready && p.ProjectionEpoch != stopped.ProjectionEpoch);
+        var applied = await client.GetPiAutomationStatusAsync(thread.ThreadId);
+        Assert.Equal(saved.Revision, applied.AppliedRevision);
+        Assert.False(applied.VerifiedAutoCompaction);
+        Assert.False(applied.AcknowledgedAutoRetry);
+    }
+
+    [Fact]
+    public async Task PiAutomationMissingStateIsUnknownAndCannotVerifyOverride()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions("automation-unreported"));
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("automation-unreported")));
+        var thread = await client.CreateThreadAsync(new(project.ProjectId));
+        Assert.Null((await client.ApplyPiAutomationAsync(thread.ThreadId)).VerifiedAutoCompaction);
+        await client.SavePiAutomationSettingsAsync(new(true, null));
+        await Assert.ThrowsAnyAsync<Exception>(() => client.ApplyPiAutomationAsync(thread.ThreadId));
+        Assert.Null((await client.GetPiAutomationStatusAsync(thread.ThreadId)).AppliedRevision);
+    }
+
     private static void RunGit(string workingDirectory, params string[] arguments)
     {
         var startInfo = new ProcessStartInfo

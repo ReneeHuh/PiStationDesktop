@@ -675,6 +675,10 @@ public sealed partial class ShellPage : Page
     private async void OnSettingsRequested(object? sender, EventArgs e) => await OpenSettingsAsync();
 
     private async void OnSaveSettlementSettingsClicked(object sender, RoutedEventArgs e) => await ViewModel.SaveSettlementSettingsAsync();
+    private async void OnReloadPiAutomationClicked(object sender, RoutedEventArgs e) => await ViewModel.ReloadPiAutomationAsync();
+    private async void OnSavePiAutomationClicked(object sender, RoutedEventArgs e) => await ViewModel.SavePiAutomationAsync();
+    private async void OnApplyPiAutomationClicked(object sender, RoutedEventArgs e) => await ViewModel.ApplyPiAutomationAsync();
+    private async void OnRefreshPiAutomationClicked(object sender, RoutedEventArgs e) => await ViewModel.RefreshPiAutomationStatusAsync();
 
     private async Task OpenSettingsAsync()
     {

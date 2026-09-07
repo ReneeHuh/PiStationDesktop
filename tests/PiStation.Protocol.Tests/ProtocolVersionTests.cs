@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void AgentWorkflowProtocolVersionIsThirtyThree()
+    public void PiAutomationProtocolVersionIsThirtyFour()
     {
-        Assert.Equal(33, ProtocolVersion.Current);
+        Assert.Equal(34, ProtocolVersion.Current);
     }
 }

@@ -266,7 +266,9 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
             GetOptionalString(data, "steeringMode") ?? "one-at-a-time",
             GetOptionalString(data, "followUpMode") ?? "one-at-a-time",
             GetOptionalString(data, "sessionName"),
-            GetOptionalBoolean(data, "autoCompactionEnabled", defaultValue: true));
+            GetOptionalBoolean(data, "autoCompactionEnabled", defaultValue: true),
+            data.TryGetProperty("autoCompactionEnabled", out var compaction) && compaction.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? compaction.GetBoolean() : null);
     }
 
     public async Task<IReadOnlyList<PiCommandInfo>> GetCommandsAsync(

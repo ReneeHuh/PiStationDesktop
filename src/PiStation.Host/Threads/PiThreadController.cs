@@ -136,6 +136,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Starting));
             var process = await _processFactory.StartAsync(_project, _thread, cancellationToken).ConfigureAwait(false);
             _process = process;
+            _automationStatus = null;
             var generation = Interlocked.Increment(ref _generation);
             try
             {
@@ -147,6 +148,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 }
 
                 ValidateSessionFile(state.SessionFile);
+                await ApplyPiAutomationAsync(cancellationToken).ConfigureAwait(false);
                 var configuration = await _database.GetOrCreateThreadPiConfigurationAsync(
                     _thread.ThreadId,
                     cancellationToken).ConfigureAwait(false);
@@ -555,6 +557,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             }
 
             // Resolve resources before creating a turn or consuming its draft.
+            await ApplyPiAutomationAsync(cancellationToken).ConfigureAwait(false);
             if (agentWorkflow is not null) await ValidateAgentWorkflowAsync(agentWorkflow, cancellationToken).ConfigureAwait(false);
             var preparedPrompt = await _process.Connection.PreparePromptAsync(prompt, cancellationToken).ConfigureAwait(false);
             if (approvedPlanRevision is { } planRevision)
@@ -1140,6 +1143,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
 
     private async Task DisposePreviousProcessAsync()
     {
+        _automationStatus = null;
         var previous = Interlocked.Exchange(ref _process, null);
         if (previous is null)
         {

@@ -17,6 +17,10 @@ namespace PiStation.ClientRuntime;
 
 public sealed class EnvironmentClient : IEnvironmentClient
 {
+    public Task<PiAutomationSettings> GetPiAutomationSettingsAsync(CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationSettings>("GetPiAutomationSettings", cancellationToken);
+    public Task<PiAutomationSettings> SavePiAutomationSettingsAsync(PiAutomationSettings settings, CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationSettings>("SavePiAutomationSettings", settings, cancellationToken);
+    public Task<PiAutomationStatus> GetPiAutomationStatusAsync(ThreadId threadId, CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationStatus>("GetPiAutomationStatus", threadId, cancellationToken);
+    public Task<PiAutomationStatus> ApplyPiAutomationAsync(ThreadId threadId, CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationStatus>("ApplyPiAutomation", threadId, cancellationToken);
     public Task<SettlementSettings> GetSettlementSettingsAsync(CancellationToken cancellationToken = default) =>
         InvokeAsync<SettlementSettings>("GetSettlementSettings", cancellationToken);
     public Task SaveSettlementSettingsAsync(SettlementSettings settings, CancellationToken cancellationToken = default) =>

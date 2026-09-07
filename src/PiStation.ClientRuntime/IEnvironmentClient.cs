@@ -7,6 +7,10 @@ namespace PiStation.ClientRuntime;
 
 public interface IEnvironmentClient : IAsyncDisposable
 {
+    Task<PiAutomationSettings> GetPiAutomationSettingsAsync(CancellationToken cancellationToken = default);
+    Task<PiAutomationSettings> SavePiAutomationSettingsAsync(PiAutomationSettings settings, CancellationToken cancellationToken = default);
+    Task<PiAutomationStatus> GetPiAutomationStatusAsync(ThreadId threadId, CancellationToken cancellationToken = default);
+    Task<PiAutomationStatus> ApplyPiAutomationAsync(ThreadId threadId, CancellationToken cancellationToken = default);
     Task<SettlementSettings> GetSettlementSettingsAsync(CancellationToken cancellationToken = default);
     Task SaveSettlementSettingsAsync(SettlementSettings settings, CancellationToken cancellationToken = default);
     Task<BackgroundTaskResult> SubmitBackgroundTaskAsync(SubmitBackgroundTaskRequest request, CancellationToken cancellationToken = default);

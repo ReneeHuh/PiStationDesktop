@@ -611,6 +611,19 @@
                         Visibility="Collapsed">
                         <StackPanel Spacing="8">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Pi and runtime" />
+                            <TextBlock Text="Shared Pi automation preferences" FontWeight="SemiBold" />
+                            <TextBlock Text="Overrides apply to all PiStation threads before their next turn. Pi writes these values to its shared settings file, which other Pi clients may also use. Clearing an override leaves Pi's current value unchanged; it does not restore an earlier value. Child-agent presets retain their own retry/compaction policy." TextWrapping="Wrap" />
+                            <CheckBox Content="Manage auto-compaction" IsChecked="{x:Bind ViewModel.Settings.ManageAutoCompaction, Mode=TwoWay}" automation:AutomationProperties.AutomationId="ManageAutoCompactionToggle" />
+                            <CheckBox Content="Enable automatic compaction" IsChecked="{x:Bind ViewModel.Settings.AutoCompaction, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.Settings.ManageAutoCompaction, Mode=OneWay}" />
+                            <CheckBox Content="Manage auto-retry" IsChecked="{x:Bind ViewModel.Settings.ManageAutoRetry, Mode=TwoWay}" automation:AutomationProperties.AutomationId="ManageAutoRetryToggle" />
+                            <CheckBox Content="Enable automatic retry" IsChecked="{x:Bind ViewModel.Settings.AutoRetry, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.Settings.ManageAutoRetry, Mode=OneWay}" />
+                            <WrapGrid Orientation="Horizontal" MaximumRowsOrColumns="2">
+                                <Button Content="Reload preferences" Click="OnReloadPiAutomationClicked" />
+                                <Button Content="Save preferences" Click="OnSavePiAutomationClicked" automation:AutomationProperties.AutomationId="SavePiAutomationButton" />
+                                <Button Content="Apply saved preferences to idle runtime" Click="OnApplyPiAutomationClicked" />
+                                <Button Content="Refresh runtime status" Click="OnRefreshPiAutomationClicked" />
+                            </WrapGrid>
+                            <TextBlock Text="{x:Bind ViewModel.Settings.AutomationStatus, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="Pi executable or package path" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
                             <CheckBox Content="Discover installed Pi extensions" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />

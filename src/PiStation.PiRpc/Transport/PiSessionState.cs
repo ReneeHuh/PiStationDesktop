@@ -14,7 +14,8 @@ public sealed record PiSessionState(
     string SteeringMode,
     string FollowUpMode,
     string? SessionName = null,
-    bool AutoCompactionEnabled = true);
+    bool AutoCompactionEnabled = true,
+    bool? ReportedAutoCompactionEnabled = null);
 
 public sealed record PiModelInfo(
     string ProviderId,

@@ -165,6 +165,10 @@ foreach ($checkpointAutomationId in @(
 }
 
 $settlementSettingsXaml = Get-Content -LiteralPath (Join-Path $viewRoot 'ShellPage.xaml') -Raw
+foreach ($automationControl in @('ManageAutoCompactionToggle', 'ManageAutoRetryToggle', 'SavePiAutomationButton')) {
+    Assert-Contract ($settlementSettingsXaml.Contains("AutomationId=`"$automationControl`"")) `
+        "Settings is missing Pi automation control '$automationControl'."
+}
 foreach ($settlementControl in @('SettingsGeneralNavItem', 'AutoSettleDaysInput', 'SaveSettlementSettingsButton')) {
     Assert-Contract ($settlementSettingsXaml.Contains("AutomationId=`"$settlementControl`"")) `
         "Settings is missing settlement control '$settlementControl'."

@@ -13,6 +13,10 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     private readonly EnvironmentService _environment = environment ?? throw new ArgumentNullException(nameof(environment));
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
+    public Task<PiAutomationSettings> GetPiAutomationSettings() => _environment.GetPiAutomationSettingsAsync(Context.ConnectionAborted);
+    public Task<PiAutomationSettings> SavePiAutomationSettings(PiAutomationSettings settings) => _environment.SavePiAutomationSettingsAsync(settings, Context.ConnectionAborted);
+    public Task<PiAutomationStatus> GetPiAutomationStatus(ThreadId threadId) => _environment.GetPiAutomationStatusAsync(threadId, Context.ConnectionAborted);
+    public Task<PiAutomationStatus> ApplyPiAutomation(ThreadId threadId) => _environment.ApplyPiAutomationAsync(threadId, Context.ConnectionAborted);
     public Task<SettlementSettings> GetSettlementSettings() => _environment.GetSettlementSettingsAsync(Context.ConnectionAborted);
     public Task SaveSettlementSettings(SettlementSettings settings) => _environment.SaveSettlementSettingsAsync(settings, Context.ConnectionAborted);
 

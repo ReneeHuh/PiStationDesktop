@@ -27,6 +27,8 @@ internal sealed partial class FakePiServer : IDisposable
     private string _steeringMode = "all";
     private string _followUpMode = "all";
     private string _thinkingLevel = "off";
+    private bool _autoCompactionEnabled = true;
+    private bool _autoRetryEnabled = true;
     private string? _sessionName;
 
     public FakePiServer(Stream input, Stream output, TextWriter error, FakePiArguments arguments)
@@ -319,6 +321,20 @@ internal sealed partial class FakePiServer : IDisposable
                     ["levels"] = new JsonArray(
                         AvailableThinkingLevels().Select(static level => JsonValue.Create(level)).ToArray()),
                 }), cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case "set_auto_compaction":
+            case "set_auto_retry":
+                if (_arguments.Scenario == "automation-rejected" && type == "set_auto_retry")
+                {
+                    await _writer.WriteAsync(Error(id, type, "Injected automation rejection"), cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+                var enabled = command["enabled"]!.GetValue<bool>();
+                if (type == "set_auto_compaction") _autoCompactionEnabled = enabled;
+                else _autoRetryEnabled = enabled;
+                await File.WriteAllTextAsync(Path.Combine(_arguments.SessionDirectory, "automation-" + _arguments.SessionId + ".json"),
+                    new JsonObject { ["compaction"] = _autoCompactionEnabled, ["retry"] = _autoRetryEnabled }.ToJsonString(), cancellationToken).ConfigureAwait(false);
+                await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "set_thinking_level":
                 var level = command["level"]?.GetValue<string>();
@@ -1009,7 +1025,7 @@ internal sealed partial class FakePiServer : IDisposable
             ["sessionFile"] = _session.SessionFile,
             ["sessionId"] = _arguments.SessionId,
             ["sessionName"] = _sessionName,
-            ["autoCompactionEnabled"] = true,
+            ["autoCompactionEnabled"] = _arguments.Scenario == "automation-unreported" ? null : JsonValue.Create(_autoCompactionEnabled),
             ["messageCount"] = entries.Count,
             ["pendingMessageCount"] = _queuedSteering.Count + _queuedFollowUp.Count,
         }), cancellationToken: cancellationToken).ConfigureAwait(false);

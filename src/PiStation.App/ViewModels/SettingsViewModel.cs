@@ -7,6 +7,25 @@ namespace PiStation.App.ViewModels;
 
 public sealed class SettingsViewModel : ObservableObject
 {
+    private bool _manageAutoCompaction;
+    private bool _autoCompaction = true;
+    private bool _manageAutoRetry;
+    private bool _autoRetry = true;
+    private string _automationStatus = "Preferences have not loaded.";
+    internal long AutomationRevision { get; private set; } = -1;
+    public bool ManageAutoCompaction { get => _manageAutoCompaction; set => SetProperty(ref _manageAutoCompaction, value); }
+    public bool AutoCompaction { get => _autoCompaction; set => SetProperty(ref _autoCompaction, value); }
+    public bool ManageAutoRetry { get => _manageAutoRetry; set => SetProperty(ref _manageAutoRetry, value); }
+    public bool AutoRetry { get => _autoRetry; set => SetProperty(ref _autoRetry, value); }
+    public string AutomationStatus { get => _automationStatus; internal set => SetProperty(ref _automationStatus, value); }
+    internal void ApplyAutomationSettings(PiAutomationSettings settings)
+    {
+        AutomationRevision = settings.Revision;
+        ManageAutoCompaction = settings.AutoCompaction.HasValue;
+        AutoCompaction = settings.AutoCompaction ?? true;
+        ManageAutoRetry = settings.AutoRetry.HasValue;
+        AutoRetry = settings.AutoRetry ?? true;
+    }
     private bool _autoSettleInactive = true;
     private double _autoSettleDays = 3;
     private bool _autoSettleMerged = true;
