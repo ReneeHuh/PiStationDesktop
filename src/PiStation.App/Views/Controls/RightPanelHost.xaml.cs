@@ -257,7 +257,8 @@ public sealed partial class RightPanelHost : UserControl
 
     private async Task NavigateTabIfNeededAsync(
         WorkbenchPreviewTabViewModel tab,
-        PreviewWebViewSurface surface)
+        PreviewWebViewSurface surface,
+        Action? validate = null)
     {
         if (!WorkbenchPreviewViewModel.TryNormalizeAddress(tab.CurrentUrl, out var uri, out _))
         {
@@ -265,6 +266,7 @@ public sealed partial class RightPanelHost : UserControl
         }
 
         await EnsurePreviewBrowserInitializedAsync(tab, surface);
+        validate?.Invoke();
         if (!surface.IsInitialized ||
             string.Equals(surface.CurrentSource, uri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
         {
@@ -274,6 +276,7 @@ public sealed partial class RightPanelHost : UserControl
         try
         {
             surface.SetNavigationContext(tab.TabId);
+            tab.PrepareNavigation(uri);
             await surface.NavigateAsync(uri);
         }
         catch (Exception exception)
@@ -804,7 +807,7 @@ public sealed partial class RightPanelHost : UserControl
         string threadId,
         BrowserAutomationRequest request)
     {
-        if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromMinutes(2))
+        if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromSeconds(30))
         {
             await _browserAutomationInbox.CompleteAsync(
                 threadId,
@@ -814,8 +817,15 @@ public sealed partial class RightPanelHost : UserControl
             return;
         }
 
+        PiStation.ClientRuntime.BrowserAutomationCommand command;
+        try { command = PiStation.ClientRuntime.BrowserAutomationCommand.Parse(request.Operation, request.Input); }
+        catch (ArgumentException exception)
+        {
+            await _browserAutomationInbox.CompleteAsync(threadId, request, false, error: exception.Message);
+            return;
+        }
         var permission = ViewModel.WorkbenchPreview.AutomationPermission;
-        var mutating = request.Operation is "navigate" or "click" or "type";
+        var mutating = command.RequiresInteraction;
         if (permission == PreviewAutomationAccess.Off ||
             (mutating && permission != PreviewAutomationAccess.Interact))
         {
@@ -827,20 +837,44 @@ public sealed partial class RightPanelHost : UserControl
             return;
         }
 
-        var surface = ActivePreviewSurface;
-        var tab = ViewModel.WorkbenchPreview.ActiveTab;
+        var tab = command.TabId is { } tabId
+            ? ViewModel.WorkbenchPreview.Tabs.FirstOrDefault(candidate => candidate.TabId == tabId)
+            : ViewModel.WorkbenchPreview.ActiveTab;
+        var surface = tab is not null && _previewSurfaces.TryGetValue(tab.TabId, out var targetSurface) ? targetSurface : null;
         if (surface is null || tab is null)
         {
             await _browserAutomationInbox.CompleteAsync(
                 threadId,
                 request,
                 success: false,
-                error: "Open a browser tab in Pi Station Preview before using browser automation.");
+                error: "The requested browser tab is unavailable. Use status to discover current tab IDs; open Preview if no surface is loaded.");
             return;
         }
 
         try
         {
+            void ValidateTarget()
+            {
+                var access = ViewModel.WorkbenchPreview.AutomationPermission;
+                if (ViewModel.Workspace.SelectedThread?.ThreadId.Value != threadId ||
+                    !ViewModel.WorkbenchPreview.Tabs.Contains(tab) ||
+                    !_previewSurfaces.TryGetValue(tab.TabId, out var currentSurface) || !ReferenceEquals(surface, currentSurface))
+                    throw new InvalidOperationException("Browser request cancelled because its thread or tab is no longer available.");
+                if (access == PreviewAutomationAccess.Off || (mutating && access != PreviewAutomationAccess.Interact))
+                    throw new InvalidOperationException("Browser permission was revoked.");
+                if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromSeconds(30) ||
+                    request.RequestPath is { } path && !File.Exists(path))
+                    throw new OperationCanceledException("Browser request expired or was cancelled.");
+            }
+            ValidateTarget();
+            if (request.Operation != "status")
+            {
+                await NavigateTabIfNeededAsync(tab, surface, ValidateTarget);
+                ValidateTarget();
+                if (!surface.IsInitialized) throw new InvalidOperationException("The requested browser tab could not initialize.");
+                if (tab.IsLoading && request.Operation is not ("navigate" or "wait"))
+                    throw new InvalidOperationException("The target tab is navigating. Wait for condition 'loaded' before interacting or inspecting.");
+            }
             object data = request.Operation switch
             {
                 "status" => new
@@ -851,8 +885,14 @@ public sealed partial class RightPanelHost : UserControl
                     tab.IsLoading,
                     zoomFactor = tab.ZoomFactor,
                     colorScheme = tab.ColorScheme.ToString(),
-                    profile = ViewModel.WorkbenchPreview.SelectedProfile?.Name,
+                    profileId = tab.ProfileId,
                     permission = permission.ToString(),
+                    tabs = ViewModel.WorkbenchPreview.Tabs.Select(candidate => new
+                    {
+                        tabId = candidate.TabId, url = candidate.CurrentUrl, title = candidate.DocumentTitle,
+                        selected = candidate == ViewModel.WorkbenchPreview.ActiveTab,
+                        available = _previewSurfaces.ContainsKey(candidate.TabId),
+                    }).ToArray(),
                 },
                 "snapshot" => new
                 {
@@ -866,9 +906,13 @@ public sealed partial class RightPanelHost : UserControl
                     RequireAutomationInput(request.Input, "selector", 1024),
                     RequireAutomationInput(request.Input, "value", 8 * 1024, allowEmpty: true))),
                 "navigate" => await NavigateAutomationAsync(
-                    RequireAutomationInput(request.Input, "url", PreviewDiscoveryDefaults.MaximumUrlLength)),
+                    command.Url!, surface, tab, ValidateTarget),
+                "press_key" => await surface.PressAutomationKeyAsync(command, ValidateTarget),
+                "scroll" => await surface.ScrollAutomationAsync(command, ValidateTarget),
+                "wait" => await surface.WaitAutomationAsync(command, ValidateTarget, () => tab.IsLoading),
                 _ => throw new InvalidOperationException($"Unknown browser operation '{request.Operation}'."),
             };
+            ValidateTarget();
             await _browserAutomationInbox.CompleteAsync(threadId, request, success: true, data);
         }
         catch (Exception exception)
@@ -892,11 +936,16 @@ public sealed partial class RightPanelHost : UserControl
         return new { tabId = tab.TabId, url = tab.CurrentUrl, path };
     }
 
-    private async Task<object> NavigateAutomationAsync(string url)
+    private static async Task<object> NavigateAutomationAsync(string url, PreviewWebViewSurface surface,
+        WorkbenchPreviewTabViewModel tab, Action validate)
     {
-        await NavigatePreviewAsync(url);
-        var tab = ViewModel.WorkbenchPreview.ActiveTab ??
-            throw new InvalidOperationException("The preview did not create a browser tab.");
+        if (!WorkbenchPreviewViewModel.TryNormalizeAddress(url, out var uri, out var error))
+            throw new ArgumentException(error ?? "Invalid browser URL.");
+        validate();
+        tab.PrepareNavigation(uri);
+        surface.SetNavigationContext(tab.TabId);
+        await surface.NavigateAsync(uri);
+        validate();
         return new { tabId = tab.TabId, url = tab.CurrentUrl };
     }
 

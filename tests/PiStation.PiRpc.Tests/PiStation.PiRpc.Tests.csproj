@@ -25,6 +25,8 @@
     <None Update="Fixtures\offline-provider.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\plan-provider.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\agents-provider.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\browser-probe.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PiStation.App\PiExtensions\pistation-browser.ts" Link="Fixtures\pistation-browser.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-agents.ts" Link="Fixtures\pistation-agents.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-plan.ts" Link="Fixtures\pistation-plan.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-resources.ts" Link="Fixtures\pistation-resources.ts" CopyToOutputDirectory="PreserveNewest" />

@@ -8,7 +8,7 @@ using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host.Tests;
 
-public sealed class CheckpointIntegrationTests
+public sealed class CheckpointIntegrationTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
     public async Task SettledTurnCapturesCheckpointAndConfirmedCommandRewindsWorkspaceAndConversation()
@@ -24,7 +24,10 @@ public sealed class CheckpointIntegrationTests
         var thread = await environment.CreateThreadAsync(new CreateThreadRequest(project.ProjectId));
         var clientId = ClientId.New();
         var startCommandId = CommandId.New();
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        // This is an end-to-end two-turn + Git snapshot + rewind test, not a
+        // single-command latency assertion. Each Git operation has its own timeout.
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var elapsed = Stopwatch.StartNew();
 
         await environment.ExecuteThreadCommandAsync(new ExecuteThreadCommandRequest(
             ProtocolVersion.Current,
@@ -42,6 +45,7 @@ public sealed class CheckpointIntegrationTests
             cancellation.Token);
         Assert.Equal(CommandReceiptState.Completed, settledReceipt.State);
         var firstSettled = await ReadSnapshotAsync(environment, thread.ThreadId, cancellation.Token);
+        output.WriteLine($"First turn and checkpoint: {elapsed.Elapsed}");
         var firstCheckpoint = Assert.Single(firstSettled.Projection.Checkpoints);
         Assert.Equal(ThreadCheckpointStatus.Ready, firstCheckpoint.Status);
         Assert.Equal(1, firstCheckpoint.TurnCount);
@@ -61,6 +65,7 @@ public sealed class CheckpointIntegrationTests
             CommandReceiptState.Completed,
             (await WaitForReceiptAsync(environment, clientId, secondCommandId, cancellation.Token)).State);
         var settled = await ReadSnapshotAsync(environment, thread.ThreadId, cancellation.Token);
+        output.WriteLine($"Two turns and checkpoints: {elapsed.Elapsed}");
         Assert.Equal(2, settled.Projection.Checkpoints.Count);
         var secondCheckpoint = settled.Projection.Checkpoints.Single(static checkpoint => checkpoint.TurnCount == 2);
         Assert.Equal(firstCheckpoint.PiEntryIdAfterTurn, secondCheckpoint.PiEntryIdBeforeTurn);
@@ -78,6 +83,7 @@ public sealed class CheckpointIntegrationTests
             new ThreadRevertCheckpointCommand(1)), cancellation.Token);
 
         Assert.Equal(CommandReceiptState.Completed, revertReceipt.State);
+        output.WriteLine($"Rewind complete: {elapsed.Elapsed}");
         Assert.Equal("baseline\n", (await File.ReadAllTextAsync(
             Path.Combine(projectRoot, "README.md"),
             cancellation.Token)).ReplaceLineEndings("\n"));

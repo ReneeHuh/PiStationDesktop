@@ -12,14 +12,24 @@ const PARAMETERS = Type.Object({
     Type.Literal("click"),
     Type.Literal("type"),
     Type.Literal("screenshot"),
+    Type.Literal("press_key"),
+    Type.Literal("scroll"),
+    Type.Literal("wait"),
   ]),
+  tabId: Type.Optional(Type.String({ minLength: 1, maxLength: 160, description: "Stable tab ID from status. Omit to capture the selected tab when the request starts." })),
   url: Type.Optional(Type.String({ maxLength: 2048 })),
   selector: Type.Optional(Type.String({ maxLength: 1024 })),
   value: Type.Optional(Type.String({ maxLength: 8192 })),
+  key: Type.Optional(Type.String({ maxLength: 32, description: "Letter/digit, Enter, Tab, Escape, Backspace, Delete, ArrowLeft/Up/Right/Down, Home, End, PageUp/Down, Space." })),
+  modifiers: Type.Optional(Type.Integer({ minimum: 0, maximum: 15, description: "Keyboard bitmask: Alt=1, Control=2, Meta=4, Shift=8." })),
+  deltaX: Type.Optional(Type.Integer({ minimum: -10000, maximum: 10000 })),
+  deltaY: Type.Optional(Type.Integer({ minimum: -10000, maximum: 10000 })),
+  condition: Type.Optional(Type.Union([Type.Literal("visible"), Type.Literal("hidden"), Type.Literal("text"), Type.Literal("url"), Type.Literal("loaded")])),
+  timeoutMs: Type.Optional(Type.Integer({ minimum: 100, maximum: 20000 })),
 });
 
 type BrowserParameters = {
-  readonly action: "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot";
+  readonly action: "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
   readonly url?: string;
   readonly selector?: string;
   readonly value?: string;
@@ -28,15 +38,10 @@ type Permission = "inspect" | "interact";
 
 const delay = (milliseconds: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(resolve, milliseconds);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        reject(signal.reason ?? new Error("Browser automation cancelled"));
-      },
-      { once: true },
-    );
+    signal.throwIfAborted();
+    const abort = () => { clearTimeout(timeout); reject(signal.reason ?? new Error("Browser automation cancelled")); };
+    const timeout = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, milliseconds);
+    signal.addEventListener("abort", abort, { once: true });
   });
 
 export default function piStationBrowserExtension(pi: ExtensionAPI) {
@@ -62,7 +67,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
       throw new Error("Browser automation is off. Ask the user to enable it in Preview.");
     }
 
-    if (["navigate", "click", "type"].includes(params.action) && permission !== "interact") {
+    if (["navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
       throw new Error("This browser permission is inspect-only. Ask the user to enable interaction.");
     }
 
@@ -110,8 +115,8 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     name: "pistation_browser",
     label: "Pi Station Browser",
     description:
-      "Inspect or interact with the browser tab visible in Pi Station Preview when the user has granted access.",
-    promptSnippet: "Inspect, navigate, click, type, or capture the permissioned Pi Station Preview tab",
+      "Inspect or interact with existing Pi Station Preview tabs in the selected thread when the user has granted access. status lists stable tab IDs; use tabId to target a tab without selecting it. press_key uses the focused element or optional selector. scroll uses deltaX/deltaY pixels and an optional container selector. wait supports visible/hidden selectors, text containing value, URL containing value, or document loaded; timeoutMs defaults to 5000 (max 20000). Thread changes, closed tabs and revoked permissions cancel pending work.",
+    promptSnippet: "Target a permissioned Preview tab; inspect, navigate, click, type, press keys, scroll, wait or capture it",
     promptGuidelines: [
       "Use pistation_browser only for browser work the user requested; respect inspect-only permission and never ask to broaden it unnecessarily.",
     ],
