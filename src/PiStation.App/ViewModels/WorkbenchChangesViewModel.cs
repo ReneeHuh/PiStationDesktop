@@ -16,6 +16,18 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     private string _newBranchName = string.Empty;
     private GitRefDescriptor? _selectedBranch;
     private bool _isBusy;
+    private bool _allowOperations = true;
+
+    public bool AllowOperations
+    {
+        get => _allowOperations;
+        internal set
+        {
+            if (!SetProperty(ref _allowOperations, value)) return;
+            OnPropertyChanged(nameof(CanRunGitCommand));
+            OnPropertyChanged(nameof(CanCommit));
+        }
+    }
     private bool _isRepository;
     private string? _headSha;
     private string _statusToken = string.Empty;
@@ -59,9 +71,9 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         }
     }
 
-    public bool CanRunGitCommand => !IsBusy;
+    public bool CanRunGitCommand => AllowOperations && !IsBusy;
 
-    public bool CanCommit => !IsBusy && _isRepository && Changes.Count != 0;
+    public bool CanCommit => CanRunGitCommand && _isRepository && Changes.Count != 0;
 
     public Visibility RemoveWorktreeVisibility => string.IsNullOrWhiteSpace(_worktreePath)
         ? Visibility.Collapsed

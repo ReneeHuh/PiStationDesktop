@@ -17,17 +17,20 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
     public const string HubPath = "/environment";
 
     private readonly WebApplication _application;
+    private readonly FileStream _dataLock;
+    private SshEnvironmentHost? _sshListener;
 
     private EmbeddedEnvironmentHost(
         WebApplication application,
         EnvironmentService environment,
         Uri address,
-        string bearerCredential)
+        string bearerCredential, FileStream dataLock)
     {
         _application = application;
         Environment = environment;
         Address = address;
         BearerCredential = bearerCredential;
+        _dataLock = dataLock;
     }
 
     public Uri Address { get; }
@@ -42,6 +45,14 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
         HostOptions options,
         IPiProcessFactory? processFactory = null,
         CancellationToken cancellationToken = default)
+    {
+        var dataLock = HostDataLock.Acquire(options);
+        try { return await StartCoreAsync(options, processFactory, dataLock, cancellationToken).ConfigureAwait(false); }
+        catch { dataLock.Dispose(); throw; }
+    }
+
+    private static async Task<EmbeddedEnvironmentHost> StartCoreAsync(HostOptions options,
+        IPiProcessFactory? processFactory, FileStream dataLock, CancellationToken cancellationToken)
     {
         var environment = await EnvironmentService.CreateAsync(options, processFactory, cancellationToken)
             .ConfigureAwait(false);
@@ -69,7 +80,11 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
                 ?.Addresses;
             var address = addresses?.Select(static value => new Uri(value)).SingleOrDefault()
                 ?? throw new InvalidOperationException("Kestrel did not report its loopback address.");
-            return new EmbeddedEnvironmentHost(application, environment, address, credential);
+            var host = new EmbeddedEnvironmentHost(application, environment, address, credential, dataLock);
+            if (OperatingSystem.IsWindows())
+                host._sshListener = await SshEnvironmentHost.ShareAsync(options, environment,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            return host;
         }
         catch
         {
@@ -81,8 +96,19 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _application.StopAsync().ConfigureAwait(false);
-        await _application.DisposeAsync().ConfigureAwait(false);
-        await Environment.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            try { if (OperatingSystem.IsWindows() && _sshListener is not null) await _sshListener.DisposeAsync().ConfigureAwait(false); }
+            finally
+            {
+                try { await _application.StopAsync().ConfigureAwait(false); }
+                finally { await _application.DisposeAsync().ConfigureAwait(false); }
+            }
+        }
+        finally
+        {
+            try { await Environment.DisposeAsync().ConfigureAwait(false); }
+            finally { _dataLock.Dispose(); }
+        }
     }
 }

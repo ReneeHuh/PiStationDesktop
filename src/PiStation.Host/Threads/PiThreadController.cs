@@ -41,6 +41,7 @@ public sealed class PiThreadController : IAsyncDisposable
     private int _disposed;
     private long _generation;
     private Task? _eventPump;
+    private bool _persistedSessionHydrated;
     private string? _lastPiEntryId;
     private PiProcess? _process;
 
@@ -70,6 +71,102 @@ public sealed class PiThreadController : IAsyncDisposable
     }
 
     public ThreadEventJournal Journal { get; }
+
+    /// <summary>Returns persisted settings only; this path never launches or contacts Pi.</summary>
+    public async Task<ThreadPiConfigurationSnapshot> GetPersistedPiConfigurationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var configuration = await _database.GetThreadPiConfigurationAsync(
+            _thread.ThreadId,
+            cancellationToken).ConfigureAwait(false)
+            ?? new ThreadPiConfiguration(
+                Journal.Projection.EnvironmentId,
+                _thread.ThreadId,
+                null,
+                null,
+                null,
+                0,
+                DateTimeOffset.UnixEpoch);
+        return new ThreadPiConfigurationSnapshot(
+            configuration,
+            new PiConfigurationCapabilities([], [], []),
+            configuration.Model,
+            configuration.ThinkingLevel ?? PiThinkingLevel.Off,
+            configuration.RuntimeModeId);
+    }
+
+    /// <summary>
+    /// Hydrates the journal from the last persisted Pi session without starting Pi. The
+    /// projection remains Stopped so a later local/operate request can perform normal startup.
+    /// </summary>
+    public async Task HydratePersistedSessionAsync(CancellationToken cancellationToken = default)
+    {
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_persistedSessionHydrated || Journal.Projection.RuntimeState is not ThreadRuntimeState.Stopped)
+            {
+                return;
+            }
+
+            var path = _thread.PiSessionFile;
+            if (string.IsNullOrWhiteSpace(path) || !TryGetContainedSessionFile(path, out var sessionFile) ||
+                !File.Exists(sessionFile))
+            {
+                return;
+            }
+
+            var entries = new List<JsonElement>();
+            await using var stream = new FileStream(
+                sessionFile,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    if (document.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        entries.Add(document.RootElement.Clone());
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Pi may leave a partial final line while writing; ignore it for viewing.
+                }
+            }
+
+            var checkpoints = await _checkpoints.ListAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false);
+            var leafId = entries.Count > 0 && entries[^1].TryGetProperty("id", out var id)
+                ? id.GetString()
+                : null;
+            var hydrated = ThreadProjectionReducer.Hydrate(
+                Journal.Projection,
+                entries,
+                leafId,
+                sessionFile,
+                checkpoints: checkpoints,
+                piSessionId: _thread.PiSessionId) with
+            {
+                RuntimeState = ThreadRuntimeState.Stopped,
+                CurrentTurnId = null,
+            };
+            Journal.ReplaceProjection(hydrated);
+            _persistedSessionHydrated = true;
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
 
     public async Task EnsureReadyAsync(CancellationToken cancellationToken = default)
     {
@@ -1321,6 +1418,24 @@ public sealed class PiThreadController : IAsyncDisposable
         if (!candidate.StartsWith(sessionRoot, StringComparison.OrdinalIgnoreCase))
         {
             throw new PiRpcConnectionException("Pi reported a session file outside the environment session root.");
+        }
+    }
+
+    private bool TryGetContainedSessionFile(string value, out string path)
+    {
+        try
+        {
+            path = Path.GetFullPath(value);
+            var root = Path.GetFullPath(_options.SessionRoot);
+            var prefix = root.EndsWith(Path.DirectorySeparatorChar)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+            return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
+        {
+            path = string.Empty;
+            return false;
         }
     }
 

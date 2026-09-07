@@ -62,6 +62,7 @@
     <PackageReference Include="ColorCode.WinUI" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Markdig" />
+    <PackageReference Include="QRCoder" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" />
@@ -72,7 +73,23 @@
     <ProjectReference Include="..\PiStation.Host\PiStation.Host.csproj" />
     <ProjectReference Include="..\PiStation.PiRpc\PiStation.PiRpc.csproj" />
     <ProjectReference Include="..\PiStation.Protocol\PiStation.Protocol.csproj" />
+    <ProjectReference Include="..\PiStation.Server\PiStation.Server.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
+
+  <!-- Ship a matching, self-contained host; no public package feed or remote .NET install is required. -->
+  <Target Name="BundleSshHost" BeforeTargets="AssignTargetPaths" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <SshBundleRoot>$(MSBuildProjectDirectory)\obj\ssh-bundle\$(Configuration)\</SshBundleRoot>
+    </PropertyGroup>
+    <MSBuild Projects="..\PiStation.Server\PiStation.Server.csproj" Targets="Publish"
+      RemoveProperties="TargetFramework;PublishProfile;TargetPlatformIdentifier;TargetPlatformVersion;TargetPlatformMinVersion"
+      Properties="Configuration=$(Configuration);Platform=AnyCPU;RuntimeIdentifier=win-x64;SelfContained=true;PublishTrimmed=false;PublishReadyToRun=false;PublishDir=$(SshBundleRoot)host\" />
+    <ZipDirectory SourceDirectory="$(SshBundleRoot)host" DestinationFile="$(SshBundleRoot)host-win-x64.zip" Overwrite="true" />
+    <ItemGroup>
+      <Content Include="$(SshBundleRoot)host-win-x64.zip" Link="SshHost\host-win-x64.zip"
+        CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution

@@ -167,7 +167,7 @@ public sealed partial class ComposerSurface : UserControl
 
     private async void OnAttachFilesClicked(object sender, RoutedEventArgs e)
     {
-        var window = (Application.Current as App)?.MainWindow;
+        var window = (Application.Current as App)?.FindWindow(XamlRoot);
         if (window is null)
         {
             return;

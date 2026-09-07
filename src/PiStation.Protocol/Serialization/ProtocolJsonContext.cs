@@ -12,6 +12,10 @@ namespace PiStation.Protocol.Serialization;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(EnvironmentDescriptor))]
+[JsonSerializable(typeof(SshHostInfo))]
+[JsonSerializable(typeof(PairingRequest))]
+[JsonSerializable(typeof(PairingPollRequest))]
+[JsonSerializable(typeof(PairingStatus))]
 [JsonSerializable(typeof(ProjectDescriptor))]
 [JsonSerializable(typeof(ProjectDescriptor[]))]
 [JsonSerializable(typeof(ThreadDescriptor))]

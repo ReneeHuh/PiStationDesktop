@@ -5,6 +5,9 @@ namespace PiStation.Host;
 
 public sealed record HostOptions
 {
+    public static string DefaultDataRoot => Hosting.HostDataPaths.ResolveDefaultRoot(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+
     public required string ApplicationDataRoot { get; init; }
 
     public string EnvironmentName { get; init; } = "Local";

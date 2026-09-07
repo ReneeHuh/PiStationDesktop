@@ -114,9 +114,7 @@ internal sealed record AppLaunchOptions
 
         return new AppLaunchOptions
         {
-            DataRoot = Path.GetFullPath(dataRoot ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PiStationDesktop")),
+            DataRoot = Path.GetFullPath(dataRoot ?? PiStation.Host.HostOptions.DefaultDataRoot),
             PiExecutable = piExecutable is null ? null : Path.GetFullPath(piExecutable),
             FakePiScenario = fakePiScenario,
             LogFile = logFile is null ? null : Path.GetFullPath(logFile),

@@ -18,7 +18,27 @@ public sealed class ConnectionSupervisor : IAsyncDisposable
 
         _connection = new HubConnectionBuilder()
             .WithUrl(options.HubAddress, connection =>
-                connection.Headers["Authorization"] = $"Bearer {options.BearerCredential}")
+            {
+                connection.Headers["Authorization"] = $"Bearer {options.BearerCredential}";
+                if (options.EnsureTransportAsync is { } ensureTransport)
+                    connection.AccessTokenProvider = async () =>
+                    {
+                        await ensureTransport(CancellationToken.None).ConfigureAwait(false);
+                        return options.BearerCredential;
+                    };
+                connection.HttpMessageHandlerFactory = handler =>
+                {
+                    if (handler is not HttpClientHandler httpHandler)
+                        throw new InvalidOperationException("The HTTP transport cannot enforce remote certificate identity.");
+                    httpHandler.AllowAutoRedirect = false;
+                    if (options.CertificateFingerprint is { } fingerprint)
+                        httpHandler.ServerCertificateCustomValidationCallback = (_, certificate, _, _) => RemoteTransport.Matches(certificate, fingerprint);
+                    return handler;
+                };
+                if (options.CertificateFingerprint is { } pin)
+                    connection.WebSocketConfiguration = socket => socket.RemoteCertificateValidationCallback =
+                        (_, certificate, _, _) => RemoteTransport.Matches(certificate, pin);
+            })
             .AddJsonProtocol(json =>
                 json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default))
             .WithAutomaticReconnect(options.ReconnectDelays.ToArray())

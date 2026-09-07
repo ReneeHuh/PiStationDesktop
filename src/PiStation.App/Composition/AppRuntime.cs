@@ -5,30 +5,51 @@ using PiStation.App.ViewModels;
 namespace PiStation.App.Composition;
 
 internal sealed class AppRuntime(
-    EmbeddedEnvironmentHost host,
+    EmbeddedEnvironmentHost? host,
     EnvironmentClient client,
-    ShellViewModel viewModel) : IAsyncDisposable
+    ShellViewModel viewModel,
+    IAsyncDisposable? transport = null) : IAsyncDisposable
 {
     private readonly EnvironmentClient _client = client;
-    private readonly EmbeddedEnvironmentHost _host = host;
+    private readonly EmbeddedEnvironmentHost? _host = host;
     private readonly ShellViewModel _viewModel = viewModel;
+    private readonly SemaphoreSlim _disposeGate = new(1, 1);
+    private bool _disposed;
 
-    public async ValueTask DisposeAsync()
+    public async Task ReconnectAsync(CancellationToken cancellationToken = default)
     {
-        using var flushTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await _client.ConnectAsync(cancellationToken);
+        await _viewModel.LoadProjectsAsync(cancellationToken);
+    }
+
+    public ValueTask DisposeAsync() => DisposeAsync(flushDraft: true);
+
+    /// <summary>Disposes the runtime without flushing when its client identity is being replaced.</summary>
+    public async ValueTask DisposeAsync(bool flushDraft)
+    {
+        await _disposeGate.WaitAsync().ConfigureAwait(false);
+        if (_disposed)
+        {
+            _disposeGate.Release();
+            return;
+        }
+
+        _disposed = true;
         try
         {
-            await _viewModel.FlushDraftAsync(flushTimeout.Token).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or InvalidOperationException)
-        {
-            // A debounced save already reports failures in the UI; shutdown must still release the host.
+            await DesktopLifecycle.ShutdownAsync(
+                _viewModel.FlushDraftAsync,
+                [
+                    () => _viewModel.DisposeAsync().AsTask(),
+                    () => transport is null ? Task.CompletedTask : transport.DisposeAsync().AsTask(),
+                    () => _client.DisposeAsync().AsTask(),
+                    () => _host is null ? Task.CompletedTask : _host.DisposeAsync().AsTask(),
+                ], TimeSpan.FromSeconds(5), flushDraft).ConfigureAwait(false);
+            return;
         }
         finally
         {
-            await _viewModel.DisposeAsync().ConfigureAwait(false);
-            await _client.DisposeAsync().ConfigureAwait(false);
-            await _host.DisposeAsync().ConfigureAwait(false);
+            _disposeGate.Release();
         }
     }
 }

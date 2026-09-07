@@ -13,6 +13,9 @@
     <Project Path="src/PiStation.Host/PiStation.Host.csproj">
       <Platform Project="Any CPU" />
     </Project>
+    <Project Path="src/PiStation.Server/PiStation.Server.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
     <Project Path="src/PiStation.PiRpc/PiStation.PiRpc.csproj">
       <Platform Project="Any CPU" />
     </Project>

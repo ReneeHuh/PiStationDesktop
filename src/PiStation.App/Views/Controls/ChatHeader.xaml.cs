@@ -81,6 +81,11 @@ public sealed partial class ChatHeader : UserControl
 
     private async void OnOpenProjectClicked(object sender, RoutedEventArgs e)
     {
+        if (ViewModel.IsRemote)
+        {
+            ViewModel.ReportRuntimeError("This project folder is on the remote host. Use the Files workbench to browse it.");
+            return;
+        }
         var project = ViewModel.Workspace.SelectedProject;
         if (project is null)
         {

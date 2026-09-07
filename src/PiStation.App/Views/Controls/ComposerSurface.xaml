@@ -200,6 +200,7 @@
 
             <TextBox
                 x:Name="PromptInput"
+                IsReadOnly="{x:Bind ViewModel.IsReadOnly, Mode=OneWay}"
                 Grid.Row="2"
                 Height="48"
                 MinHeight="48"

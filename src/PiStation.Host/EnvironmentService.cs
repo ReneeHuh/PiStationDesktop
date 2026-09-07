@@ -82,6 +82,17 @@ public sealed class EnvironmentService : IAsyncDisposable
 
     public EnvironmentId EnvironmentId => _environment.EnvironmentId;
 
+    private RemoteExposure? _remoteExposure;
+    internal RemoteExposure? CurrentRemoteExposure => Volatile.Read(ref _remoteExposure);
+    internal void RegisterRemoteExposure(object owner, Uri address, string fingerprint) =>
+        Volatile.Write(ref _remoteExposure, new(owner, address, fingerprint));
+    internal void UnregisterRemoteExposure(object owner)
+    {
+        var exposure = CurrentRemoteExposure;
+        if (exposure?.Owner == owner) Interlocked.CompareExchange(ref _remoteExposure, null, exposure);
+    }
+    internal sealed record RemoteExposure(object Owner, Uri Address, string CertificateFingerprint);
+
     public static async Task<EnvironmentService> CreateAsync(
         HostOptions options,
         IPiProcessFactory? processFactory = null,
@@ -337,12 +348,47 @@ public sealed class EnvironmentService : IAsyncDisposable
         }
     }
 
+    public async Task<ThreadDraft> GetThreadDraftPassiveAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var draft = await _database.GetThreadDraftAsync(threadId, cancellationToken).ConfigureAwait(false);
+        if (draft is not null)
+        {
+            return draft;
+        }
+
+        if (await _database.GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false) is null)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, $"Thread '{threadId}' was not found.");
+        }
+
+        var stableId = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(threadId.Value))).ToLowerInvariant()[..32];
+        return new ThreadDraft(
+            _environment.EnvironmentId,
+            threadId,
+            DraftId.Parse(stableId),
+            string.Empty,
+            0,
+            DateTimeOffset.UnixEpoch,
+            []);
+    }
+
     public async Task<ThreadPiConfigurationSnapshot> GetThreadPiConfigurationAsync(
         ThreadId threadId,
         CancellationToken cancellationToken = default)
     {
         var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
         return await controller.GetPiConfigurationAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ThreadPiConfigurationSnapshot> GetThreadPiConfigurationPassiveAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
+        return await controller.GetPersistedPiConfigurationAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CommandReceipt> ExecuteThreadCommandAsync(
@@ -743,6 +789,19 @@ public sealed class EnvironmentService : IAsyncDisposable
     {
         var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
         await controller.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        await foreach (var envelope in controller.SubscribeAsync(cursor, cancellationToken).ConfigureAwait(false))
+        {
+            yield return envelope;
+        }
+    }
+
+    public async IAsyncEnumerable<ThreadEnvelope> SubscribeThreadPassiveAsync(
+        ThreadId threadId,
+        ThreadCursor? cursor,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
+        await controller.HydratePersistedSessionAsync(cancellationToken).ConfigureAwait(false);
         await foreach (var envelope in controller.SubscribeAsync(cursor, cancellationToken).ConfigureAwait(false))
         {
             yield return envelope;

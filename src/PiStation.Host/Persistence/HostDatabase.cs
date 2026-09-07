@@ -818,6 +818,15 @@ public sealed class HostDatabase
             ?? throw new KeyNotFoundException($"Thread '{threadId}' was not found.");
     }
 
+    /// <summary>Reads the saved configuration without creating a row for the thread.</summary>
+    public async Task<ThreadPiConfiguration?> GetThreadPiConfigurationAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadThreadPiConfigurationAsync(connection, threadId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PiConfigurationUpdateResult> UpdateThreadPiConfigurationAsync(
         ThreadId threadId,
         long expectedRevision,
@@ -872,6 +881,15 @@ public sealed class HostDatabase
 
         return await ReadThreadDraftAsync(connection, threadId, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Thread '{threadId}' was not found.");
+    }
+
+    /// <summary>Reads a draft without initializing one as a side effect.</summary>
+    public async Task<ThreadDraft?> GetThreadDraftAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadThreadDraftAsync(connection, threadId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<DraftUpdateResult> UpdateThreadDraftAsync(

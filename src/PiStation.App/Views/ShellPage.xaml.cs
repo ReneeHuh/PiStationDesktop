@@ -32,6 +32,7 @@ public sealed partial class ShellPage : Page
     private bool _paletteOpen;
     private bool _settingsOpen;
     private bool _disposed;
+    private RemoteConnectionsPanel? _remoteConnectionsPanel;
 
     public ShellPage()
         : this(AppBootstrapper.CreateShellViewModel(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()))
@@ -42,6 +43,8 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        _remoteConnectionsPanel = new RemoteConnectionsPanel(ViewModel.IsRemote);
+        RemoteConnectionsHost.Content = _remoteConnectionsPanel;
         _sidebar = new AppSidebar(ViewModel);
         _sidebar.AddProjectRequested += OnAddProjectRequested;
         _sidebar.SettingsRequested += OnSettingsRequested;
@@ -97,6 +100,7 @@ public sealed partial class ShellPage : Page
         }
 
         _disposed = true;
+        _remoteConnectionsPanel?.Deactivate();
         _paletteSearchCancellation?.Cancel();
         _paletteSearchCancellation?.Dispose();
         _paletteSearchCancellation = null;
@@ -682,6 +686,7 @@ public sealed partial class ShellPage : Page
         }
 
         _settingsOpen = true;
+        _remoteConnectionsPanel?.Activate();
         await SettingsDialog.ShowAsync();
     }
 
@@ -730,6 +735,7 @@ public sealed partial class ShellPage : Page
     private void OnSettingsDialogClosed(ContentDialog sender, ContentDialogClosedEventArgs args)
     {
         _settingsOpen = false;
+        _remoteConnectionsPanel?.Deactivate();
         _sidebar.FocusSettingsButton();
     }
 

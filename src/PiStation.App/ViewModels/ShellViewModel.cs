@@ -72,6 +72,20 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public ThreadViewModel Thread { get; } = new();
 
+    public bool IsRemote { get; private set; }
+    public string EnvironmentLabel { get; private set; } = "Local";
+    public bool CanOperate => !IsRemote || _client?.Descriptor?.Capabilities.Contains("thread.operate") == true;
+    public bool IsReadOnly => !CanOperate;
+
+    public void ConfigureRemote(string name)
+    {
+        IsRemote = true;
+        EnvironmentLabel = $"{name} (Remote)";
+        Connection.Status = $"{EnvironmentLabel} • Disconnected";
+        WorkbenchChanges.AllowOperations = false;
+        WorkbenchTerminal.AllowOperations = false;
+    }
+
     public ComposerViewModel Composer { get; }
 
     public WorkspaceViewModel Workspace { get; }
@@ -186,6 +200,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public bool CanManageThreads =>
+        CanOperate &&
         Workspace.SelectedProject is not null &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
@@ -193,10 +208,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public bool IsConnected => _client?.ConnectionState == EnvironmentConnectionState.Connected;
 
     public bool CanAddProject =>
+        CanOperate &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
     public bool CanSend =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -204,12 +221,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         (Composer.HasAttachments || !string.IsNullOrWhiteSpace(PromptText));
 
     public bool CanStop =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Running &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
     public bool CanAttachFiles =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -218,12 +237,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Composer.CanAttach;
 
     public bool CanRestartPi =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Crashed &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
     public bool CanConfigurePi =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         PiConfiguration.Snapshot?.Configuration.ThreadId == Workspace.SelectedThread.ThreadId &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
@@ -585,6 +606,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task RefreshWorkbenchPreviewServersAsync(CancellationToken cancellationToken = default)
     {
+        if (IsRemote)
+        {
+            RunOnUiThread(() => WorkbenchPreview.FailDiscovery("Preview discovery is local to the host. Enter a URL reachable from this computer; remote loopback previews need a separate tunnel."));
+            return;
+        }
         var project = SelectedProject;
         if (project is null)
         {
@@ -1019,6 +1045,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         string data,
         CancellationToken cancellationToken = default)
     {
+        if (!CanOperate) return;
         var session = WorkbenchTerminal.SelectedSession?.Descriptor;
         if (session is null || session.State != TerminalSessionState.Running || string.IsNullOrEmpty(data))
         {
@@ -1153,6 +1180,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public void ResizeWorkbenchTerminalGrid(int paneIndex, int columns, int rows)
     {
+        if (!CanOperate) return;
         if (Layout.SelectedPanel != WorkbenchPanelKind.Terminal ||
             WorkbenchTerminal.GetPaneSession(paneIndex) is not { State: TerminalSessionState.Running } session)
         {
@@ -1593,7 +1621,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         WorkbenchFileDocumentViewModel document = null!;
-        await RunOnUiThreadAsync(() => document = WorkbenchFiles.OpenDocument(relativePath, revealLine))
+        await RunOnUiThreadAsync(() =>
+        {
+            document = WorkbenchFiles.OpenDocument(relativePath, revealLine);
+            document.HasWriteAccess = CanOperate;
+        })
             .ConfigureAwait(false);
         if (!forceReload && !document.IsLoading && document.Revision.Length != 0)
         {
@@ -1705,6 +1737,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task OpenWorkbenchFileInEditorAsync(WorkbenchFileDocumentViewModel? document = null)
     {
+        if (IsRemote)
+        {
+            ReportRuntimeError("External editor launch is available on the host computer. Use the Files workbench to edit remotely.");
+            return;
+        }
         var project = SelectedProject;
         document ??= WorkbenchFiles.ActiveDocument;
         if (project is null || document is null)
@@ -2331,6 +2368,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Cancel debounced and in-flight draft work before asynchronous subscription cleanup.
+        Composer.CancelPendingOperations();
         CloseFileMentionSuggestions();
         CancelWorkbenchFiles();
         CancelWorkbenchChanges();
@@ -2363,7 +2402,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         if (_client is null)
         {
-            Connection.Status = "Local • Unavailable";
+            Connection.Status = $"{EnvironmentLabel} • Unavailable";
         }
 
         Connection.ShowRuntimeError(message);
@@ -2372,25 +2411,35 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs args) =>
         RunOnUiThread(() =>
         {
-            Connection.Status = args.State switch
+            var state = args.State switch
             {
-                EnvironmentConnectionState.Connected => "Local • Ready",
-                EnvironmentConnectionState.Connecting => "Local • Connecting",
-                EnvironmentConnectionState.Authenticating => "Local • Authenticating",
-                EnvironmentConnectionState.Synchronizing => "Local • Synchronizing",
-                EnvironmentConnectionState.Retrying => "Local • Reconnecting",
-                EnvironmentConnectionState.AuthenticationRequired => "Local • Authentication required",
-                EnvironmentConnectionState.Incompatible => "Local • Protocol incompatible",
-                _ => "Local • Disconnected",
+                EnvironmentConnectionState.Connected => CanOperate ? "Ready" : "Read only",
+                EnvironmentConnectionState.Connecting => "Connecting",
+                EnvironmentConnectionState.Authenticating => "Authenticating",
+                EnvironmentConnectionState.Synchronizing => "Synchronizing",
+                EnvironmentConnectionState.Retrying => "Reconnecting",
+                EnvironmentConnectionState.AuthenticationRequired => "Authentication required",
+                EnvironmentConnectionState.Incompatible => "Protocol incompatible",
+                _ => "Disconnected",
             };
+            Connection.Status = $"{EnvironmentLabel} • {state}";
+            OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(IsReadOnly));
+            WorkbenchChanges.AllowOperations = CanOperate;
+            WorkbenchTerminal.AllowOperations = CanOperate;
+            foreach (var document in WorkbenchFiles.OpenDocuments) document.HasWriteAccess = CanOperate;
             if (args.State == EnvironmentConnectionState.Connected)
             {
                 ClearTransportError();
             }
+            else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired)
+            {
+                ReportRuntimeError("Remote access was rejected. It may have expired or been revoked. In Settings → Connections, pair again using a fresh host link, then select Open; you do not need to forget the saved environment.");
+            }
             else if (args.State is EnvironmentConnectionState.Retrying or EnvironmentConnectionState.Disconnected)
             {
                 ShowTransportError(args.Error?.Message ??
-                    "The desktop lost its connection to the local environment. Work already accepted by the host may still be running.");
+                    "The desktop lost its connection to the environment. Work already accepted by the host may still be running.");
             }
             else if (args.Error is not null)
             {

@@ -18,6 +18,7 @@
     <ProjectReference Include="..\..\src\PiStation.ClientRuntime\PiStation.ClientRuntime.csproj" />
     <ProjectReference Include="..\..\src\PiStation.Host\PiStation.Host.csproj" />
     <ProjectReference Include="..\PiStation.FakePi\PiStation.FakePi.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\PiStation.Server\PiStation.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>

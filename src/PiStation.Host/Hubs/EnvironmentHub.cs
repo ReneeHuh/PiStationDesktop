@@ -357,7 +357,11 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try
         {
-            return await _environment.GetThreadDraftAsync(threadId, Context.ConnectionAborted).ConfigureAwait(false);
+            var passive = Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
+                readOnly is true;
+            return await (passive
+                ? _environment.GetThreadDraftPassiveAsync(threadId, Context.ConnectionAborted)
+                : _environment.GetThreadDraftAsync(threadId, Context.ConnectionAborted)).ConfigureAwait(false);
         }
         catch (HostOperationException exception)
         {
@@ -369,7 +373,11 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try
         {
-            return await _environment.GetThreadPiConfigurationAsync(threadId, Context.ConnectionAborted)
+            var passive = Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
+                readOnly is true;
+            return await (passive
+                    ? _environment.GetThreadPiConfigurationPassiveAsync(threadId, Context.ConnectionAborted)
+                    : _environment.GetThreadPiConfigurationAsync(threadId, Context.ConnectionAborted))
                 .ConfigureAwait(false);
         }
         catch (HostOperationException exception)
@@ -398,7 +406,9 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     public IAsyncEnumerable<ThreadEnvelope> SubscribeThread(
         ThreadId threadId,
         ThreadCursor? cursor) =>
-        _environment.SubscribeThreadAsync(threadId, cursor, Context.ConnectionAborted);
+        Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) && readOnly is true
+            ? _environment.SubscribeThreadPassiveAsync(threadId, cursor, Context.ConnectionAborted)
+            : _environment.SubscribeThreadAsync(threadId, cursor, Context.ConnectionAborted);
 
     public IAsyncEnumerable<TerminalEnvelope> SubscribeTerminal(
         TerminalSessionId terminalSessionId,

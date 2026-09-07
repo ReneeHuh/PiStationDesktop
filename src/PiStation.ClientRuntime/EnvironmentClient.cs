@@ -35,7 +35,7 @@ public sealed class EnvironmentClient : IEnvironmentClient
             Query = string.Empty,
             Fragment = string.Empty,
         }.Uri;
-        _httpClient = new HttpClient { BaseAddress = baseAddress };
+        _httpClient = new HttpClient(RemoteTransport.CreateHandler(options.CertificateFingerprint)) { BaseAddress = baseAddress };
         _httpClient.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _options.BearerCredential);
         _supervisor = new ConnectionSupervisor(options);
@@ -56,6 +56,8 @@ public sealed class EnvironmentClient : IEnvironmentClient
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_options.EnsureTransportAsync is { } ensureTransport)
+            await ensureTransport(cancellationToken).ConfigureAwait(false);
         await _supervisor.ConnectAsync(cancellationToken).ConfigureAwait(false);
         await SynchronizeAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -975,6 +977,11 @@ public sealed class EnvironmentClient : IEnvironmentClient
             var descriptor = await _supervisor.Connection.InvokeAsync<EnvironmentDescriptor>(
                 "GetEnvironmentDescriptor",
                 cancellationToken).ConfigureAwait(false);
+            if (_options.ExpectedEnvironmentId is { } expected && descriptor.EnvironmentId != expected)
+            {
+                await _supervisor.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException("This endpoint belongs to a different environment. Pair it again before connecting.");
+            }
             if (ProtocolVersion.Current < descriptor.MinimumProtocolVersion ||
                 ProtocolVersion.Current > descriptor.MaximumProtocolVersion)
             {

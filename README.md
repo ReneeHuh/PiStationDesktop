@@ -207,6 +207,234 @@ pwsh .\Invoke-PullRequestTests.ps1
 winapp run .\src\PiStation.App\PiStation.App.csproj --configuration Debug --arch x64
 ```
 
+## Remote access
+
+PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
+**Settings → Connections** on the computer that owns the projects and Pi runtime:
+
+1. Choose its network address and a port (default `52740`), then select **Start sharing**.
+2. Choose **Operate** or **Read only**, optionally add a label, and choose the link
+   lifetime (default five minutes, up to one day). Select **Create pairing link**.
+3. On the other desktop, paste the link into **Settings → Connections**, enter a device
+   name, and select **Pair device**.
+4. Compare the six-digit verification code on both desktops. On the host, confirm
+   that the codes match, then approve the device. Never approve by device name alone.
+   On the receiving desktop, select the saved
+   environment and **Open**. It opens in a separate window alongside local work.
+
+Links can be used once and expire after the lifetime you selected. The link carries the host's
+certificate fingerprint; subsequent HTTP and WebSocket connections must match it.
+Device credentials and the host certificate's private key are protected by Windows.
+Approvals last 180 days and survive restarts. Use **Revoke selected session** on the host
+to disconnect an existing device and prevent reconnection. **Stop sharing** closes the
+remote listener while local work continues; the sharing preference persists across launches.
+Re-pair with a fresh link after access expires or is revoked, then select **Open**.
+This replaces the saved credentials and any open window using the old connection;
+there is no need to forget the environment first. Save unsent work before replacing
+a connection: its old draft is not automatically submitted through the replacement.
+
+**Unused pairing links** shows active links from Settings and the CLI, with their
+labels, access level, and expiration. Select a link created during this Settings
+visit to copy it or display its QR code. Leaving Settings clears the link secrets
+and QR display; the unused invitations remain listed and revocable. Links created
+elsewhere cannot be recovered here—create a new link to share. The display also
+clears when a link is used, revoked, or expires. **Copy pairing link** requests that
+Windows exclude the secret from clipboard history and cross-device sync; manually
+copying selected text does not apply those restrictions. Treat both links and QR
+codes as passwords.
+
+**Revoke selected link** prevents redemption of that unused invitation; it does
+not remove an already approved device's access. **Device sessions** includes both
+paired devices and CLI-issued sessions. Select a session to see its access level,
+expiration, subject (when supplied by the CLI), and ID, or revoke it. The lists
+refresh while Settings is open, including changes made by the CLI.
+
+Read-only viewers can inspect saved conversations and observe live activity, but
+viewing never starts or restarts Pi. Starting a stopped runtime requires the host
+or an Operate device. Pairing approval results are retained briefly after approval
+so a poll crossing the request deadline can still complete.
+
+Redacted transport diagnostics are saved under the app data root as
+`remote-access.log` (with one bounded `.previous` file). Logs retain event metadata,
+not bearer credentials, pairing links, request contents, or exception messages.
+
+Keep the host's local window open. Windows Firewall must allow the chosen address/port
+on the intended network; PiStation does not change firewall or router rules. A VPN
+such as Tailscale can provide a reachable address, but PiStation does not configure it.
+There is no hosted relay or Windows background-service installer in this release.
+
+Projects, Pi, files, Git, and terminals run on the host. Attachments come from the
+receiving computer and are uploaded. Folder/editor launch and automatic loopback
+preview discovery are local-only; remote preview pages need an address reachable
+from the receiving computer or a separately configured tunnel. **Forget** removes
+the saved connection; host-side revocation removes authorization.
+
+See [the implementation plan and T3 review](Docs/PISTATION-REMOTE-ACCESS-PLAN.md).
+
+### Managed SSH to a Windows host
+
+**Settings → Connections → Managed SSH** connects to a Windows computer's running
+PiStation desktop/server or starts a headless host with the same projects and
+threads. The default data directory is `%LOCALAPPDATA%\PiStationDesktop` for both.
+The desktop can also attach to an already running headless host. The process that
+started the host controls its lifetime; attaching never takes ownership.
+
+Older saved SSH profiles keep their original `%LOCALAPPDATA%\PiStation\ssh-host`
+directory. They are not silently switched to a different environment. Older
+MSIX desktop data under the package's `LocalCache\Local\PiStationDesktop` is
+reused in place by both hosts, without copying or merging databases. If multiple
+desktop data directories exist, launch both with the same explicit `--data-root`.
+The package disables file-write virtualization so shared data and project files
+remain visible to the standalone host. New unvirtualized data persists after
+uninstall; back it up and remove it separately when no longer needed.
+
+On that computer, install/configure Windows OpenSSH Server and Pi separately.
+The SSH account needs access to the projects and its own Pi/provider setup.
+On the client, verify the host fingerprint,
+and establish a working `ssh user@host` connection in a terminal first. PiStation
+uses strict host-key checking and will not accept an unknown/changed key for you.
+SSH config aliases, identity files, custom ports and jump hosts are handled by
+the installed `ssh.exe`. The target picker reads named aliases (including config
+Includes) and readable known-host entries; hashed entries cannot be listed.
+Known-host ports are preserved, and an optional port field overrides SSH config.
+Keys/agent are tried first; an authentication failure offers up to two in-app
+password/passphrase attempts. The secret is held only for that connection and
+passed to OpenSSH's password helper, never saved or placed in command arguments.
+
+Enter the alias or `user@host`. Leave the server path empty to transfer the
+matching self-contained Windows x64 host bundled with the desktop; the remote
+computer does not need a separate .NET installation or access to a package feed.
+Alternatively, enter an existing remote `PiStation.Server.exe` path. Optionally
+choose a host data directory and Pi executable path. Select
+**Connect and save**. The host is authenticated over SSH, and the forwarded
+HTTPS/SignalR connection additionally checks its certificate and environment
+identity. Profiles are Windows-protected; ephemeral ports and bearer credentials
+are not saved on the client. No PiStation application port is exposed to the
+network, but SSH itself must be reachable. PiStation installs only its host files;
+it does not install Pi/Node, change SSH configuration, open firewall ports or
+establish a relay.
+
+Bundled hosts are cached by SHA-256 under `%LOCALAPPDATA%\PiStation\ssh-hosts`.
+Uploads are checksum-verified before a complete version directory becomes
+available. Existing versions and environment data are never overwritten by the
+installer. An incomplete upload is not activated.
+
+**Update / reconnect with bundled host** uses the version in the current desktop
+installation, not an online "latest" feed. It asks before stopping a host owned
+by that connection because active agents and terminals can be interrupted.
+A reused desktop or independently running server is left running; update that
+host at its source when a version mismatch is reported. Incompatible protocols
+are rejected. Older installed folders remain available for manual rollback;
+database migrations are not automatically rolled back.
+
+An SSH control session owns a host it starts. **Disconnect**, closing its remote
+window, or **Forget** closes the tunnel and stops that owned host. Other clients
+reusing that managed host will also disconnect when its owner stops it. To share
+a host independently of any client, start an installed server yourself and leave it running:
+
+```powershell
+C:\Tools\PiStation\PiStation.Server.exe serve
+```
+
+Such a separately running host is reused through a current-user Windows named
+pipe and is never stopped by a client disconnect. Close it with Ctrl+C. This is
+not a Windows service; it does not promise survival across host logout/reboot.
+For a manual host deployment, publish and copy the entire output directory:
+
+```powershell
+dotnet publish .\src\PiStation.Server\PiStation.Server.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\ssh-host
+```
+
+Normal desktop builds/publishes create and include `SshHost\host-win-x64.zip`
+automatically, together with the installer and password helper.
+Normal transport failures use SignalR's bounded reconnect policy and re-establish
+SSH at the same local endpoint. A forwarding-only failure preserves the healthy
+control session and does not restart its host. After retries are exhausted, use **Open / retry**.
+Changed environment identity fails closed; check the target/data directory before
+forgetting and re-adding it. An intentionally rotated host security identity
+requires closing and reopening the window. Commands with uncertain outcomes are
+not automatically resent.
+
+### Pairing and authentication CLI
+
+Run the matching `PiStation.Server.exe` as the Windows account that owns the host.
+Every command accepts `--data-root PATH` (`--base-dir` is an alias). Omit it to use
+the same default environment as the desktop. Commands operate on that environment
+only; they do not administer another Windows account or an arbitrary network host.
+
+With the desktop sharing, or a headless host running, create a single-use link and
+terminal QR code:
+
+```powershell
+C:\Tools\PiStation\PiStation.Server.exe pair --label "Travel laptop" --access read-only
+C:\Tools\PiStation\PiStation.Server.exe status --json
+```
+
+`pair` discovers the running host over its current-user pipe and performs a pinned,
+authenticated readiness check. It uses the active sharing address when available.
+A loopback-only link needs a separately configured tunnel to work on another
+machine. For direct LAN/VPN access without the desktop, explicitly bind a local IP
+and keep the process running:
+
+```powershell
+C:\Tools\PiStation\PiStation.Server.exe serve --host 192.168.1.20 --port 52740
+```
+
+Replace the example IP with an address assigned to the host. The default remains
+loopback-only. Desktop and headless LAN sharing reuse the same protected certificate
+for the same data root, preserving client pins when switching hosts at the same address.
+This does not configure Windows Firewall, OpenSSH, Tailscale, a relay,
+or a background service. Run `pair` in another terminal. On the receiving desktop,
+paste the link into Remote Connections, then compare its verification code with
+the host's pending request before approving:
+
+```powershell
+C:\Tools\PiStation\PiStation.Server.exe auth pairing pending
+C:\Tools\PiStation\PiStation.Server.exe auth pairing approve REQUEST_ID --code 123456
+```
+
+Replace `REQUEST_ID` and the example code with the pending request and the code
+shown by the receiving device. Desktop approval still works. Headless administration
+also supports `auth pairing reject REQUEST_ID`.
+
+The remaining T3-style commands work against the shared authentication database,
+including while the environment is stopped:
+
+```powershell
+C:\Tools\PiStation\PiStation.Server.exe auth pairing create --ttl 10m --label "One-time setup" --json
+C:\Tools\PiStation\PiStation.Server.exe auth pairing list --json
+C:\Tools\PiStation\PiStation.Server.exe auth pairing revoke INVITATION_ID
+C:\Tools\PiStation\PiStation.Server.exe auth session issue --ttl 1h --label "Automation" --subject "build-agent" --access read-only --token-only
+C:\Tools\PiStation\PiStation.Server.exe auth session list --json
+C:\Tools\PiStation\PiStation.Server.exe auth session revoke SESSION_ID
+```
+
+Pairing invitations default to five minutes (maximum one day). Issued sessions
+default to 30 days (maximum 180 days); approved device pairings remain 180 days.
+Both default to Operate unless `--access read-only` is supplied. PiStation retains
+its ReadOnly/Operate policy rather than introducing a separate administrative
+bearer scope. Authentication administration requires local filesystem access;
+an issued token cannot call a remote authentication-administration API.
+
+Tokens and pairing URLs are secrets, returned only on creation. List/status output
+contains neither credentials nor their hashes. `--json` is available on all auth
+commands; `--token-only` is exclusive to session issue and cannot be combined with
+`--json`. `pair --no-qr` suppresses the QR. Offline invitation creation returns a
+token without a URL unless both `--base-url HTTPS_ORIGIN` and `--certificate SHA256`
+are supplied. For a running host, `--base-url` can specify a tunnel/reachable alias;
+the discovered certificate pin is used unless explicitly overridden. A TLS-terminating
+proxy requires its actual certificate fingerprint. Check the endpoint and pin out of band.
+
+Session lists include both CLI-issued and paired devices. Revoking an unused
+invitation does not revoke an already approved device. Revoke its session instead.
+Revocation is checked against SQLite for each new authenticated request and hub
+invocation; a one-second polling interval also disconnects idle/streaming connections
+after another process revokes them. An operation already in progress is not rolled back.
+Invitations and pending results survive normal restarts until expiry; explicitly
+stopping desktop sharing clears invitations/pending requests, but keeps device grants.
+CLI revocation does not revoke the Windows SSH login or its host bootstrap identity.
+Use `--help` for the complete command reference.
+
 ## Verify the UI Automation contract
 
 The driver check builds and launches the packaged app, verifies the baseline Automation IDs and

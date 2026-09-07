@@ -415,6 +415,17 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     }
 
     public string RelativePath { get; }
+    private bool _hasWriteAccess = true;
+    public bool HasWriteAccess
+    {
+        get => _hasWriteAccess;
+        internal set
+        {
+            if (!SetProperty(ref _hasWriteAccess, value)) return;
+            OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(CanSave));
+        }
+    }
     public string FileName { get; }
     public bool IsMarkdown { get; }
     public bool IsImage { get; }
@@ -502,8 +513,8 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     }
 
     public string DisplayTitle => IsDirty ? $"{FileName} ●" : FileName;
-    public bool CanSave => IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsImage && !IsBinary;
-    public bool IsReadOnly => IsTruncated || IsImage || IsBinary;
+    public bool CanSave => HasWriteAccess && IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsImage && !IsBinary;
+    public bool IsReadOnly => !HasWriteAccess || IsTruncated || IsImage || IsBinary;
 
     public bool ShowRenderedMarkdown
     {
