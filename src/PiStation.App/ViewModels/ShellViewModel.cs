@@ -388,6 +388,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 : "Loading threads…";
             Thread.Clear(hasSelectedThread: false);
             WorkbenchAgents.Apply([]);
+            Agents.Apply(null);
             RaiseCommandStateChanged();
         });
         if (project is null)
@@ -848,6 +849,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             {
                 Thread.Clear(hasSelectedThread: false);
                 WorkbenchAgents.Apply([]);
+                Agents.Apply(null);
                 ComposerPower.Commands.Clear();
                 ComposerPower.ReplaceStashes([]);
                 ComposerPower.ClearContext();
@@ -3583,6 +3585,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         ExtensionUi.Apply(projection);
         Plan.Apply(projection);
         WorkbenchAgents.Apply(projection?.AgentActivities);
+        Agents.Apply(projection);
         RaiseCommandStateChanged();
         if (previousRuntimeState == ThreadRuntimeState.Running &&
             projection?.RuntimeState == ThreadRuntimeState.Ready &&
@@ -3607,6 +3610,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         OnPropertyChanged(nameof(CanStartBackgroundTask));
         Plan.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
+        Agents.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(CanSend));
         OnPropertyChanged(nameof(CanStashPrompt));
         OnPropertyChanged(nameof(CanQueueFollowUp));

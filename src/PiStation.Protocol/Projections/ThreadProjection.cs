@@ -162,7 +162,10 @@ public sealed record AgentActivityProjection(
     string? FailureSummary,
     int? Step,
     int? AgentIndex,
-    bool CanInterrupt);
+    bool CanInterrupt,
+    string? ControlId = null,
+    string? Transcript = null,
+    bool CanResume = false);
 
 public sealed record MessageProjection(
     string MessageId,
@@ -287,6 +290,7 @@ public sealed record ThreadProjection(
     ContextCompactionProjection? Compaction = null,
     PiExtensionUiState? ExtensionUi = null,
     PiPlanState? Plan = null,
+    PiAgentSetup? AgentSetup = null,
     long CompletionSequence = 0)
 {
     [JsonIgnore]

@@ -767,6 +767,13 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         readState.IsUnread, cancellationToken).ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
+                case ThreadManageAgentsCommand agents:
+                    await controller!.ManageAgentsAsync(agents, cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadRunAgentWorkflowCommand workflow:
+                    await controller!.RunAgentWorkflowAsync(workflow.Workflow, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
+                    break;
                 case ThreadManagePlanCommand { Action: "execute" } plan:
                     await controller!.ExecutePlanAsync(plan.ExpectedRevision, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
                     break;
@@ -845,11 +852,12 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadInterruptAgentCommand interrupt:
-                    await controller!.InterruptAgentAsync(
+                    if (await controller!.InterruptAgentAsync(
                         interrupt.ActivityId,
                         request.ClientId,
                         request.CommandId,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken).ConfigureAwait(false))
+                        await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadRestartRuntimeCommand:
                     await controller!.RestartRuntimeAsync(cancellationToken).ConfigureAwait(false);

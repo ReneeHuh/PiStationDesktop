@@ -56,6 +56,8 @@ internal static class AppBootstrapper
             Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
             PlanExtensionPath = launchOptions.FakePiScenario is null or "plan-workflow"
                 ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-plan.ts") : null,
+            AgentExtensionPath = launchOptions.FakePiScenario is null or "agent-workflow"
+                ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-agents.ts") : null,
             ManagementExtensionPath = launchOptions.FakePiScenario is null
                 ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-resources.ts") : null,
             AdditionalPiArguments = launchOptions.FakePiScenario is null

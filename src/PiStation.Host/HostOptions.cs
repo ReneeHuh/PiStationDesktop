@@ -18,6 +18,7 @@ public sealed record HostOptions
     public string? BrowserAutomationExtensionPath { get; init; }
     public string? ManagementExtensionPath { get; init; }
     public string? PlanExtensionPath { get; init; }
+    public string? AgentExtensionPath { get; init; }
 
     public string? BrowserAutomationRoot { get; init; }
 

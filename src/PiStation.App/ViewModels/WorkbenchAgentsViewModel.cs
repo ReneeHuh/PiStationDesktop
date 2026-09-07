@@ -68,6 +68,7 @@ public sealed class WorkbenchAgentsViewModel : ObservableObject, IDisposable
 
         var activeCount = Activities.Count(static row => row.IsActive);
         var failureCount = Activities.Count(static row => row.State == AgentActivityState.Failed);
+        var interruptedCount = Activities.Count(static row => row.State == AgentActivityState.Interrupted);
         var completedCount = Activities.Count(static row => row.State == AgentActivityState.Completed);
         var visibleUsageRows = Activities.Where(row =>
             row.Kind == AgentActivityKind.Agent ||
@@ -80,6 +81,7 @@ public sealed class WorkbenchAgentsViewModel : ObservableObject, IDisposable
                 $"{Activities.Count} activit{(Activities.Count == 1 ? "y" : "ies")}",
                 activeCount == 0 ? $"{completedCount} completed" : $"{activeCount} live",
                 failureCount == 0 ? null : $"{failureCount} failed",
+                interruptedCount == 0 ? null : $"{interruptedCount} interrupted",
                 totalTokens == 0 ? null : $"{totalTokens:N0} tokens",
             }.Where(static value => value is not null));
 
@@ -127,7 +129,7 @@ public sealed class WorkbenchAgentsViewModel : ObservableObject, IDisposable
         var roots = activities
             .Where(activity => string.IsNullOrWhiteSpace(activity.ParentActivityId) ||
                 !ids.Contains(activity.ParentActivityId))
-            .OrderBy(ActivityOrder)
+            .OrderByDescending(ActivityOrder)
             .ToArray();
         var result = new List<HierarchyItem>(activities.Count);
         var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -182,6 +184,12 @@ public sealed class AgentActivityRowViewModel : ObservableObject
     }
 
     public string ActivityId => _activity.ActivityId;
+    public string? ControlId => _activity.ControlId;
+    public string Transcript => _activity.Transcript ?? _activity.ResultSummary ?? _activity.FailureSummary ?? "No transcript was reported by this extension.";
+    public Visibility DetailsVisibility => Kind == AgentActivityKind.Agent ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TaskVisibility => string.IsNullOrWhiteSpace(Task) ? Visibility.Collapsed : Visibility.Visible;
+    public bool CanResume => _activity.CanResume && !IsActive;
+    public string InterruptLabel => ControlId is null ? "Stop parent turn" : "Stop child";
 
     public string? ParentActivityId => _activity.ParentActivityId;
 

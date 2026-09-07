@@ -8,6 +8,18 @@ namespace PiStation.Host.Tests;
 public sealed class PiAgentActivityProjectorTests
 {
     [Fact]
+    public void RejectedNativeChainFinishesPendingChildrenWithoutInventingResults()
+    {
+        using var args = JsonDocument.Parse("""{"mode":"chain","tasks":[{"agent":"scout","task":"Read"},{"agent":"missing","task":"Never"}]}""");
+        var started = PiAgentActivityProjector.Start("native-rejected", "pistation_subagent", args.RootElement, null, DateTimeOffset.UnixEpoch);
+        Assert.Equal(3, started.Count);
+        using var error = JsonDocument.Parse("""{"content":[{"type":"text","text":"Unknown agent preset"}]}""");
+        var result = PiAgentActivityProjector.Update("native-rejected", error.RootElement, started, true, true, null, DateTimeOffset.UnixEpoch.AddSeconds(1));
+        Assert.Equal(AgentActivityState.Failed, result[0].State);
+        Assert.All(result.Skip(1), child => { Assert.Equal(AgentActivityState.Interrupted, child.State); Assert.False(child.CanInterrupt); Assert.Null(child.ResultSummary); });
+    }
+
+    [Fact]
     public void ChainedWorkflowKeepsPendingStepsWhileStreamingAndProjectsFinalUsage()
     {
         var startedUtc = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
@@ -92,9 +104,11 @@ public sealed class PiAgentActivityProjectorTests
                   "agent": "reviewer",
                   "task": "Review the change",
                   "exitCode": 1,
+                  "step": null,
+                  "toolCount": null,
                   "messages": [],
                   "stderr": "review command failed",
-                  "usage": { "input": 20, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+                  "usage": { "input": 20, "output": 0, "cacheRead": null, "cacheWrite": 0 }
                 }]
               }
             }
@@ -112,6 +126,8 @@ public sealed class PiAgentActivityProjectorTests
         Assert.Equal(AgentActivityState.Failed, failed.State);
         Assert.Equal("review command failed", failed.FailureSummary);
         Assert.False(failed.CanInterrupt);
+        Assert.Null(failed.Step);
+        Assert.Equal(20, failed.Usage?.TotalTokens);
         Assert.NotNull(failed.CompletedUtc);
     }
 }

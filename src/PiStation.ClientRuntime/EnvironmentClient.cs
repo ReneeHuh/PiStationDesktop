@@ -988,6 +988,13 @@ public sealed class EnvironmentClient : IEnvironmentClient
         CancellationToken cancellationToken = default) =>
         ExecuteAsync(threadId, null, null, new ThreadManagePlanCommand(action, expectedRevision, text), cancellationToken);
 
+    public Task<CommandReceipt> ManageAgentsAsync(ThreadId threadId, string action, string? expectedRevision = null, PiAgentPreset? preset = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(threadId, null, null, new ThreadManageAgentsCommand(action, expectedRevision, preset), cancellationToken);
+
+    public Task<CommandReceipt> RunAgentWorkflowAsync(ThreadId threadId, PiAgentWorkflow workflow, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(threadId, null, null, new ThreadRunAgentWorkflowCommand(workflow), cancellationToken);
+
     public Task<CommandReceipt> StartTurnAsync(
         ThreadId threadId,
         string prompt,

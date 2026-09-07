@@ -8,6 +8,8 @@ namespace PiStation.Protocol.Commands;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(ThreadStartTurnCommand), "threadStartTurn")]
 [JsonDerivedType(typeof(ThreadManagePlanCommand), "threadManagePlan")]
+[JsonDerivedType(typeof(ThreadManageAgentsCommand), "threadManageAgents")]
+[JsonDerivedType(typeof(ThreadRunAgentWorkflowCommand), "threadRunAgentWorkflow")]
 [JsonDerivedType(typeof(ThreadQueueSteeringCommand), "threadQueueSteering")]
 [JsonDerivedType(typeof(ThreadQueueFollowUpCommand), "threadQueueFollowUp")]
 [JsonDerivedType(typeof(ThreadClearQueueCommand), "threadClearQueue")]
@@ -40,6 +42,8 @@ public abstract record ThreadCommand;
 public sealed record ThreadSetReadStateCommand(long ObservedCompletionSequence, bool IsUnread = false) : ThreadCommand;
 
 public sealed record ThreadManagePlanCommand(string Action, long ExpectedRevision, string? Text = null) : ThreadCommand;
+public sealed record ThreadManageAgentsCommand(string Action, string? ExpectedRevision = null, PiAgentPreset? Preset = null) : ThreadCommand;
+public sealed record ThreadRunAgentWorkflowCommand(PiAgentWorkflow Workflow) : ThreadCommand;
 
 public sealed record ThreadStartTurnCommand(
     string Prompt,

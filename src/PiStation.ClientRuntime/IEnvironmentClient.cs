@@ -446,5 +446,10 @@ public interface IEnvironmentClient : IAsyncDisposable
 
     ThreadSubscription SubscribeThread(ThreadId threadId);
 
+    Task<CommandReceipt> ManageAgentsAsync(ThreadId threadId, string action, string? expectedRevision = null, PiAgentPreset? preset = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> RunAgentWorkflowAsync(ThreadId threadId, PiAgentWorkflow workflow, CancellationToken cancellationToken = default);
+
     TerminalSubscription SubscribeTerminal(TerminalSessionId terminalSessionId);
 }

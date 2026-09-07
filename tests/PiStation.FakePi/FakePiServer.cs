@@ -138,6 +138,12 @@ internal sealed partial class FakePiServer : IDisposable
         switch (type)
         {
             case "prompt":
+                if (_arguments.Scenario == "agent-workflow" && command["message"]?.ToString() is { } agentPrompt)
+                {
+                    if (agentPrompt.StartsWith("/pistation-desktop-agents ", StringComparison.Ordinal)) await HandleAgentsCommandAsync(id, agentPrompt, cancellationToken);
+                    else await HandleAgentPromptAsync(id, agentPrompt, cancellationToken);
+                    break;
+                }
                 if (_arguments.Scenario == "plan-workflow" && command["message"]?.ToString() is { } planPrompt)
                 {
                     if (planPrompt.StartsWith("/pistation-desktop-plan ", StringComparison.Ordinal))
@@ -241,6 +247,7 @@ internal sealed partial class FakePiServer : IDisposable
                     ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "management.ts"), ["scope"] = "temporary" },
                 });
                 if (_arguments.Scenario == "plan-workflow") commands.Add(new JsonObject { ["name"] = "pistation-desktop-plan", ["source"] = "extension" });
+                if (_arguments.Scenario == "agent-workflow") commands.Add(new JsonObject { ["name"] = "pistation-desktop-agents", ["source"] = "extension" });
                 await _writer.WriteAsync(Response(id, type, new JsonObject { ["commands"] = commands }), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "compact" when _arguments.Scenario != "command-timeout":
@@ -844,6 +851,12 @@ internal sealed partial class FakePiServer : IDisposable
         }
 
         await _writer.WriteAsync(Response(id, "abort"), cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (_arguments.Scenario == "agent-workflow" && _isStreaming)
+        {
+            foreach (var child in _agentResults.Where(child => child!["status"]!.ToString() == "running"))
+            { child!["status"] = "interrupted"; child["stopReason"] = "aborted"; child["exitCode"] = 1; }
+            await FinishAgentWorkflowAsync(cancellationToken);
+        }
         if (_arguments.Scenario is "stop" or "stop-retry-delay" or "queue")
         {
             if (_arguments.Scenario is "stop" or "stop-retry-delay")

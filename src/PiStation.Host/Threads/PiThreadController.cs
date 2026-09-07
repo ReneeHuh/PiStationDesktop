@@ -182,6 +182,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     AgentActivities = [],
                     CompletionSequence = await _database.GetCompletionSequenceAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false),
                     Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false),
+                    AgentSetup = await ReadAgentsOnStartAsync(cancellationToken).ConfigureAwait(false),
                 };
                 var persistedAgentEvents = await _database.ListThreadAgentEventsAsync(
                     _thread.ThreadId,
@@ -279,7 +280,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
             new("background", "Start an independent task and keep a fresh draft here.", ComposerCommandSource.BuiltIn),
         };
-        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand).Select(static command => new ComposerCommandDescriptor(
+        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand && command.Name != PiRpcConnection.AgentsCommand).Select(static command => new ComposerCommandDescriptor(
             command.Name,
             command.Description ?? command.Name,
             command.Source switch
@@ -531,7 +532,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
         ClientId clientId,
         CommandId commandId,
         long? approvedPlanRevision,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PiAgentWorkflow? agentWorkflow = null)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ArgumentNullException.ThrowIfNull(attachments);
@@ -553,6 +555,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             }
 
             // Resolve resources before creating a turn or consuming its draft.
+            if (agentWorkflow is not null) await ValidateAgentWorkflowAsync(agentWorkflow, cancellationToken).ConfigureAwait(false);
             var preparedPrompt = await _process.Connection.PreparePromptAsync(prompt, cancellationToken).ConfigureAwait(false);
             if (approvedPlanRevision is { } planRevision)
                 await ApplyPlanCommandAsync(new("execute", planRevision), cancellationToken).ConfigureAwait(false);
@@ -619,7 +622,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 _settlementReceipts.Remove((clientId, commandId));
             }
 
-            if (approvedPlanRevision is not null)
+            if (approvedPlanRevision is not null || agentWorkflow is not null)
             {
                 // Revoke a possibly delivered approval by closing the owned runtime.
                 // Its persisted executing state reopens paused and requires a new approval.
@@ -753,7 +756,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
         await RefreshQueueAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public Task InterruptAgentAsync(
+    public async Task<bool> InterruptAgentAsync(
         string activityId,
         ClientId clientId,
         CommandId commandId,
@@ -776,8 +779,14 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 "That agent activity is no longer interruptible.");
         }
 
-        // Pi extensions receive the active turn's abort signal. Pi does not expose targeted child-process aborts.
-        return StopTurnAsync(clientId, commandId, cancellationToken);
+        if (activity.ControlId is { Length: 32 } controlId)
+        {
+            await StopChildAsync(controlId, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        // External extensions without a child handle retain parent-turn cancellation.
+        await StopTurnAsync(clientId, commandId, cancellationToken).ConfigureAwait(false);
+        return false;
     }
 
     public async Task RestartRuntimeAsync(CancellationToken cancellationToken = default)
@@ -1579,6 +1588,14 @@ public sealed partial class PiThreadController : IAsyncDisposable
         foreach (var activity in activities)
         {
             var @event = new AgentActivityChangedEvent(activity);
+            var previous = Journal.Projection.AgentActivities?.FirstOrDefault(item => item.ActivityId == activity.ActivityId);
+            if (previous is not null && activity with { UpdatedUtc = previous.UpdatedUtc } == previous) continue;
+            if (activity.ControlId is not null && previous is not null && activity with { UpdatedUtc = previous.UpdatedUtc, CurrentActivity = previous.CurrentActivity } == previous)
+            {
+                // Stream transient progress without duplicating the entire transcript in storage.
+                Journal.Commit(@event);
+                continue;
+            }
             await _database.AppendThreadAgentEventAsync(
                 _thread.ThreadId,
                 activity.TurnId,

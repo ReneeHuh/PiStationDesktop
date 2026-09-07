@@ -9,6 +9,7 @@ public sealed partial class PiRpcConnection
 {
     public const string ManagementCommand = "pistation-desktop-resources";
     public const string PlanCommand = "pistation-desktop-plan";
+    public const string AgentsCommand = "pistation-desktop-agents";
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _managementRequests = new();
 
     public Task<JsonElement> ManageAsync(JsonObject action, CancellationToken cancellationToken = default) =>
@@ -16,6 +17,9 @@ public sealed partial class PiRpcConnection
 
     public Task<JsonElement> ManagePlanAsync(JsonObject action, CancellationToken cancellationToken = default) =>
         ManageCoreAsync(PlanCommand, action, cancellationToken);
+
+    public Task<JsonElement> ManageAgentsAsync(JsonObject action, CancellationToken cancellationToken = default) =>
+        ManageCoreAsync(AgentsCommand, action, cancellationToken);
 
     private async Task<JsonElement> ManageCoreAsync(string commandName, JsonObject action, CancellationToken cancellationToken)
     {

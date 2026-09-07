@@ -52,6 +52,14 @@ Review or edit the numbered list, choose **Save plan**, then **Approve and execu
 
 Plans and progress survive thread switches, reconnect and restart. Execution interrupted by process shutdown reopens paused. **Reload saved plan** replaces unsaved editor changes; stale saves require reviewing the current version first. After completion, planning restrictions remain active until **Return to normal tools**. Plan text supports up to 32 KiB and 100 steps. Back up the `plans` directory together with the sessions and host database.
 
+## Run agent workflows
+
+Open the workbench's **Agents** tab and expand **Run workflow**. Choose single, parallel or chain mode, select a preset for each task, and run. In chains, `{previous}` inserts the prior result. The parent delegates the tasks and reports their results; composer drafts stay separate. Parallel children share workspace files, so assign separate work to avoid conflicting edits.
+
+**Agent setup and presets** provides enable/disable, refresh and an editor. Scout, planner and reviewer use read/search tools; worker can also write and run commands. Custom presets select supported tools and an optional provider/model. Save with a new name to create a preset. **Reload preset** replaces unsaved editor changes with the selected saved preset.
+
+Use **View transcript** and **Continue child** to inspect a child and submit a follow-up using its saved context. **Stop child** cancels only that child; **Stop parent turn** affects the whole turn. After restart, review interrupted activity and continue explicitly when saved context is available. Planning mode blocks delegation until execution is approved; separate native workflows require normal tools. See [workflow limits and validation](PI-AGENT-WORKFLOWS-2026-09-06.md).
+
 ## Organize and review work
 
 - Use the sidebar's **Active / Settled / Snoozed / Archived** selector. A completed response leaves its task active. Settle tasks explicitly when the work is finished. Snoozes wake at their expiry on the next inbox refresh (within about 30 seconds while connected).
@@ -71,7 +79,7 @@ Plans and progress survive thread switches, reconnect and restart. Execution int
 
 ## Back up and update
 
-Close Pi Station, then back up the complete `%LOCALAPPDATA%\PiStationDesktop` directory and your project repositories. Keep `host.db`, sessions, plans, attachments, worktrees, and settings together. A `--data-root` launch uses that directory instead. Restore with the app closed.
+Close Pi Station, then back up the complete `%LOCALAPPDATA%\PiStationDesktop` directory and your project repositories. Keep `host.db`, sessions, plans, agents, `agent-presets.json`, attachments, worktrees, and settings together. A `--data-root` launch uses that directory instead. Restore with the app closed.
 
 Run `pwsh ./Build-Release.ps1` to generate an unsigned development MSIX and checksum in a fresh folder beneath `artifacts/release`. Unsigned packages are build artifacts; they need signing before normal installation.
 

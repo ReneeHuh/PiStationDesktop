@@ -1583,6 +1583,74 @@
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.WorkbenchAgents.Summary, Mode=OneWay}"
                                 TextWrapping="WrapWholeWords" />
+                            <Expander Header="Run workflow" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                IsExpanded="{x:Bind ViewModel.Agents.LauncherExpanded, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="AgentWorkflowExpander"
+                                Visibility="{x:Bind ViewModel.Agents.Visibility, Mode=OneWay}">
+                                <ScrollViewer MaxHeight="340" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="8" Padding="2">
+                                        <TextBlock automation:AutomationProperties.AutomationId="AgentSetupSummaryText"
+                                            Text="{x:Bind ViewModel.Agents.SetupSummary, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                                        <ComboBox Header="Workflow mode" HorizontalAlignment="Stretch"
+                                            automation:AutomationProperties.AutomationId="AgentWorkflowModeComboBox"
+                                            ItemsSource="{x:Bind ViewModel.Agents.Modes}"
+                                            SelectedItem="{x:Bind ViewModel.Agents.Mode, Mode=TwoWay}" />
+                                        <TextBlock Text="{x:Bind ViewModel.Agents.WorkflowHint, Mode=OneWay}" TextWrapping="WrapWholeWords"
+                                            FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                                        <ItemsControl ItemsSource="{x:Bind ViewModel.Agents.Tasks}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="viewModels:AgentTaskEditorViewModel">
+                                                    <StackPanel Spacing="5" Margin="0,0,0,8">
+                                                        <ComboBox Header="Agent preset" HorizontalAlignment="Stretch"
+                                                            automation:AutomationProperties.AutomationId="AgentTaskPresetComboBox"
+                                                            ItemsSource="{x:Bind PresetNames}" SelectedItem="{x:Bind Agent, Mode=TwoWay}" />
+                                                        <TextBox Header="Delegated task" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="110" MaxLength="8192"
+                                                            automation:AutomationProperties.AutomationId="AgentTaskTextBox"
+                                                            Text="{x:Bind Task, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                        <Button Content="Remove task" Click="OnRemoveAgentTaskClicked" Style="{StaticResource PiToolbarButtonStyle}"
+                                                            automation:AutomationProperties.AutomationId="RemoveAgentTaskButton" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="Add task" Click="OnAddAgentTaskClicked" automation:AutomationProperties.AutomationId="AddAgentTaskButton" />
+                                            <Button Content="Run workflow" Click="OnRunAgentWorkflowClicked" IsEnabled="{x:Bind ViewModel.Agents.CanRun, Mode=OneWay}"
+                                                automation:AutomationProperties.AutomationId="RunAgentWorkflowButton" />
+                                        </StackPanel>
+                                        <Expander Header="Agent setup and presets" HorizontalAlignment="Stretch"
+                                            automation:AutomationProperties.AutomationId="AgentSetupExpander">
+                                            <StackPanel Spacing="8">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Button Content="Refresh" Tag="inspect" Click="OnManageAgentsClicked" IsEnabled="{x:Bind ViewModel.Agents.CanManage, Mode=OneWay}"
+                                                        automation:AutomationProperties.AutomationId="RefreshAgentSetupButton" />
+                                                    <Button Content="{x:Bind ViewModel.Agents.ToggleLabel, Mode=OneWay}" Tag="{x:Bind ViewModel.Agents.ToggleAction, Mode=OneWay}"
+                                                        Click="OnManageAgentsClicked" IsEnabled="{x:Bind ViewModel.Agents.CanManage, Mode=OneWay}"
+                                                        automation:AutomationProperties.AutomationId="ToggleAgentIntegrationButton" />
+                                                </StackPanel>
+                                                <ComboBox Header="Edit a preset" HorizontalAlignment="Stretch" ItemsSource="{x:Bind ViewModel.Agents.PresetNames}"
+                                                    SelectedItem="{x:Bind ViewModel.Agents.SelectedPreset, Mode=TwoWay}" automation:AutomationProperties.AutomationId="EditAgentPresetComboBox" />
+                                                <Button Content="New preset" Click="OnNewAgentPresetClicked" automation:AutomationProperties.AutomationId="NewAgentPresetButton" />
+                                                <Button Content="Reload preset" Click="OnReloadAgentPresetClicked" automation:AutomationProperties.AutomationId="ReloadAgentPresetButton" />
+                                                <TextBox Header="Name" MaxLength="40" Text="{x:Bind ViewModel.Agents.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetNameTextBox" />
+                                                <TextBox Header="Description" MaxLength="240" Text="{x:Bind ViewModel.Agents.Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetDescriptionTextBox" />
+                                                <TextBox Header="Instructions" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxHeight="140" MaxLength="8192"
+                                                    Text="{x:Bind ViewModel.Agents.Instructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetInstructionsTextBox" />
+                                                <TextBox Header="Tools (comma separated)" Text="{x:Bind ViewModel.Agents.Tools, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetToolsTextBox" />
+                                                <TextBlock Text="Supported tools: read, grep, find, ls, bash, edit, write." TextWrapping="WrapWholeWords" FontSize="{StaticResource PiFontSizeCaption}" />
+                                                <TextBox Header="Model (optional provider/model)" MaxLength="240" PlaceholderText="Inherit from parent"
+                                                    Text="{x:Bind ViewModel.Agents.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetModelTextBox" />
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Button Content="Save preset" Tag="save" Click="OnManageAgentsClicked" IsEnabled="{x:Bind ViewModel.Agents.CanManage, Mode=OneWay}" automation:AutomationProperties.AutomationId="SaveAgentPresetButton" />
+                                                    <Button Content="Delete preset" Tag="delete" Click="OnManageAgentsClicked" IsEnabled="{x:Bind ViewModel.Agents.CanManage, Mode=OneWay}" automation:AutomationProperties.AutomationId="DeleteAgentPresetButton" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Expander>
+                            <TextBlock Text="{x:Bind ViewModel.Agents.Status, Mode=OneWay}" TextWrapping="WrapWholeWords"
+                                automation:AutomationProperties.AutomationId="AgentWorkflowStatusText" automation:AutomationProperties.LiveSetting="Polite" />
                         </StackPanel>
 
                         <Grid Grid.Row="1">
@@ -1632,12 +1700,12 @@
                                                     <Button
                                                         Grid.Column="2"
                                                         automation:AutomationProperties.AutomationId="InterruptAgentButton"
-                                                        automation:AutomationProperties.Name="Interrupt agent or workflow"
+                                                        automation:AutomationProperties.Name="{x:Bind InterruptLabel, Mode=OneWay}"
                                                         Click="OnInterruptAgentClicked"
-                                                        Content="Interrupt"
+                                                        Content="{x:Bind InterruptLabel, Mode=OneWay}"
                                                         IsEnabled="{x:Bind CanInterrupt, Mode=OneWay}"
                                                         Style="{StaticResource PiToolbarButtonStyle}"
-                                                        ToolTipService.ToolTip="Interrupt this activity by stopping its Pi turn"
+                                                        ToolTipService.ToolTip="{x:Bind InterruptLabel, Mode=OneWay}"
                                                         Visibility="{x:Bind InterruptVisibility, Mode=OneWay}" />
                                                 </Grid>
                                                 <TextBlock
@@ -1660,7 +1728,11 @@
                                                     FontSize="{StaticResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{x:Bind Task, Mode=OneWay}"
+                                                    Visibility="{x:Bind TaskVisibility, Mode=OneWay}"
                                                     TextWrapping="WrapWholeWords" />
+                                                <Button Content="View transcript" Click="OnAgentDetailsClicked" HorizontalAlignment="Left"
+                                                    Visibility="{x:Bind DetailsVisibility, Mode=OneWay}"
+                                                    automation:AutomationProperties.AutomationId="AgentDetailsButton" />
                                                 <TextBlock
                                                     FontSize="{StaticResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"

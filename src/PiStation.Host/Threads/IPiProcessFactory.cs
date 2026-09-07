@@ -37,6 +37,13 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
             additionalArguments.Add("--extension");
             additionalArguments.Add(managementPath);
         }
+        if (_options.AgentExtensionPath is { } agentPath)
+        {
+            additionalArguments.Add("--extension");
+            additionalArguments.Add(agentPath);
+            environmentVariables["PISTATION_AGENT_ROOT"] = Path.Combine(_options.CanonicalDataRoot, "agents", thread.ThreadId.Value);
+            environmentVariables["PISTATION_AGENT_SETTINGS"] = Path.Combine(_options.CanonicalDataRoot, "agent-presets.json");
+        }
         foreach (var extension in extensions.Paths ?? [])
         {
             additionalArguments.Add("--extension");

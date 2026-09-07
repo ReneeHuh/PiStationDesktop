@@ -102,6 +102,12 @@ internal static class PiAgentActivityProjector
                     FailureSummary = isFinal && isError ? Bounded(summary, SummaryLimit, "Agent failed") : existing.FailureSummary,
                     CanInterrupt = !isFinal,
                 },
+                .. current.Where(activity => isFinal && activity.ParentActivityId == toolCallId && !IsTerminal(activity.State)).Select(activity => activity with
+                {
+                    State = AgentActivityState.Interrupted, CurrentActivity = "Workflow ended before this child completed",
+                    UpdatedUtc = now, CompletedUtc = now, CanInterrupt = false,
+                    FailureSummary = Bounded(summary, SummaryLimit, "Workflow ended without a child result"),
+                }),
             ];
         }
 
@@ -115,6 +121,8 @@ internal static class PiAgentActivityProjector
             var activityId = mode is "parallel" or "chain" ? ChildId(toolCallId, index) : toolCallId;
             var previous = current.FirstOrDefault(activity => activity.ActivityId == activityId);
             var state = ReadAgentState(item, isFinal, isError);
+            var controlId = ReadString(details, "integration") == "pistation" && ReadString(item, "controlId") is { } candidate && Guid.TryParseExact(candidate, "N", out _)
+                ? candidate : null;
             var task = Bounded(ReadString(item, "task"), SummaryLimit, string.Empty);
             var title = Bounded(ReadString(item, "agent"), 120, previous?.Title ?? $"Agent {index + 1}");
             var output = ReadFinalOutput(item);
@@ -138,17 +146,20 @@ internal static class PiAgentActivityProjector
                 previous?.StartedUtc ?? now,
                 now,
                 IsTerminal(state) ? previous?.CompletedUtc ?? now : null,
-                CountTools(item),
+                ReadInt32(item, "toolCount") ?? CountTools(item),
                 ReadUsage(item),
                 Bounded(ReadString(item, "model"), 160, previous?.Model),
                 Bounded(ReadString(item, "thinkingLevel"), 80, previous?.ReasoningLevel),
                 state == AgentActivityState.Completed ? Bounded(output, SummaryLimit, previous?.ResultSummary) : previous?.ResultSummary,
                 state is AgentActivityState.Failed or AgentActivityState.Interrupted
-                    ? Bounded(failure ?? output, SummaryLimit, previous?.FailureSummary)
+                    ? Bounded(failure ?? (state == AgentActivityState.Interrupted ? "Child interrupted" : output), SummaryLimit, previous?.FailureSummary)
                     : previous?.FailureSummary,
                 ReadInt32(item, "step") ?? (mode == "chain" ? index + 1 : null),
                 index,
-                mode == "single" && !IsTerminal(state)));
+                !IsTerminal(state) && (controlId is not null && state == AgentActivityState.Running || mode == "single"),
+                controlId,
+                Bounded(ReadString(item, "transcript") ?? ReadTranscript(item), 32768, previous?.Transcript),
+                controlId is not null && item.TryGetProperty("canResume", out var resumable) && resumable.ValueKind == JsonValueKind.True));
             index++;
         }
 
@@ -162,11 +173,16 @@ internal static class PiAgentActivityProjector
                 .ToArray();
             var workflowState = AggregateWorkflowState(allChildren, isFinal, isError);
             var completed = allChildren.Count(activity => activity.State == AgentActivityState.Completed);
-            var failed = allChildren.Count(activity => activity.State is AgentActivityState.Failed or AgentActivityState.Interrupted);
-            var active = allChildren.Length - completed - failed;
+            var failed = allChildren.Count(activity => activity.State == AgentActivityState.Failed);
+            var interrupted = allChildren.Count(activity => activity.State == AgentActivityState.Interrupted);
+            var active = allChildren.Length - completed - failed - interrupted;
             var summary = active > 0
-                ? $"{completed + failed}/{allChildren.Length} finished • {active} active"
-                : failed > 0 ? $"{completed} completed • {failed} failed" : $"{completed}/{allChildren.Length} completed";
+                ? $"{completed + failed + interrupted}/{allChildren.Length} finished • {active} active"
+                : failed + interrupted > 0 ? string.Join(" • ", new[]
+                {
+                    $"{completed} completed", failed > 0 ? $"{failed} failed" : null,
+                    interrupted > 0 ? $"{interrupted} interrupted" : null,
+                }.Where(static value => value is not null)) : $"{completed}/{allChildren.Length} completed";
             projections.Insert(0, new AgentActivityProjection(
                 toolCallId,
                 previous?.TurnId ?? turnId,
@@ -185,7 +201,7 @@ internal static class PiAgentActivityProjector
                 null,
                 workflowState == AgentActivityState.Completed ? Bounded(ExtractContentText(result), SummaryLimit, null) : previous?.ResultSummary,
                 workflowState is AgentActivityState.Failed or AgentActivityState.Interrupted
-                    ? Bounded(ExtractContentText(result), SummaryLimit, "Workflow failed")
+                    ? Bounded(workflowState == AgentActivityState.Interrupted ? "Workflow interrupted" : ExtractContentText(result), SummaryLimit, "Workflow failed")
                     : previous?.FailureSummary,
                 null,
                 null,
@@ -230,6 +246,7 @@ internal static class PiAgentActivityProjector
         canInterrupt);
 
     private static bool IsAgentTool(string toolName) =>
+        toolName.Equals("pistation_subagent", StringComparison.OrdinalIgnoreCase) ||
         toolName.Equals("subagent", StringComparison.OrdinalIgnoreCase) ||
         toolName.Equals("spawn_agent", StringComparison.OrdinalIgnoreCase) ||
         toolName.Equals("spawn_agents", StringComparison.OrdinalIgnoreCase) ||
@@ -245,6 +262,7 @@ internal static class PiAgentActivityProjector
     private static (string Agent, string Task)[] ReadTasks(JsonElement arguments, string mode)
     {
         var propertyName = mode == "chain" ? "chain" : "tasks";
+        if (!arguments.TryGetProperty(propertyName, out _) && arguments.TryGetProperty("tasks", out _)) propertyName = "tasks";
         if (!arguments.TryGetProperty(propertyName, out var tasks) || tasks.ValueKind != JsonValueKind.Array)
         {
             return [];
@@ -259,6 +277,7 @@ internal static class PiAgentActivityProjector
 
     private static AgentActivityState ReadAgentState(JsonElement item, bool isFinal, bool isError)
     {
+        if (ReadString(item, "status") == "pending") return isFinal ? AgentActivityState.Interrupted : AgentActivityState.Pending;
         var stopReason = ReadString(item, "stopReason");
         if (string.Equals(stopReason, "aborted", StringComparison.OrdinalIgnoreCase))
         {
@@ -276,6 +295,7 @@ internal static class PiAgentActivityProjector
             return AgentActivityState.Failed;
         }
 
+        if (ReadString(item, "status") == "completed") return AgentActivityState.Completed;
         return exitCode == 0 || isFinal
             ? isError ? AgentActivityState.Failed : AgentActivityState.Completed
             : AgentActivityState.Running;
@@ -308,6 +328,7 @@ internal static class PiAgentActivityProjector
 
     private static string ReadCurrentActivity(JsonElement item)
     {
+        if (ReadString(item, "currentActivity") is { Length: > 0 } activity) return activity;
         if (!item.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array)
         {
             return "Working";
@@ -381,6 +402,13 @@ internal static class PiAgentActivityProjector
 
     private static string? ReadFailure(JsonElement item) =>
         ReadString(item, "errorMessage") ?? ReadString(item, "stderr");
+
+    private static string? ReadTranscript(JsonElement item)
+    {
+        if (!item.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array) return null;
+        return string.Join("\n\n", messages.EnumerateArray().TakeLast(50).Select(message =>
+            $"{ReadString(message, "role")}:\n{ExtractContentText(message)}"));
+    }
 
     private static TokenUsage? ReadUsage(JsonElement item)
     {
@@ -464,6 +492,7 @@ internal static class PiAgentActivityProjector
     private static int? ReadInt32(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
         value.TryGetInt32(out var result)
             ? result
             : null;
@@ -471,6 +500,7 @@ internal static class PiAgentActivityProjector
     private static long? ReadInt64(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
         value.TryGetInt64(out var result)
             ? result
             : null;

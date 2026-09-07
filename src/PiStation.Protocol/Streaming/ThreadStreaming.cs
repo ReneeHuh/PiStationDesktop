@@ -29,7 +29,10 @@ public sealed record ThreadCursor(ProjectionEpoch ProjectionEpoch, Sequence Sequ
 [JsonDerivedType(typeof(ContextCompactionChangedEvent), "contextCompactionChanged")]
 [JsonDerivedType(typeof(PiExtensionUiChangedEvent), "piExtensionUiChanged")]
 [JsonDerivedType(typeof(PiPlanChangedEvent), "piPlanChanged")]
+[JsonDerivedType(typeof(PiAgentSetupChangedEvent), "piAgentSetupChanged")]
 public abstract record ThreadEvent;
+
+public sealed record PiAgentSetupChangedEvent(PiAgentSetup Setup) : ThreadEvent;
 
 public sealed record RuntimeStateChangedEvent(ThreadRuntimeState State) : ThreadEvent;
 

@@ -56,4 +56,4 @@ dotnet test tests/PiStation.PiRpc.Tests/PiStation.PiRpc.Tests.csproj --filter Fu
 pwsh tests/PiStation.UiTests/Invoke-PiPlanSlice.ps1 -NoBuild -Capture
 ```
 
-Next: actual subagent extension setup, workflows and child detail/control support (PI-10), followed by hosted PR diffs and inline discussions. Full permission-mode parity, arbitrary extension UI, and broader provider/physical-DPI/accessibility acceptance remain separate work.
+The [agent workflow follow-up](PI-AGENT-WORKFLOWS-2026-09-06.md) implements the next PI-10 milestone and advances the protocol to v27. Hosted PR diffs and inline discussions remain next. Full permission-mode parity, arbitrary extension UI, and broader provider/physical-DPI/accessibility acceptance remain separate work.
