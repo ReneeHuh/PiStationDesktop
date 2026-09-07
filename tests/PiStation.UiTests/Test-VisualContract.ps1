@@ -165,6 +165,13 @@ foreach ($checkpointAutomationId in @(
 }
 
 $reviewSource = Get-Content -LiteralPath (Join-Path $viewRoot 'ShellPage.Review.cs') -Raw
+foreach ($sentAction in @('OnPreviewSentAttachment', 'OnOpenSentAttachment', 'OnSaveSentAttachment', 'OnCopySentAttachmentPath', 'OnOpenSentCitation')) {
+    Assert-Contract ($conversationXaml.Contains("Click=`"$sentAction`"", [System.StringComparison]::Ordinal)) `
+        "Sent-content action '$sentAction' is not wired into the transcript."
+}
+Assert-Contract ($conversationXaml.Contains('ItemsSource="{x:Bind Attachments}"') -and $conversationXaml.Contains('ItemsSource="{x:Bind Citations}"')) `
+    'Sent attachment and citation collections must be bound in the transcript.'
+
 Assert-Contract ($reviewSource -match 'side\.SetBinding\(ComboBox\.SelectedItemProperty,[^;]*nameof\(review\.SelectedSide\)[^;]*BindingMode\.TwoWay') `
     'PR diff side must bind bidirectionally to the retained review model.'
 Assert-Contract ($reviewSource -notmatch 'var side = new ComboBox[^;]*SelectedIndex') `

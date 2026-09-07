@@ -2820,7 +2820,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var startLine = offset >= 0 ? 1 + message.Text[..offset].Count(character => character == '\n') : (int?)null;
         var endLine = startLine + sourceText.Count(character => character == '\n');
         if (!ComposerPower.AddContext("response", $"Pi response {message.ItemId}", sourceText, SelectedThread?.ThreadId, message.ItemId,
-            startLine: startLine, endLine: endLine)) return;
+            startLine: startLine, endLine: endLine,
+            sourceTextSha256: CitationSourceResolver.Fingerprint(message.Text))) return;
         ComposerPower.Status = "Cited response as context";
     }
 

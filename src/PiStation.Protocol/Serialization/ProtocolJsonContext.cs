@@ -183,6 +183,7 @@ namespace PiStation.Protocol.Serialization;
 [JsonSerializable(typeof(ToolProjection))]
 [JsonSerializable(typeof(TokenUsage))]
 [JsonSerializable(typeof(TurnMetrics))]
+[JsonSerializable(typeof(SentMessageContent))]
 [JsonSerializable(typeof(QueuedMessageProjection))]
 [JsonSerializable(typeof(QueuedMessageProjection[]))]
 [JsonSerializable(typeof(ThreadQueueProjection))]

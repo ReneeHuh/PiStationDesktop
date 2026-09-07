@@ -213,7 +213,7 @@ public sealed class ThreadViewModel : ObservableObject
                 _ => "Tool",
             },
             message.Text,
-            message.IsComplete),
+            message.IsComplete, message.Content),
         ThinkingTimelineItem thinking => CreateThinkingViewModel(thinking, previousThinking),
         StatusTimelineItem status => new StatusTimelineItemViewModel(
             status.ItemId,
@@ -419,8 +419,12 @@ public sealed record MessageTimelineItemViewModel(
     string ItemId,
     string Role,
     string Text,
-    bool IsComplete) : TimelineItemViewModel(ItemId)
+    bool IsComplete,
+    SentMessageContent? Content = null) : TimelineItemViewModel(ItemId)
 {
+    public IReadOnlyList<DraftAttachmentViewModel> Attachments => Content?.Attachments.Select(a => new DraftAttachmentViewModel(a)).ToArray() ?? [];
+    public IReadOnlyList<ComposerContextChipViewModel> Citations => Content?.Citations.Select(ComposerContextChipViewModel.FromContext).ToArray() ?? [];
+
     public Visibility MarkdownVisibility => Role == "Pi" ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility UserVisibility => Role == "You" ? Visibility.Visible : Visibility.Collapsed;

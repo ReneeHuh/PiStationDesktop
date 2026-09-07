@@ -2,5 +2,5 @@ namespace PiStation.Protocol;
 
 public static class ProtocolVersion
 {
-    public const int Current = 28;
+    public const int Current = 29;
 }

@@ -228,6 +228,14 @@ public sealed partial class HostDatabase
                 CREATE INDEX IF NOT EXISTS IX_ThreadAgentEvents_ThreadEvent
                 ON ThreadAgentEvents(ThreadId, EventId);
 
+                CREATE TABLE IF NOT EXISTS SentMessageContents (
+                    Id TEXT PRIMARY KEY NOT NULL,
+                    ThreadId TEXT NOT NULL,
+                    ContentJson TEXT NOT NULL,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS IX_SentMessageContents_Thread ON SentMessageContents(ThreadId);
+
                 CREATE TABLE IF NOT EXISTS HostingOperations (OperationId TEXT PRIMARY KEY NOT NULL, RequestHash TEXT NOT NULL, OperationJson TEXT NOT NULL);
 
                 CREATE TABLE IF NOT EXISTS WorkspaceCommandReceipts (

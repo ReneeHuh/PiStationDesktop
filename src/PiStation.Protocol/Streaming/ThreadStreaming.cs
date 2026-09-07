@@ -33,7 +33,7 @@ public abstract record ThreadEvent;
 
 public sealed record RuntimeStateChangedEvent(ThreadRuntimeState State) : ThreadEvent;
 
-public sealed record TurnStartedEvent(TurnId TurnId, string Prompt) : ThreadEvent;
+public sealed record TurnStartedEvent(TurnId TurnId, string Prompt, SentMessageContent? Content = null) : ThreadEvent;
 
 public sealed record MessageStartedEvent(MessageProjection Message) : ThreadEvent;
 

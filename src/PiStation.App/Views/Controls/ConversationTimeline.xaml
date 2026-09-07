@@ -18,10 +18,41 @@
                     HorizontalAlignment="Right"
                     Style="{StaticResource PiUserMessageStyle}"
                     Visibility="{x:Bind UserVisibility}">
-                    <TextBlock
-                        IsTextSelectionEnabled="True"
-                        Text="{x:Bind Text}"
-                        TextWrapping="Wrap" />
+                    <StackPanel Spacing="8">
+                        <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind Text}" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{x:Bind Attachments}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewModels:DraftAttachmentViewModel">
+                                    <StackPanel Spacing="4" Margin="0,4">
+                                        <TextBlock Text="{x:Bind FileName}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Content="Preview" Click="OnPreviewSentAttachment" IsEnabled="{x:Bind IsImage}" automation:AutomationProperties.Name="Preview sent image" />
+                                            <Button Content="Open" Click="OnOpenSentAttachment" automation:AutomationProperties.Name="Open sent attachment" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Content="Save as" Click="OnSaveSentAttachment" automation:AutomationProperties.Name="Save sent attachment as" />
+                                            <Button Content="Copy path" Click="OnCopySentAttachmentPath" automation:AutomationProperties.Name="Copy sent attachment path" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{x:Bind Citations}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewModels:ComposerContextChipViewModel">
+                                    <Expander Header="{x:Bind Label}" HorizontalAlignment="Stretch">
+                                        <StackPanel Spacing="6">
+                                            <Button Content="Open source" Click="OnOpenSentCitation" automation:AutomationProperties.Name="Open citation source" />
+                                            <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
+                                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                            </ScrollViewer>
+                                        </StackPanel>
+                                    </Expander>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </Border>
                 <Border
                     HorizontalAlignment="Stretch"

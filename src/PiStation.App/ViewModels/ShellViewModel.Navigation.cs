@@ -39,7 +39,16 @@ public sealed partial class ShellViewModel
         if (chip.RelativePath is not null)
             await RunOnUiThreadAsync(() => { Layout.SelectedPanel = WorkbenchPanelKind.Files; Layout.IsRightPanelOpen = true; }).ConfigureAwait(false);
         if (chip.RelativePath is { } relativePath) await OpenWorkbenchFileAsync(relativePath, chip.StartLine).ConfigureAwait(false);
-        else if (chip.MessageId is { } message) RunOnUiThread(() => CitationRequested?.Invoke(this, message));
+        else if (chip.MessageId is { } message)
+        {
+            await RunOnUiThreadAsync(() =>
+            {
+                var target = CitationSourceResolver.Resolve(chip.ToContext(),
+                    Thread.Projection?.Timeline.OfType<PiStation.Protocol.Projections.MessageTimelineItem>() ?? []);
+                if (target is not null) CitationRequested?.Invoke(this, target);
+                else ComposerPower.Status = "The original message is unavailable or ambiguous. The saved citation text is still available.";
+            }).ConfigureAwait(false);
+        }
         else RunOnUiThread(() => ComposerPower.Status = chip.Text);
         }
         catch (Exception exception) { ReportRuntimeError($"The citation source could not be opened: {exception.Message}"); }

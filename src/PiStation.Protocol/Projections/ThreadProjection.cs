@@ -169,7 +169,8 @@ public sealed record MessageProjection(
     MessageRole Role,
     string Text,
     string Thinking,
-    bool IsComplete);
+    bool IsComplete,
+    SentMessageContent? Content = null);
 
 public sealed record ToolProjection(
     string ToolCallId,
@@ -209,7 +210,8 @@ public sealed record MessageTimelineItem(
     string MessageId,
     MessageRole Role,
     string Text,
-    bool IsComplete) : TimelineItem(ItemId, TurnId);
+    bool IsComplete,
+    SentMessageContent? Content = null) : TimelineItem(ItemId, TurnId);
 
 public sealed record ThinkingTimelineItem(
     string ItemId,
@@ -304,7 +306,7 @@ public sealed record ThreadProjection(
                     message.Role,
                     message.Text,
                     thinkingByMessage.GetValueOrDefault(message.MessageId, string.Empty),
-                    message.IsComplete))
+                    message.IsComplete, message.Content))
                 .ToArray();
         }
     }

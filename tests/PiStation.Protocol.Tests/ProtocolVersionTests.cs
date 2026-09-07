@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void PullRequestReviewProtocolVersionIsTwentyEight()
+    public void SentMessageContentProtocolVersionIsTwentyNine()
     {
-        Assert.Equal(28, ProtocolVersion.Current);
+        Assert.Equal(29, ProtocolVersion.Current);
     }
 }

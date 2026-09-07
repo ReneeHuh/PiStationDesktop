@@ -175,7 +175,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     state.SessionFile,
                     activeState.Model?.ContextWindow,
                     checkpoints,
-                    state.SessionId) with
+                    state.SessionId,
+                    await _database.ListSentMessagesAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false)) with
                 {
                     Queue = CreateQueueProjection(activeState, Journal.Projection.Queue?.Messages ?? []),
                     AgentActivities = [],
@@ -588,13 +589,16 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 _settlementReceipts.Add((clientId, commandId));
             }
 
+            var sentMessages = await _database.ListSentMessagesAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false);
+            var sentContent = SentMessageReference.Read(prompt) is { } reference && sentMessages.TryGetValue(reference, out var saved)
+                ? saved : null;
             Journal.Commit(new TurnStartedEvent(
                 turnId,
-                PiPromptFormatter.CreateDisplayMessage(prompt, attachments)));
+                sentContent?.Text ?? PiPromptFormatter.CreateDisplayMessage(prompt, attachments), sentContent));
             // Finish title RPCs while Pi is idle. Some runtimes defer later
             // commands until the prompt ends, which would delay its receipt
             // and leave the desktop's Stop action disabled for the whole turn.
-            await TryGenerateAutomaticTitleAsync(prompt, cancellationToken).ConfigureAwait(false);
+            await TryGenerateAutomaticTitleAsync(SentMessageReference.Remove(prompt), cancellationToken).ConfigureAwait(false);
             await _process.Connection.PromptPreparedAsync(preparedPrompt, attachments, cancellationToken).ConfigureAwait(false);
             await _database.UpdateReceiptStateAsync(
                 clientId,
@@ -886,7 +890,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     state.SessionFile,
                     state.Model?.ContextWindow,
                     retained,
-                    state.SessionId) with { AgentActivities = [], Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false) };
+                    state.SessionId,
+                    await _database.ListSentMessagesAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false)) with { AgentActivities = [], Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false) };
                 var retainedAgentEvents = await _database.ListThreadAgentEventsAsync(
                     _thread.ThreadId,
                     cancellationToken).ConfigureAwait(false);
@@ -1173,6 +1178,15 @@ public sealed partial class PiThreadController : IAsyncDisposable
 
                 Journal.Commit(new MessageStartedEvent(
                     ThreadProjectionReducer.ReadMessage(messageId, started.Message, isComplete: false)));
+                break;
+            case PiMessageCompletedEvent completed when completed.Message.TryGetProperty("role", out var role) && role.GetString() == "user":
+                var delivered = ThreadProjectionReducer.ReadMessage($"user-{Guid.NewGuid():N}", completed.Message, true,
+                    await _database.ListSentMessagesAsync(_thread.ThreadId, _shutdown.Token).ConfigureAwait(false));
+                // The first prompt already has an optimistic row. Queued prompts gain a
+                // row only on delivery, rather than being shown as sent when merely queued.
+                if (delivered.Content is { } content && !Journal.Projection.Timeline.OfType<MessageTimelineItem>()
+                        .Any(item => item.Content?.Id == content.Id))
+                    Journal.Commit(new MessageCompletedEvent(delivered));
                 break;
             case PiMessageUpdateEvent update:
                 ApplyAssistantDelta(update.Delta);
@@ -1602,11 +1616,11 @@ public sealed partial class PiThreadController : IAsyncDisposable
         var messages = steering.Select((text, index) => new QueuedMessageProjection(
                 QueuedMessageKind.Steering,
                 index + 1,
-                LimitPreview(PiPromptFormatter.NormalizePersistedMessage(text), 4_000)))
+                LimitPreview(SentMessageReference.Remove(PiPromptFormatter.NormalizePersistedMessage(text)), 4_000)))
             .Concat(followUp.Select((text, index) => new QueuedMessageProjection(
                 QueuedMessageKind.FollowUp,
                 index + 1,
-                LimitPreview(PiPromptFormatter.NormalizePersistedMessage(text), 4_000))))
+                LimitPreview(SentMessageReference.Remove(PiPromptFormatter.NormalizePersistedMessage(text)), 4_000))))
             .ToArray();
         var state = messages.Length > 0
             ? QueueDeliveryState.Queued

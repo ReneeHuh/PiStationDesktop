@@ -194,6 +194,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
             {
                 attachments.AddRange((await _database.GetOrCreateThreadDraftAsync(thread.ThreadId, cancellationToken)
                     .ConfigureAwait(false)).Attachments);
+                attachments.AddRange((await _database.ListSentMessagesAsync(thread.ThreadId, cancellationToken)
+                    .ConfigureAwait(false)).Values.SelectMany(content => content.Attachments));
             }
             catch (KeyNotFoundException)
             {
@@ -443,7 +445,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         try
         {
             var draft = await _database.GetOrCreateThreadDraftAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
-            attachments = draft.Attachments;
+            attachments = draft.Attachments.Concat((await _database.ListSentMessagesAsync(thread.ThreadId, cancellationToken)
+                .ConfigureAwait(false)).Values.SelectMany(content => content.Attachments)).ToArray();
         }
         catch (KeyNotFoundException)
         {
@@ -487,6 +490,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                 {
                     attachments.AddRange((await _database.GetOrCreateThreadDraftAsync(threadId, cancellationToken)
                         .ConfigureAwait(false)).Attachments);
+                    attachments.AddRange((await _database.ListSentMessagesAsync(threadId, cancellationToken)
+                        .ConfigureAwait(false)).Values.SelectMany(content => content.Attachments));
                 }
                 catch (KeyNotFoundException)
                 {
@@ -772,7 +777,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         start.AttachmentIds,
                         cancellationToken).ConfigureAwait(false);
                     await controller!.StartTurnAsync(
-                        start.Prompt,
+                        await RetainSentContentAsync(request.ThreadId, start.Prompt, start.DraftId,
+                            start.DraftRevision, promptAttachments, cancellationToken).ConfigureAwait(false),
                         promptAttachments,
                         request.ClientId,
                         request.CommandId,
@@ -788,7 +794,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         cancellationToken).ConfigureAwait(false);
                     await controller!.QueueMessageAsync(
                         QueuedMessageKind.Steering,
-                        steering.Prompt,
+                        await RetainSentContentAsync(request.ThreadId, steering.Prompt, steering.DraftId,
+                            steering.DraftRevision, steeringAttachments, cancellationToken).ConfigureAwait(false),
                         steeringAttachments,
                         cancellationToken).ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
@@ -803,7 +810,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         cancellationToken).ConfigureAwait(false);
                     await controller!.QueueMessageAsync(
                         QueuedMessageKind.FollowUp,
-                        followUp.Prompt,
+                        await RetainSentContentAsync(request.ThreadId, followUp.Prompt, followUp.DraftId,
+                            followUp.DraftRevision, followUpAttachments, cancellationToken).ConfigureAwait(false),
                         followUpAttachments,
                         cancellationToken).ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);

@@ -135,12 +135,12 @@ public sealed class ComposerPowerViewModel : ObservableObject
 
     internal bool AddContext(string kind, string label, string text,
         PiStation.Protocol.Identifiers.ThreadId? sourceThreadId = null, string? messageId = null,
-        string? relativePath = null, int? startLine = null, int? endLine = null)
+        string? relativePath = null, int? startLine = null, int? endLine = null, string? sourceTextSha256 = null)
     {
         try
         {
             _composer.AddContext(new ComposerContextChipViewModel(Guid.NewGuid().ToString("N"), kind, label, text,
-                sourceThreadId, messageId, relativePath, startLine, endLine));
+                sourceThreadId, messageId, relativePath, startLine, endLine, sourceTextSha256));
             OnPropertyChanged(nameof(ContextChipsVisibility));
             return true;
         }
@@ -244,11 +244,12 @@ public sealed record ComposerContextChipViewModel(
     string? MessageId = null,
     string? RelativePath = null,
     int? StartLine = null,
-    int? EndLine = null)
+    int? EndLine = null,
+    string? SourceTextSha256 = null)
 {
-    public ComposerContext ToContext() => new(Id, Kind, Label, Text, SourceThreadId, MessageId, RelativePath, StartLine, EndLine);
+    public ComposerContext ToContext() => new(Id, Kind, Label, Text, SourceThreadId, MessageId, RelativePath, StartLine, EndLine, SourceTextSha256);
 
     public static ComposerContextChipViewModel FromContext(ComposerContext context) => new(
         context.Id, context.Kind, context.Label, context.Text, context.SourceThreadId,
-        context.MessageId, context.RelativePath, context.StartLine, context.EndLine);
+        context.MessageId, context.RelativePath, context.StartLine, context.EndLine, context.SourceTextSha256);
 }

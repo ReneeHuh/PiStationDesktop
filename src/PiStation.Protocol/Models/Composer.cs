@@ -11,7 +11,8 @@ public sealed record ComposerContext(
     string? MessageId = null,
     string? RelativePath = null,
     int? StartLine = null,
-    int? EndLine = null);
+    int? EndLine = null,
+    string? SourceTextSha256 = null);
 
 public static class ComposerContextDefaults
 {
@@ -24,7 +25,8 @@ public static class ComposerContextDefaults
         if (context.Count > MaximumItems || context.Sum(static item => (long)(item?.Text?.Length ?? 0)) > MaximumTextCharacters ||
             context.Any(static item => item is null || item.Text is null || item.Label is null || string.IsNullOrWhiteSpace(item.Id) || item.Id.Length > 128 ||
                 string.IsNullOrWhiteSpace(item.Kind) || item.Kind.Length > 64 || item.Label.Length > 1024 ||
-                item.StartLine is <= 0 || item.EndLine is <= 0 || item.EndLine < item.StartLine) ||
+                item.StartLine is <= 0 || item.EndLine is <= 0 || item.EndLine < item.StartLine ||
+                (item.SourceTextSha256 is { } hash && (hash.Length != 64 || !hash.All(Uri.IsHexDigit)))) ||
             context.Select(static item => item.Id).Distinct(StringComparer.Ordinal).Count() != context.Count)
         {
             throw new ArgumentException("Review context exceeds its limits or contains invalid source information.", nameof(context));

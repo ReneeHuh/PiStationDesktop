@@ -590,7 +590,9 @@ public sealed class EnvironmentClientIntegrationTests
                 thread.ThreadId,
                 initial.DraftId,
                 initial.Revision,
-                "Inspect attachments");
+                "Inspect attachments",
+                [new ComposerContext("saved-source", "file", "notes source", "original quoted text", thread.ThreadId,
+                    RelativePath: "notes.txt", StartLine: 2, EndLine: 2)]);
             var notesBytes = Encoding.UTF8.GetBytes("durable notes");
             await using var notesContent = new MemoryStream(notesBytes);
             var withNotes = await client.UploadDraftAttachmentAsync(
@@ -636,8 +638,8 @@ public sealed class EnvironmentClientIntegrationTests
             Assert.Equal(sentDraft.Revision + 1, cleared.Draft?.Revision);
             Assert.Equal(string.Empty, cleared.Draft?.Text);
             Assert.Empty(cleared.Draft!.Attachments);
-            Assert.False(File.Exists(notesPath));
-            Assert.False(File.Exists(imagePath));
+            Assert.True(File.Exists(notesPath));
+            Assert.True(File.Exists(imagePath));
 
             var settled = await WaitForProjectionAsync(
                 subscription.Store,
@@ -679,7 +681,49 @@ public sealed class EnvironmentClientIntegrationTests
             Assert.DoesNotContain("<pistation_attachments>", userText, StringComparison.Ordinal);
             Assert.DoesNotContain(notesPath, userText, StringComparison.Ordinal);
             Assert.DoesNotContain(imagePath, userText, StringComparison.Ordinal);
+            Assert.DoesNotContain("<pistation_message_ref>", userText, StringComparison.Ordinal);
+            var content = Assert.IsType<SentMessageContent>(hydrated.Messages[0].Content);
+            Assert.Equal(2, content.Attachments.Count);
+            foreach (var attachment in content.Attachments) await SentAttachmentAccess.VerifyAsync(attachment);
+            var citation = Assert.Single(content.Citations);
+            Assert.Equal("original quoted text", citation.Text);
+            Assert.Equal("notes.txt", citation.RelativePath);
+            Assert.Equal(2, citation.StartLine);
+            Assert.Empty((await restartedClient.GetThreadDraftAsync(thread.ThreadId)).Attachments);
+            await restartedClient.DeleteThreadAsync(new DeleteThreadRequest(thread.ThreadId));
+            Assert.False(File.Exists(notesPath));
+            Assert.False(File.Exists(imagePath));
         }
+    }
+
+    [Fact]
+    public async Task CitationOnlyPromptRetainsSourcesWithoutAnAttachment()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions());
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("project")));
+        var thread = await client.CreateThreadAsync(new(project.ProjectId));
+        await using var subscription = client.SubscribeThread(thread.ThreadId);
+        var ready = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready);
+        var draft = await client.GetThreadDraftAsync(thread.ThreadId);
+        var citation = new ComposerContext("citation", "file", "source.cs", "quoted source", thread.ThreadId,
+            RelativePath: "source.cs", StartLine: 3, EndLine: 4);
+        var saved = (await client.SaveThreadDraftAsync(thread.ThreadId, draft.DraftId, draft.Revision, "Use source", [citation])).Draft!;
+        var receipt = await client.StartTurnAsync(thread.ThreadId, saved.Text, ready.ProjectionEpoch,
+            draftId: saved.DraftId, draftRevision: saved.Revision);
+        Assert.Contains(receipt.State, new[] { CommandReceiptState.Accepted, CommandReceiptState.Completed });
+        await client.ClearThreadDraftAsync(thread.ThreadId, saved.DraftId, saved.Revision, []);
+        var settled = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready && p.Messages.Count == 2);
+        var content = Assert.IsType<SentMessageContent>(settled.Messages[0].Content);
+        Assert.Empty(content.Attachments);
+        Assert.Equal(citation, Assert.Single(content.Citations));
+        await client.RestartThreadAsync(thread.ThreadId, settled.ProjectionEpoch);
+        var hydrated = await WaitForProjectionAsync(subscription.Store,
+            p => p.RuntimeState == ThreadRuntimeState.Ready && p.ProjectionEpoch != settled.ProjectionEpoch && p.Messages.Count == 2);
+        Assert.Equal(citation, Assert.Single(hydrated.Messages[0].Content!.Citations));
+        Assert.Equal("Use source", hydrated.Messages[0].Text);
     }
 
     [Fact]

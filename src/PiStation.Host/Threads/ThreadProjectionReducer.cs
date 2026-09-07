@@ -41,7 +41,8 @@ public static class ThreadProjectionReducer
         string? piSessionFile,
         int? contextWindow = null,
         IReadOnlyList<ThreadCheckpoint>? checkpoints = null,
-        string? piSessionId = null)
+        string? piSessionId = null,
+        IReadOnlyDictionary<string, SentMessageContent>? sentMessages = null)
     {
         var timeline = new List<TimelineItem>();
         var hydratedTurnIds = new List<TurnId>();
@@ -64,7 +65,7 @@ public static class ThreadProjectionReducer
                 : $"entry-{messageCount + 1}";
             var entryTimestamp = ReadEntryTimestamp(entry);
             messageCount++;
-            var hydratedMessage = ReadMessage(id, message, isComplete: true);
+            var hydratedMessage = ReadMessage(id, message, isComplete: true, sentMessages);
             if (hydratedMessage.Role == MessageRole.User)
             {
                 if (hydratedTurnId is not null)
@@ -245,7 +246,8 @@ public static class ThreadProjectionReducer
         _ => projection,
     };
 
-    public static MessageProjection ReadMessage(string messageId, JsonElement message, bool isComplete)
+    public static MessageProjection ReadMessage(string messageId, JsonElement message, bool isComplete,
+        IReadOnlyDictionary<string, SentMessageContent>? sentMessages = null)
     {
         var role = message.TryGetProperty("role", out var roleProperty)
             ? ParseRole(roleProperty.GetString())
@@ -276,12 +278,15 @@ public static class ThreadProjectionReducer
         }
 
         var messageText = text.ToString();
+        SentMessageContent? sentContent = null;
         if (role == MessageRole.User)
         {
-            messageText = PiPromptFormatter.NormalizePersistedMessage(messageText);
+            if (SentMessageReference.Read(messageText) is { } reference && sentMessages is not null)
+                sentMessages.TryGetValue(reference, out sentContent);
+            messageText = SentMessageReference.Remove(PiPromptFormatter.NormalizePersistedMessage(messageText));
         }
 
-        return new MessageProjection(messageId, role, messageText, thinking.ToString(), isComplete);
+        return new MessageProjection(messageId, role, sentContent?.Text ?? messageText, thinking.ToString(), isComplete, sentContent);
     }
 
     private static ThreadProjection ApplyRuntimeStateChanged(
@@ -322,7 +327,7 @@ public static class ThreadProjectionReducer
                 MessageRole.User,
                 started.Prompt,
                 string.Empty,
-                true),
+                true, started.Content),
             started.TurnId);
 
         return projection with
@@ -439,7 +444,7 @@ public static class ThreadProjectionReducer
             message.MessageId,
             message.Role,
             message.Text,
-            message.IsComplete);
+            message.IsComplete, message.Content);
         result = AddOrReplace(result, messageItem);
 
         var thinkingIndex = result.FindIndex(item => item is ThinkingTimelineItem thinking &&

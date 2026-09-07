@@ -140,7 +140,7 @@ public sealed partial class HostDatabase
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT EXISTS(SELECT 1 FROM DraftAttachments WHERE ServerPath=$path) OR EXISTS(SELECT 1 FROM PromptStashes, json_each(AttachmentsJson) WHERE json_extract(value,'$.serverPath')=$path);";
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM DraftAttachments WHERE ServerPath=$path) OR EXISTS(SELECT 1 FROM PromptStashes, json_each(AttachmentsJson) WHERE json_extract(value,'$.serverPath')=$path) OR EXISTS(SELECT 1 FROM SentMessageContents, json_each(ContentJson, '$.attachments') WHERE json_extract(value,'$.serverPath')=$path);";
         command.Parameters.AddWithValue("$path", path);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0;
     }

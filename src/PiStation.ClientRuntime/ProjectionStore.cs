@@ -279,7 +279,7 @@ internal static class ClientProjectionReducer
                 MessageRole.User,
                 started.Prompt,
                 string.Empty,
-                true),
+                true, started.Content),
             started.TurnId);
 
         return projection with
@@ -396,7 +396,7 @@ internal static class ClientProjectionReducer
             message.MessageId,
             message.Role,
             message.Text,
-            message.IsComplete);
+            message.IsComplete, message.Content);
         result = AddOrReplace(result, messageItem);
 
         var thinkingIndex = result.FindIndex(item => item is ThinkingTimelineItem thinking &&
