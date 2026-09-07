@@ -301,6 +301,14 @@ public sealed partial class AppSidebar : UserControl
     private ThreadDescriptor[] SelectedThreads() =>
         ThreadTabList.SelectedItems.OfType<ThreadDescriptor>().ToArray();
 
+    private async void OnMarkUnreadClicked(object sender, RoutedEventArgs e)
+    {
+        if (ResolveThread(sender) is { } thread) await ViewModel.MarkThreadsUnreadAsync([thread]);
+    }
+
+    private async void OnBulkMarkUnreadClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.MarkThreadsUnreadAsync(SelectedThreads());
+
     private async Task<bool> ConfirmDeleteAsync(ThreadDescriptor[] threads)
     {
         var dialog = new ContentDialog
@@ -385,6 +393,10 @@ public sealed partial class AppSidebar : UserControl
         delete.Click += OnDeleteThreadClicked;
 
         var flyout = new MenuFlyout();
+        var unread = new MenuFlyoutItem { Text = "Mark unread", Tag = thread.ThreadId.Value, IsEnabled = thread.CompletionSequence > 0 };
+        AutomationProperties.SetAutomationId(unread, "ContextMarkThreadUnreadMenuItem");
+        unread.Click += OnMarkUnreadClicked;
+        flyout.Items.Add(unread);
         flyout.Items.Add(rename);
         flyout.Items.Add(pin);
         flyout.Items.Add(settled);

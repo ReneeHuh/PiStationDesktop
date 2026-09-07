@@ -589,6 +589,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         });
         try
         {
+            var settlement = await RequireClient().GetSettlementSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.ApplySettlement(settlement));
             var snapshot = await RequireClient().GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.ApplyDiagnostics(snapshot));
             var operations = await RequireClient().ListHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
@@ -828,6 +830,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (SelectedThread?.ThreadId != thread?.ThreadId)
             {
+                BeginReadVisit();
                 PiResources.Clear();
                 PiSessions.ClearThread();
             }
@@ -2592,12 +2595,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public void SendPromptInBackground()
     {
-        if (!CanSend)
+        if (!CanStartBackgroundTask)
         {
             return;
         }
 
-        ComposerPower.Status = "Submitting in background…";
+        SetCommandPending(true);
+        ComposerPower.Status = "Preparing independent task…";
         _ = SubmitPromptInBackgroundAsync();
     }
 
@@ -2605,13 +2609,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         try
         {
-            await SendPromptAsync().ConfigureAwait(false);
-            RunOnUiThread(() => ComposerPower.Status = "Submitted in background");
+            await StartIndependentBackgroundTaskAsync();
         }
         catch (Exception exception)
         {
             ReportRuntimeError($"Background submission failed: {exception.Message}");
         }
+        finally { SetCommandPending(false); }
     }
 
     public void UpdateComposerDiscoveryQuery(string text, int caret) =>
@@ -3543,6 +3547,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void OnComposerPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
+        OnPropertyChanged(nameof(CanStartBackgroundTask));
         OnPropertyChanged(nameof(CanStashPrompt));
         if (args.PropertyName == nameof(ComposerViewModel.ContextChips))
         {
@@ -3574,6 +3579,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var previousRuntimeState = _lastProjectionRuntimeState;
         _lastProjectionRuntimeState = projection?.RuntimeState;
         Thread.ApplyProjection(projection, SelectedThread is not null);
+        _ = ReadDisplayedCompletionAsync(projection);
         ExtensionUi.Apply(projection);
         Plan.Apply(projection);
         WorkbenchAgents.Apply(projection?.AgentActivities);
@@ -3599,6 +3605,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RaiseCommandStateChanged()
     {
+        OnPropertyChanged(nameof(CanStartBackgroundTask));
         Plan.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(CanSend));
         OnPropertyChanged(nameof(CanStashPrompt));

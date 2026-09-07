@@ -7,6 +7,21 @@ namespace PiStation.App.ViewModels;
 
 public sealed class SettingsViewModel : ObservableObject
 {
+    private bool _autoSettleInactive = true;
+    private double _autoSettleDays = 3;
+    private bool _autoSettleMerged = true;
+    private bool _autoSettleClosed = true;
+    public bool AutoSettleInactive { get => _autoSettleInactive; set => SetProperty(ref _autoSettleInactive, value); }
+    public double AutoSettleDays { get => _autoSettleDays; set => SetProperty(ref _autoSettleDays, value); }
+    public bool AutoSettleMerged { get => _autoSettleMerged; set => SetProperty(ref _autoSettleMerged, value); }
+    public bool AutoSettleClosed { get => _autoSettleClosed; set => SetProperty(ref _autoSettleClosed, value); }
+    internal void ApplySettlement(SettlementSettings settings)
+    {
+        AutoSettleInactive = settings.InactiveDays is not null;
+        AutoSettleDays = settings.InactiveDays ?? 3;
+        AutoSettleMerged = settings.OnMerge;
+        AutoSettleClosed = settings.OnClose;
+    }
     private bool _isBusy;
     private bool _canOpenUpdateInstaller;
     public bool CanOpenUpdateInstaller { get => _canOpenUpdateInstaller; internal set => SetProperty(ref _canOpenUpdateInstaller, value); }

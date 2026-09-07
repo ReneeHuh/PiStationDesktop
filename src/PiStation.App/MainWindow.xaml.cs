@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         _viewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
         Closed += OnMainWindowClosed;
+        Activated += OnReadWindowActivated;
         RootGrid.Loaded += OnRootGridLoaded;
 
         ExtendsContentIntoTitleBar = true;
@@ -56,6 +57,8 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
+        Activated -= OnReadWindowActivated;
+        _viewModel.SetReadWindowActive(false);
         _viewModel.Layout.PropertyChanged -= OnLayoutPropertyChanged;
         _shellPage.SidebarCollapsedChanged -= OnSidebarCollapsedChanged;
         _chatHeader.CommandPaletteRequested -= OnCommandPaletteRequested;
@@ -64,6 +67,9 @@ public sealed partial class MainWindow : Window
 
     private async void OnCommandPaletteRequested(object? sender, EventArgs e) =>
         await _shellPage.OpenCommandPaletteAsync();
+
+    private void OnReadWindowActivated(object sender, WindowActivatedEventArgs args) =>
+        _viewModel.SetReadWindowActive(args.WindowActivationState != WindowActivationState.Deactivated);
 
     private void OnRootGridLoaded(object sender, RoutedEventArgs e)
     {

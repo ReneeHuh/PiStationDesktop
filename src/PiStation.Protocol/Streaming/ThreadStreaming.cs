@@ -51,7 +51,7 @@ public sealed record ToolOutputReplacedEvent(string ToolCallId, string OutputPre
 
 public sealed record ToolCompletedEvent(string ToolCallId, string OutputPreview, ToolExecutionState State) : ThreadEvent;
 
-public sealed record TurnSettledEvent(TurnId TurnId, TurnMetrics? Metrics = null) : ThreadEvent;
+public sealed record TurnSettledEvent(TurnId TurnId, TurnMetrics? Metrics = null, long CompletionSequence = 0) : ThreadEvent;
 
 public sealed record RuntimeFailedEvent(ProtocolError Error) : ThreadEvent;
 

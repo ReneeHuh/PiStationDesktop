@@ -29,12 +29,15 @@ namespace PiStation.Protocol.Commands;
 [JsonDerivedType(typeof(ThreadSetArchivedCommand), "threadSetArchived")]
 [JsonDerivedType(typeof(ThreadSetPinnedCommand), "threadSetPinned")]
 [JsonDerivedType(typeof(ThreadSetSettledCommand), "threadSetSettled")]
+[JsonDerivedType(typeof(ThreadSetReadStateCommand), "threadSetReadState")]
 [JsonDerivedType(typeof(ThreadSetSnoozedCommand), "threadSetSnoozed")]
 [JsonDerivedType(typeof(ThreadSetPinnedOrderCommand), "threadSetPinnedOrder")]
 [JsonDerivedType(typeof(ThreadRegenerateTitleCommand), "threadRegenerateTitle")]
 [JsonDerivedType(typeof(ThreadCompactContextCommand), "threadCompactContext")]
 [JsonDerivedType(typeof(ThreadRevertCheckpointCommand), "threadRevertCheckpoint")]
 public abstract record ThreadCommand;
+
+public sealed record ThreadSetReadStateCommand(long ObservedCompletionSequence, bool IsUnread = false) : ThreadCommand;
 
 public sealed record ThreadManagePlanCommand(string Action, long ExpectedRevision, string? Text = null) : ThreadCommand;
 

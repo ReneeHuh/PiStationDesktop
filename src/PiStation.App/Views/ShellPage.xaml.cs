@@ -674,6 +674,8 @@ public sealed partial class ShellPage : Page
 
     private async void OnSettingsRequested(object? sender, EventArgs e) => await OpenSettingsAsync();
 
+    private async void OnSaveSettlementSettingsClicked(object sender, RoutedEventArgs e) => await ViewModel.SaveSettlementSettingsAsync();
+
     private async Task OpenSettingsAsync()
     {
         SynchronizeThemeSelection();

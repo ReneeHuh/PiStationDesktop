@@ -103,6 +103,21 @@ public sealed class SourceControlHostingServiceTests
         }
     }
 
+    [Fact]
+    public void SettlementUsesClosureTimestampNotLaterCommentsAndMissingClosureStaysUnknown()
+    {
+        var repository = Repository(SourceControlProvider.GitHub);
+        var withDate = SourceControlHostingService.ParsePullRequests(repository,
+            """[{"number":1,"state":"MERGED","mergedAt":"2026-09-01T00:00:00Z","updatedAt":"2026-09-07T00:00:00Z"}]""");
+        Assert.Equal(DateTimeOffset.Parse("2026-09-01T00:00:00Z", CultureInfo.InvariantCulture), Assert.Single(withDate).ClosedOrMergedUtc);
+        var withoutDate = SourceControlHostingService.ParsePullRequests(repository,
+            """[{"number":1,"state":"CLOSED","updatedAt":"2026-09-07T00:00:00Z"}]""");
+        Assert.Null(Assert.Single(withoutDate).ClosedOrMergedUtc);
+        var command = SourceControlHostingService.BuildListCommand(SourceControlProvider.GitHub, PullRequestState.Merged);
+        Assert.Contains("merged", command.Arguments);
+        Assert.Contains("mergedAt", command.Arguments[^1], StringComparison.Ordinal);
+    }
+
     private static SourceControlRepository Repository(SourceControlProvider provider) => new(
         provider,
         $"{provider.ToString().ToLowerInvariant()}.test",

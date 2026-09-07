@@ -286,7 +286,8 @@ public sealed record ThreadProjection(
     IReadOnlyList<AgentActivityProjection>? AgentActivities = null,
     ContextCompactionProjection? Compaction = null,
     PiExtensionUiState? ExtensionUi = null,
-    PiPlanState? Plan = null)
+    PiPlanState? Plan = null,
+    long CompletionSequence = 0)
 {
     [JsonIgnore]
     public IReadOnlyList<MessageProjection> Messages

@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void SentMessageContentProtocolVersionIsTwentyNine()
+    public void SettlementProtocolVersionIsThirtyTwo()
     {
-        Assert.Equal(29, ProtocolVersion.Current);
+        Assert.Equal(32, ProtocolVersion.Current);
     }
 }

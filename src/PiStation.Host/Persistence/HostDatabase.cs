@@ -236,6 +236,16 @@ public sealed partial class HostDatabase
                 );
                 CREATE INDEX IF NOT EXISTS IX_SentMessageContents_Thread ON SentMessageContents(ThreadId);
 
+                CREATE TABLE IF NOT EXISTS BackgroundTaskSubmissions (
+                    SourceThreadId TEXT NOT NULL,
+                    DraftId TEXT NOT NULL,
+                    DraftRevision INTEGER NOT NULL,
+                    RequestJson TEXT NOT NULL,
+                    ResultJson TEXT NOT NULL,
+                    PRIMARY KEY(DraftId, DraftRevision),
+                    FOREIGN KEY(SourceThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS HostingOperations (OperationId TEXT PRIMARY KEY NOT NULL, RequestHash TEXT NOT NULL, OperationJson TEXT NOT NULL);
 
                 CREATE TABLE IF NOT EXISTS WorkspaceCommandReceipts (
@@ -259,6 +269,7 @@ public sealed partial class HostDatabase
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        await InitializeSettlementAsync(connection, cancellationToken).ConfigureAwait(false);
         await RecoverHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
         await EnsureProjectConfigurationColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadCheckpointColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -268,6 +279,8 @@ public sealed partial class HostDatabase
         await EnsureColumnAsync(connection, "UsageEvents", "CostKnown", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "PromptStashes", "ContextJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "PromptStashes", "AttachmentsJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "ThreadInboxMetadata", "CompletionSequence", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "ThreadInboxMetadata", "ReadCompletionSequence", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
         await using (var seedInbox = connection.CreateCommand())
         {
             seedInbox.CommandText = """
@@ -854,7 +867,7 @@ public sealed partial class HostDatabase
                          AND (length(trim(d.DraftText)) > 0 OR d.ContextJson <> '[]' OR EXISTS(
                              SELECT 1 FROM DraftAttachments a WHERE a.DraftId = d.DraftId
                          ))
-                   )
+                   ), CompletionSequence, ReadCompletionSequence
             FROM ThreadInboxMetadata
             WHERE ThreadId = $threadId;
             """;
@@ -882,7 +895,11 @@ public sealed partial class HostDatabase
                 ? titleKind
                 : ThreadTitleKind.Placeholder,
             pullRequest);
-        return thread.ToDescriptor(EnvironmentId, inbox, reader.GetInt64(5) != 0);
+        return thread.ToDescriptor(EnvironmentId, inbox, reader.GetInt64(5) != 0) with
+        {
+            CompletionSequence = reader.GetInt64(6),
+            ReadCompletionSequence = reader.GetInt64(7),
+        };
     }
 
     public async Task<ThreadMetadataUpdateResult> UpdateThreadInboxAsync(
@@ -923,8 +940,9 @@ public sealed partial class HostDatabase
             update.CommandText = """
                 UPDATE ThreadInboxMetadata
                 SET IsSettled = COALESCE($isSettled, IsSettled),
+                    SettlementProtected = CASE WHEN $isSettled = 0 THEN 1 WHEN $isSettled = 1 THEN 0 ELSE SettlementProtected END,
                     SnoozedUntilUtc = CASE WHEN $updateSnooze = 1 THEN $snoozedUntilUtc ELSE SnoozedUntilUtc END,
-                    PinnedOrder = CASE WHEN $updatePinnedOrder = 1 THEN $pinnedOrder ELSE PinnedOrder END,
+                    PinnedOrder = CASE WHEN $isSettled = 1 THEN NULL WHEN $updatePinnedOrder = 1 THEN $pinnedOrder ELSE PinnedOrder END,
                     TitleKind = COALESCE($titleKind, TitleKind),
                     PullRequestJson = CASE WHEN $updatePullRequest = 1 THEN $pullRequestJson ELSE PullRequestJson END
                 WHERE ThreadId = $threadId;
@@ -943,6 +961,11 @@ public sealed partial class HostDatabase
             update.Parameters.AddWithValue("$updatePullRequest", updatePullRequest ? 1 : 0);
             update.Parameters.AddWithValue("$threadId", threadId.Value);
             await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            if (isSettled == true)
+            {
+                update.CommandText = "UPDATE Threads SET IsPinned=0 WHERE ThreadId=$threadId;";
+                await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -1034,8 +1057,8 @@ public sealed partial class HostDatabase
                 : FormatDate(request.SnoozedUntilUtc.Value));
             inbox.CommandText = request.Operation switch
             {
-                ThreadBulkOperation.Settle => "UPDATE ThreadInboxMetadata SET IsSettled = 1 WHERE ThreadId = $threadId;",
-                ThreadBulkOperation.Unsettle => "UPDATE ThreadInboxMetadata SET IsSettled = 0 WHERE ThreadId = $threadId;",
+                ThreadBulkOperation.Settle => "UPDATE ThreadInboxMetadata SET IsSettled = 1, SettlementProtected = 0, PinnedOrder = NULL WHERE ThreadId = $threadId; UPDATE Threads SET IsPinned=0 WHERE ThreadId=$threadId;",
+                ThreadBulkOperation.Unsettle => "UPDATE ThreadInboxMetadata SET IsSettled = 0, SettlementProtected = 1 WHERE ThreadId = $threadId;",
                 ThreadBulkOperation.Snooze => "UPDATE ThreadInboxMetadata SET SnoozedUntilUtc = $snoozedUntil WHERE ThreadId = $threadId;",
                 ThreadBulkOperation.Unsnooze => "UPDATE ThreadInboxMetadata SET SnoozedUntilUtc = NULL WHERE ThreadId = $threadId;",
                 ThreadBulkOperation.Pin => """

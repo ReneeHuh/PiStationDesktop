@@ -180,6 +180,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 {
                     Queue = CreateQueueProjection(activeState, Journal.Projection.Queue?.Messages ?? []),
                     AgentActivities = [],
+                    CompletionSequence = await _database.GetCompletionSequenceAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false),
                     Plan = await ReadPlanOnStartAsync(cancellationToken).ConfigureAwait(false),
                 };
                 var persistedAgentEvents = await _database.ListThreadAgentEventsAsync(
@@ -276,7 +277,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
         {
             new("compact", "Compact the current context, optionally with instructions.", ComposerCommandSource.BuiltIn),
             new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
-            new("background", "Submit the draft and keep working elsewhere.", ComposerCommandSource.BuiltIn),
+            new("background", "Start an independent task and keep a fresh draft here.", ComposerCommandSource.BuiltIn),
         };
         result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand).Select(static command => new ComposerCommandDescriptor(
             command.Name,
@@ -592,6 +593,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             var sentMessages = await _database.ListSentMessagesAsync(_thread.ThreadId, cancellationToken).ConfigureAwait(false);
             var sentContent = SentMessageReference.Read(prompt) is { } reference && sentMessages.TryGetValue(reference, out var saved)
                 ? saved : null;
+            await _database.RecordSettlementActivityAsync(_thread.ThreadId, true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             Journal.Commit(new TurnStartedEvent(
                 turnId,
                 sentContent?.Text ?? PiPromptFormatter.CreateDisplayMessage(prompt, attachments), sentContent));
@@ -698,6 +700,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The active turn settled before the message could be queued.");
         }
 
+        await _database.RecordSettlementActivityAsync(_thread.ThreadId, true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         if (kind == QueuedMessageKind.Steering)
         {
             await process.Connection.SteerAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
@@ -1160,7 +1163,11 @@ public sealed partial class PiThreadController : IAsyncDisposable
             case PiExtensionUiUpdateEvent { Key: "pistation-plan-state", Text: { } text }:
                 var planState = PiPlanState.Parse(text);
                 // Session-transition events can arrive before the rewind operation updates the thread identity.
-                if (planState.SessionId == _thread.PiSessionId) Journal.Commit(new PiPlanChangedEvent(planState));
+                if (planState.SessionId == _thread.PiSessionId)
+                {
+                    await _database.RecordSettlementPlanAsync(_thread.ThreadId, planState, _shutdown.Token).ConfigureAwait(false);
+                    Journal.Commit(new PiPlanChangedEvent(planState));
+                }
                 break;
             case PiExtensionUiUpdateEvent update:
                 Journal.Commit(new PiExtensionUiChangedEvent(new PiExtensionUiUpdate(update.RequestId, update.Method,
@@ -1414,7 +1421,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 Journal.Commit(new CheckpointCapturedEvent(checkpoint));
             }
 
-            Journal.Commit(new TurnSettledEvent(turnId.Value, metrics));
+            var completionSequence = await _database.RecordCompletionAsync(_thread.ThreadId, CancellationToken.None).ConfigureAwait(false);
+            Journal.Commit(new TurnSettledEvent(turnId.Value, metrics, completionSequence));
             if (usage is not null)
             {
                 await _database.AppendUsageAsync(

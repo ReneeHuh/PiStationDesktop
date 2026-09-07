@@ -16,6 +16,15 @@ public sealed record ComposerContext(
 
 public static class ComposerContextDefaults
 {
+    public static string AppendToPrompt(string prompt, IReadOnlyList<ComposerContext>? context)
+    {
+        if (context is null || context.Count == 0) return prompt;
+        static string Escape(string value) => value.Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal).Replace("<", "&lt;", StringComparison.Ordinal).Replace(">", "&gt;", StringComparison.Ordinal);
+        return prompt + "\n\n" + string.Join("\n\n", context.Select(chip =>
+            $"<pistation_context kind=\"{chip.Kind}\" label=\"{Escape(chip.Label)}\">\n{chip.Text}\n</pistation_context>"));
+    }
+
     public const int MaximumItems = 32;
     public const int MaximumTextCharacters = 64 * 1024;
 

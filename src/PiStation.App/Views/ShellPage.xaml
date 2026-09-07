@@ -272,6 +272,7 @@
                 PaneDisplayMode="Left"
                 SelectionChanged="OnSettingsNavigationSelectionChanged">
                 <NavigationView.MenuItems>
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsGeneralNavItem" Content="General" Tag="General" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsProjectsNavItem" Content="Projects" Tag="Projects" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsRuntimeNavItem" Content="Pi / runtime" Tag="PiRuntime" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsPiResourcesNavItem" Content="Pi resources" Tag="PiResources" />
@@ -297,6 +298,18 @@
                         Text="Configure this local Pi Station workspace."
                         TextWrapping="Wrap" />
 
+                    <Border Tag="General" Style="{StaticResource PiElevatedSurfaceStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Automatic thread settlement" FontWeight="SemiBold" />
+                            <CheckBox Content="Settle inactive threads" IsChecked="{x:Bind ViewModel.Settings.AutoSettleInactive, Mode=TwoWay}" />
+                            <NumberBox Header="Days of inactivity (1–365)" Minimum="1" Maximum="365" Value="{x:Bind ViewModel.Settings.AutoSettleDays, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.Settings.AutoSettleInactive, Mode=OneWay}" automation:AutomationProperties.AutomationId="AutoSettleDaysInput" />
+                            <CheckBox Content="Settle idle threads when their PR merges" IsChecked="{x:Bind ViewModel.Settings.AutoSettleMerged, Mode=TwoWay}" />
+                            <CheckBox Content="Settle idle threads when their PR closes" IsChecked="{x:Bind ViewModel.Settings.AutoSettleClosed, Mode=TwoWay}" />
+                            <TextBlock Text="Checked every minute while PiStation is open. Active tasks and approvals are protected. Un-settle keeps a thread active until its next task. Saving rules does not reopen settled threads." TextWrapping="Wrap" />
+                            <Button Content="Save settlement rules" Click="OnSaveSettlementSettingsClicked" automation:AutomationProperties.AutomationId="SaveSettlementSettingsButton" />
+                            <TextBlock Text="{x:Bind ViewModel.Settings.Status, Mode=OneWay}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
                     <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid ColumnSpacing="12" RowSpacing="6">
                             <Grid.ColumnDefinitions>

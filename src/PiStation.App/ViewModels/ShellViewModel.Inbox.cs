@@ -44,6 +44,7 @@ public sealed partial class ShellViewModel
 
             var group = ProjectGroups.FirstOrDefault(item => item.Project.ProjectId == args.ProjectId);
             group?.Apply(store.GetProjectThreads(args.ProjectId, includeArchived: true), InboxShelf);
+            if (store.GetCurrent(args.ThreadId) is { } readMetadata) ApplyReadMetadata(readMetadata);
 
             if (store.GetCurrent(args.ThreadId) is { } updated && SelectedThread?.ThreadId == args.ThreadId)
             {

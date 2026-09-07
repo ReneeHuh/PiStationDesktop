@@ -163,17 +163,8 @@ public sealed class ComposerPowerViewModel : ObservableObject
         OnPropertyChanged(nameof(ContextChipsVisibility));
     }
 
-    internal static string AppendContext(string prompt, IReadOnlyList<ComposerContext>? context)
-    {
-        if (context is null || context.Count == 0)
-        {
-            return prompt;
-        }
-
-        var blocks = context.Select(chip =>
-            $"<pistation_context kind=\"{chip.Kind}\" label=\"{EscapeAttribute(chip.Label)}\">\n{chip.Text}\n</pistation_context>");
-        return $"{prompt}\n\n{string.Join("\n\n", blocks)}";
-    }
+    internal static string AppendContext(string prompt, IReadOnlyList<ComposerContext>? context) =>
+        ComposerContextDefaults.AppendToPrompt(prompt, context);
 
     internal static bool TryReadCommandToken(
         string text,
@@ -228,11 +219,6 @@ public sealed class ComposerPowerViewModel : ObservableObject
     private static bool TryReadCommandToken(string text, int caret, out char prefix, out string query) =>
         TryReadCommandToken(text, caret, out prefix, out query, out _, out _);
 
-    private static string EscapeAttribute(string value) => value
-        .Replace("&", "&amp;", StringComparison.Ordinal)
-        .Replace("\"", "&quot;", StringComparison.Ordinal)
-        .Replace("<", "&lt;", StringComparison.Ordinal)
-        .Replace(">", "&gt;", StringComparison.Ordinal);
 }
 
 public sealed record ComposerContextChipViewModel(

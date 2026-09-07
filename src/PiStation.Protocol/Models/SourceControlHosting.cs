@@ -43,7 +43,8 @@ public sealed record PullRequestDescriptor(
     IReadOnlyList<string> Labels,
     IReadOnlyList<string> Reviewers,
     PullRequestCheckState Checks,
-    DateTimeOffset UpdatedUtc)
+    DateTimeOffset UpdatedUtc,
+    DateTimeOffset? ClosedOrMergedUtc = null)
 {
     public bool CanComment => HostingCapabilities.CanMutate(Provider, PullRequestMutationKind.Comment);
     public bool CanLabel => HostingCapabilities.CanMutate(Provider, PullRequestMutationKind.AddLabel);

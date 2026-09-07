@@ -164,7 +164,25 @@ foreach ($checkpointAutomationId in @(
         "Conversation timeline is missing checkpoint control '$checkpointAutomationId'."
 }
 
+$settlementSettingsXaml = Get-Content -LiteralPath (Join-Path $viewRoot 'ShellPage.xaml') -Raw
+foreach ($settlementControl in @('SettingsGeneralNavItem', 'AutoSettleDaysInput', 'SaveSettlementSettingsButton')) {
+    Assert-Contract ($settlementSettingsXaml.Contains("AutomationId=`"$settlementControl`"")) `
+        "Settings is missing settlement control '$settlementControl'."
+}
+$backgroundComposer = Get-Content -LiteralPath (Join-Path $viewRoot 'Controls\ComposerSurface.xaml') -Raw
+Assert-Contract ($backgroundComposer.Contains('AutomationId="NewBackgroundTaskButton"') -and
+    $backgroundComposer.Contains('Click="OnNewBackgroundTaskClicked"') -and
+    $backgroundComposer.Contains('ViewModel.CanStartBackgroundTask, Mode=OneWay')) `
+    'Independent task submission must have an accessible button and its own availability binding.'
 $reviewSource = Get-Content -LiteralPath (Join-Path $viewRoot 'ShellPage.Review.cs') -Raw
+$sidebarXaml = Get-Content -LiteralPath (Join-Path $viewRoot 'Controls\AppSidebar.xaml') -Raw
+foreach ($readControl in @('ThreadUnreadIndicator', 'MarkThreadUnreadMenuItem', 'BulkMarkUnreadMenuItem')) {
+    Assert-Contract ($sidebarXaml.Contains("AutomationId=`"$readControl`"")) `
+        "Sidebar is missing read-state control '$readControl'."
+}
+$readWindowSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'src\PiStation.App\MainWindow.xaml.cs') -Raw
+Assert-Contract ($readWindowSource.Contains('Activated += OnReadWindowActivated') -and $readWindowSource.Contains('Activated -= OnReadWindowActivated')) `
+    'Read-state activation handling must attach and detach with the window.'
 foreach ($sentAction in @('OnPreviewSentAttachment', 'OnOpenSentAttachment', 'OnSaveSentAttachment', 'OnCopySentAttachmentPath', 'OnOpenSentCitation')) {
     Assert-Contract ($conversationXaml.Contains("Click=`"$sentAction`"", [System.StringComparison]::Ordinal)) `
         "Sent-content action '$sentAction' is not wired into the transcript."

@@ -17,7 +17,9 @@ public sealed partial class PiThreadController
         var connection = _process!.Connection;
         // A missing/failed bundled policy must prevent prompts from starting.
         var data = await connection.ManagePlanAsync(new JsonObject { ["action"] = "inspect" }, cancellationToken).ConfigureAwait(false);
-        return ReadPlan(data.GetRawText());
+        var plan = ReadPlan(data.GetRawText());
+        await _database.RecordSettlementPlanAsync(_thread.ThreadId, plan, cancellationToken).ConfigureAwait(false);
+        return plan;
     }
 
     public Task<PiStation.Protocol.Identifiers.TurnId> ExecutePlanAsync(long revision,
@@ -55,7 +57,9 @@ public sealed partial class PiThreadController
         {
             ["action"] = command.Action, ["expectedRevision"] = command.ExpectedRevision, ["text"] = command.Text,
         }, cancellationToken).ConfigureAwait(false);
-        Journal.Commit(new PiPlanChangedEvent(ReadPlan(data.GetRawText())));
+        var plan = ReadPlan(data.GetRawText());
+        await _database.RecordSettlementPlanAsync(_thread.ThreadId, plan, cancellationToken).ConfigureAwait(false);
+        Journal.Commit(new PiPlanChangedEvent(plan));
         TouchRuntime();
     }
 }

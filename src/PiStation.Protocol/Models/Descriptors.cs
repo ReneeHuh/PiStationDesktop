@@ -86,8 +86,16 @@ public sealed record ThreadDescriptor(
     ThreadTitleKind TitleKind = ThreadTitleKind.Placeholder,
     PullRequestLink? PullRequest = null,
     PiStation.Protocol.Projections.ThreadRuntimeState? RuntimeState = null,
-    bool NeedsAttention = false)
+    bool NeedsAttention = false,
+    long CompletionSequence = 0,
+    long ReadCompletionSequence = 0)
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsUnread => CompletionSequence > ReadCompletionSequence;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string UnreadLabel => IsUnread ? "Unread" : string.Empty;
+
     [System.Text.Json.Serialization.JsonIgnore]
     public string ActivityStatus => NeedsAttention ? "Waiting for you" : RuntimeState switch
     {

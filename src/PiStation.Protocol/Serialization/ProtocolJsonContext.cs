@@ -12,6 +12,7 @@ namespace PiStation.Protocol.Serialization;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(EnvironmentDescriptor))]
+[JsonSerializable(typeof(SettlementSettings))]
 [JsonSerializable(typeof(GetPullRequestReviewRequest))]
 [JsonSerializable(typeof(PullRequestReviewSnapshot))]
 [JsonSerializable(typeof(PullRequestReviewTarget))]
@@ -23,6 +24,9 @@ namespace PiStation.Protocol.Serialization;
 [JsonSerializable(typeof(PiPlanState))]
 [JsonSerializable(typeof(PiPlanChangedEvent))]
 [JsonSerializable(typeof(ThreadManagePlanCommand))]
+[JsonSerializable(typeof(ThreadSetReadStateCommand))]
+[JsonSerializable(typeof(SubmitBackgroundTaskRequest))]
+[JsonSerializable(typeof(BackgroundTaskResult))]
 [JsonSerializable(typeof(PiResourcesSnapshot))]
 [JsonSerializable(typeof(BrowsePiSessionsRequest))]
 [JsonSerializable(typeof(PiSessionBrowserResult))]

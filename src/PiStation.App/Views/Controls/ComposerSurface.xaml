@@ -448,6 +448,11 @@
                         Style="{StaticResource PiToolbarButtonStyle}"
                         ToolTipService.ToolTip="Queue after the current response (Ctrl+Enter)"
                         Visibility="{x:Bind ViewModel.FollowUpButtonVisibility, Mode=OneWay}" />
+                    <Button Content="{x:Bind ViewModel.BackgroundTaskActionLabel, Mode=OneWay}"
+                        Click="OnNewBackgroundTaskClicked" IsEnabled="{x:Bind ViewModel.CanStartBackgroundTask, Mode=OneWay}"
+                        automation:AutomationProperties.AutomationId="NewBackgroundTaskButton"
+                        ToolTipService.ToolTip="Start an independent task using this thread's Pi and workspace defaults; keep a fresh draft here (Ctrl+Shift+Enter)"
+                        Style="{StaticResource PiToolbarButtonStyle}" />
                         </StackPanel>
                     </ScrollViewer>
 

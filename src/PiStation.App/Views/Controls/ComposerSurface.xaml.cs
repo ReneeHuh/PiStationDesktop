@@ -16,6 +16,7 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class ComposerSurface : UserControl
 {
+    private void OnNewBackgroundTaskClicked(object sender, RoutedEventArgs e) => ViewModel.SendPromptInBackground();
     private FileMentionToken? _activeFileMentionToken;
     private bool _isApplyingFileMention;
     private bool _isPromptShiftKeyDown;

@@ -13,6 +13,11 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     private readonly EnvironmentService _environment = environment ?? throw new ArgumentNullException(nameof(environment));
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
+    public Task<SettlementSettings> GetSettlementSettings() => _environment.GetSettlementSettingsAsync(Context.ConnectionAborted);
+    public Task SaveSettlementSettings(SettlementSettings settings) => _environment.SaveSettlementSettingsAsync(settings, Context.ConnectionAborted);
+
+    public Task<BackgroundTaskResult> SubmitBackgroundTask(SubmitBackgroundTaskRequest request) =>
+        _environment.SubmitBackgroundTaskAsync(request, Context.ConnectionAborted);
 
     public async Task<ProjectDescriptor[]> ListProjects() =>
         [.. await _environment.ListProjectsAsync(Context.ConnectionAborted).ConfigureAwait(false)];

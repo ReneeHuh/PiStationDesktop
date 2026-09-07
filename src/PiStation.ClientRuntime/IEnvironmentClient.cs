@@ -7,6 +7,12 @@ namespace PiStation.ClientRuntime;
 
 public interface IEnvironmentClient : IAsyncDisposable
 {
+    Task<SettlementSettings> GetSettlementSettingsAsync(CancellationToken cancellationToken = default);
+    Task SaveSettlementSettingsAsync(SettlementSettings settings, CancellationToken cancellationToken = default);
+    Task<BackgroundTaskResult> SubmitBackgroundTaskAsync(SubmitBackgroundTaskRequest request, CancellationToken cancellationToken = default);
+    Task<ThreadLifecycleUpdateResult> SetThreadReadStateAsync(ThreadId threadId, long observedCompletionSequence,
+        bool isUnread = false, CancellationToken cancellationToken = default);
+
     event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
 
     EnvironmentConnectionState ConnectionState { get; }

@@ -17,6 +17,21 @@ namespace PiStation.ClientRuntime;
 
 public sealed class EnvironmentClient : IEnvironmentClient
 {
+    public Task<SettlementSettings> GetSettlementSettingsAsync(CancellationToken cancellationToken = default) =>
+        InvokeAsync<SettlementSettings>("GetSettlementSettings", cancellationToken);
+    public Task SaveSettlementSettingsAsync(SettlementSettings settings, CancellationToken cancellationToken = default) =>
+        _supervisor.Connection.InvokeAsync("SaveSettlementSettings", settings, cancellationToken);
+    public async Task<BackgroundTaskResult> SubmitBackgroundTaskAsync(SubmitBackgroundTaskRequest request, CancellationToken cancellationToken = default)
+    {
+        var result = await InvokeAsync<BackgroundTaskResult>("SubmitBackgroundTask", request, cancellationToken).ConfigureAwait(false);
+        if (result.TaskThreadId is { } threadId)
+        {
+            try { await GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false); }
+            catch (Exception) { /* Receipt recovery remains valid even if the task was subsequently deleted or metadata refresh failed. */ }
+        }
+        return result;
+    }
+
     private readonly ConcurrentDictionary<ThreadId, ThreadSubscription> _subscriptions = new();
     private readonly ConcurrentDictionary<TerminalSessionId, TerminalSubscription> _terminalSubscriptions = new();
     private readonly ClientRuntimeOptions _options;
@@ -640,6 +655,10 @@ public sealed class EnvironmentClient : IEnvironmentClient
             new ThreadSetPinnedCommand(expectedRevision, isPinned),
             cancellationToken);
     }
+
+    public Task<ThreadLifecycleUpdateResult> SetThreadReadStateAsync(ThreadId threadId, long observedCompletionSequence,
+        bool isUnread = false, CancellationToken cancellationToken = default) => ExecuteThreadLifecycleAsync(
+            threadId, new ThreadSetReadStateCommand(observedCompletionSequence, isUnread), cancellationToken);
 
     public Task<ThreadLifecycleUpdateResult> SetThreadSettledAsync(
         ThreadId threadId,

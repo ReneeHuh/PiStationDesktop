@@ -142,6 +142,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         var knownProjects = await projects.ListAsync(cancellationToken).ConfigureAwait(false);
         await new ProjectAutoPullService(diagnostics.Record)
             .PullEligibleProjectsAsync(knownProjects, cancellationToken).ConfigureAwait(false);
+        service._settlementWorker = Task.Run(service.RunSettlementWorkerAsync, CancellationToken.None);
         return service;
     }
 
@@ -751,6 +752,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                                         ThreadSetArchivedCommand or
                                         ThreadSetPinnedCommand or
                                         ThreadSetSettledCommand or
+                                        ThreadSetReadStateCommand or
                                         ThreadSetSnoozedCommand or
                                         ThreadSetPinnedOrderCommand))
             {
@@ -760,6 +762,11 @@ public sealed partial class EnvironmentService : IAsyncDisposable
 
             switch (request.Command)
             {
+                case ThreadSetReadStateCommand readState:
+                    await _database.SetReadStateAsync(request.ThreadId, readState.ObservedCompletionSequence,
+                        readState.IsUnread, cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
                 case ThreadManagePlanCommand { Action: "execute" } plan:
                     await controller!.ExecutePlanAsync(plan.ExpectedRevision, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
                     break;
@@ -1175,6 +1182,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await _settlementShutdown.CancelAsync().ConfigureAwait(false);
+        if (_settlementWorker is not null) await _settlementWorker.ConfigureAwait(false);
         _preview.Dispose();
         await _terminals.DisposeAsync().ConfigureAwait(false);
         await _threads.DisposeAsync().ConfigureAwait(false);

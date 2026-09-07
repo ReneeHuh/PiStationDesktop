@@ -53,6 +53,40 @@ public sealed class EnvironmentClientIntegrationTests
     }
 
     [Fact]
+    public async Task CompletionReadWatermarkAndManualUnreadSurviveRuntimeRestart()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions());
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("project")));
+        var thread = await client.CreateThreadAsync(new(project.ProjectId));
+        await using var subscription = client.SubscribeThread(thread.ThreadId);
+        var ready = await WaitForProjectionAsync(subscription.Store, p => p.RuntimeState == ThreadRuntimeState.Ready);
+        Assert.False((await client.GetThreadAsync(thread.ThreadId)).IsUnread);
+        await client.StartTurnAsync(thread.ThreadId, "first completion", ready.ProjectionEpoch);
+        var completed = await WaitForProjectionAsync(subscription.Store,
+            p => p.RuntimeState == ThreadRuntimeState.Ready && p.CompletionSequence == 1);
+        Assert.True((await client.GetThreadAsync(thread.ThreadId)).IsUnread);
+        var read = await client.SetThreadReadStateAsync(thread.ThreadId, completed.CompletionSequence);
+        Assert.Equal(CommandReceiptState.Completed, read.Receipt.State);
+        Assert.False(read.Thread!.IsUnread);
+        Assert.False(client.ThreadMetadata.GetCurrent(thread.ThreadId)!.IsUnread);
+        await client.StartTurnAsync(thread.ThreadId, "later completion", completed.ProjectionEpoch);
+        var later = await WaitForProjectionAsync(subscription.Store,
+            p => p.RuntimeState == ThreadRuntimeState.Ready && p.CompletionSequence == 2);
+        Assert.True((await client.SetThreadReadStateAsync(thread.ThreadId, 1)).Thread!.IsUnread);
+        Assert.False((await client.SetThreadReadStateAsync(thread.ThreadId, 2)).Thread!.IsUnread);
+        Assert.True((await client.SetThreadReadStateAsync(thread.ThreadId, 2, true)).Thread!.IsUnread);
+        await client.RestartThreadAsync(thread.ThreadId, later.ProjectionEpoch);
+        var restored = await WaitForProjectionAsync(subscription.Store,
+            p => p.RuntimeState == ThreadRuntimeState.Ready && p.ProjectionEpoch != later.ProjectionEpoch);
+        Assert.Equal(2, restored.CompletionSequence);
+        Assert.True((await client.GetThreadAsync(thread.ThreadId)).IsUnread);
+        Assert.False((await client.SetThreadReadStateAsync(thread.ThreadId, restored.CompletionSequence)).Thread!.IsUnread);
+    }
+
+    [Fact]
     public async Task ClientSurfacesAnInvalidBearerAsAuthenticationRequired()
     {
         using var temporaryDirectory = new ClientTestDirectory();
@@ -855,6 +889,144 @@ public sealed class EnvironmentClientIntegrationTests
         var start = message.LastIndexOf(startMarker, StringComparison.Ordinal) + startMarker.Length;
         var length = message.Length - start - endMarker.Length;
         return Assert.IsType<JsonObject>(JsonNode.Parse(message.Substring(start, length)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ThreeBackgroundTasksKeepIndependentThreadsDefaultsAndDrafts(bool useWorktrees)
+    {
+        using var directory = new ClientTestDirectory();
+        var options = directory.CreateHostOptions("queue");
+        var projectPath = directory.CreateDirectory("background-project");
+        RunGit(projectPath, "init", "-b", "main");
+        RunGit(projectPath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "baseline");
+        SubmitBackgroundTaskRequest? firstRequest = null;
+        BackgroundTaskResult? firstResult = null;
+        ThreadDescriptor source;
+        await using (var host = await EmbeddedEnvironmentHost.StartAsync(options))
+        await using (var client = CreateClient(host))
+        {
+            await client.ConnectAsync();
+            var project = await client.AddProjectAsync(new(projectPath));
+            source = await client.CreateThreadAsync(new(project.ProjectId));
+            var configuration = await client.GetThreadPiConfigurationAsync(source.ThreadId);
+            await client.UpdateThreadPiConfigurationAsync(source.ThreadId, configuration.Configuration.Revision,
+                new PiModelSelection("fake", "fake-fast"), PiThinkingLevel.Off, configuration.Configuration.RuntimeModeId);
+            var taskPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var taskIds = new HashSet<PiStation.Protocol.Identifiers.ThreadId>();
+            for (var index = 0; index < 3; index++)
+            {
+                var draft = await client.GetThreadDraftAsync(source.ThreadId);
+                var saved = (await client.SaveThreadDraftAsync(source.ThreadId, draft.DraftId, draft.Revision, $"Independent task {index}",
+                    [new ComposerContext("source", "file", "source.cs", "saved context", source.ThreadId, RelativePath: "source.cs")])).Draft!;
+                var bytes = Encoding.UTF8.GetBytes($"attachment {index}");
+                using var stream = new MemoryStream(bytes);
+                saved = (await client.UploadDraftAttachmentAsync(source.ThreadId, saved.DraftId, saved.Revision,
+                    "notes.txt", "text/plain", stream, bytes.Length)).Draft!;
+                var request = new SubmitBackgroundTaskRequest(source.ThreadId, saved.DraftId, saved.Revision,
+                    useWorktrees ? ThreadWorkspaceMode.Worktree : ThreadWorkspaceMode.Local, "main");
+                var result = await client.SubmitBackgroundTaskAsync(request);
+                Assert.True(result.State == BackgroundTaskState.Accepted, result.Message);
+                Assert.NotNull(result.TaskThreadId);
+                var task = await client.GetThreadAsync(result.TaskThreadId.Value);
+                Assert.NotEqual(source.ThreadId, task.ThreadId);
+                Assert.True(taskIds.Add(task.ThreadId));
+                Assert.Equal(request.WorkspaceMode, task.WorkspaceMode);
+                await using var taskSubscription = client.SubscribeThread(task.ThreadId);
+                await WaitForProjectionAsync(taskSubscription.Store, p => p.RuntimeState == ThreadRuntimeState.Running);
+                if (useWorktrees)
+                {
+                    Assert.NotNull(task.WorktreePath);
+                    Assert.True(Directory.Exists(task.WorktreePath));
+                    Assert.True(taskPaths.Add(task.WorktreePath));
+                    Assert.NotEqual(projectPath, task.WorktreePath);
+                }
+                var taskDatabase = new PiStation.Host.Persistence.HostDatabase(options);
+                await taskDatabase.InitializeAsync();
+                var taskConfig = await taskDatabase.GetOrCreateThreadPiConfigurationAsync(task.ThreadId);
+                Assert.Equal(new PiModelSelection("fake", "fake-fast"), taskConfig.Model);
+                Assert.Equal(PiThinkingLevel.Off, taskConfig.ThinkingLevel);
+                Assert.Equal(saved.Text, (await client.GetThreadDraftAsync(source.ThreadId)).Text);
+                var cleared = await client.ClearThreadDraftAsync(source.ThreadId, saved.DraftId, saved.Revision,
+                    saved.Attachments.Select(a => a.AttachmentId).ToArray());
+                Assert.Empty(cleared.Draft!.Text);
+                Assert.Empty(cleared.Draft.Attachments);
+                Assert.True(File.Exists(saved.Attachments[0].ServerPath));
+                var replay = await client.SubmitBackgroundTaskAsync(request);
+                Assert.Equal(result.TaskThreadId, replay.TaskThreadId);
+                Assert.Equal(BackgroundTaskState.Accepted, replay.State);
+                firstRequest ??= request;
+                firstResult ??= result;
+            }
+            Assert.Equal(4, (await client.ListThreadsAsync(project.ProjectId)).Count);
+            Assert.Equal(0, await host.Environment.SweepThreadSettlementAsync(DateTimeOffset.UtcNow.AddDays(5)));
+        }
+        await using var restarted = await EmbeddedEnvironmentHost.StartAsync(options);
+        var restored = await restarted.Environment.SubmitBackgroundTaskAsync(firstRequest!);
+        Assert.Equal(firstResult!.TaskThreadId, restored.TaskThreadId);
+        Assert.Equal(BackgroundTaskState.Accepted, restored.State);
+        Assert.Equal(4, (await restarted.Environment.ListThreadsAsync(source.ProjectId)).Count);
+    }
+
+    [Theory]
+    [InlineData(BackgroundTaskState.Preparing, BackgroundTaskState.Rejected)]
+    [InlineData(BackgroundTaskState.Dispatching, BackgroundTaskState.Uncertain)]
+    public async Task InterruptedBackgroundSubmissionNeverCreatesAnotherTask(BackgroundTaskState storedState, BackgroundTaskState expectedState)
+    {
+        using var directory = new ClientTestDirectory();
+        var options = directory.CreateHostOptions();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(options);
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("interrupted-background")));
+        var source = await client.CreateThreadAsync(new(project.ProjectId));
+        var draft = await client.GetThreadDraftAsync(source.ThreadId);
+        draft = (await client.SaveThreadDraftAsync(source.ThreadId, draft.DraftId, draft.Revision, "Keep this draft")).Draft!;
+        var request = new SubmitBackgroundTaskRequest(source.ThreadId, draft.DraftId, draft.Revision, ThreadWorkspaceMode.Local);
+        var database = new PiStation.Host.Persistence.HostDatabase(options);
+        await database.SaveBackgroundTaskAsync(request, new(Guid.NewGuid().ToString("N"), null, storedState, "Interrupted"), create: true);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            Assert.Equal(expectedState, (await client.SubmitBackgroundTaskAsync(request)).State);
+            Assert.Single(await client.ListThreadsAsync(project.ProjectId));
+            Assert.Equal(draft.Text, (await client.GetThreadDraftAsync(source.ThreadId)).Text);
+        }
+        await Assert.ThrowsAsync<InvalidOperationException>(() => database.GetBackgroundTaskAsync(request with { BaseBranch = "different" }));
+    }
+
+    [Fact]
+    public async Task StaleBackgroundDraftIsRejectedWithoutCreatingThreadOrLosingNewerText()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions());
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("stale-background")));
+        var source = await client.CreateThreadAsync(new(project.ProjectId));
+        var draft = await client.GetThreadDraftAsync(source.ThreadId);
+        var request = new SubmitBackgroundTaskRequest(source.ThreadId, draft.DraftId, draft.Revision, ThreadWorkspaceMode.Local);
+        await client.SaveThreadDraftAsync(source.ThreadId, draft.DraftId, draft.Revision, "Newer text");
+        Assert.Equal(BackgroundTaskState.Rejected, (await client.SubmitBackgroundTaskAsync(request)).State);
+        Assert.Single(await client.ListThreadsAsync(project.ProjectId));
+        Assert.Equal("Newer text", (await client.GetThreadDraftAsync(source.ThreadId)).Text);
+    }
+
+    [Fact]
+    public async Task SettlementSettingsRoundTripThroughClientAndHostRestart()
+    {
+        using var directory = new ClientTestDirectory();
+        var options = directory.CreateHostOptions();
+        await using (var host = await EmbeddedEnvironmentHost.StartAsync(options))
+        await using (var client = CreateClient(host))
+        {
+            await client.ConnectAsync();
+            Assert.Equal(new SettlementSettings(), await client.GetSettlementSettingsAsync());
+            await client.SaveSettlementSettingsAsync(new(7, false, true));
+            Assert.Equal(new SettlementSettings(7, false, true), await client.GetSettlementSettingsAsync());
+        }
+        await using var restarted = await EmbeddedEnvironmentHost.StartAsync(options);
+        Assert.Equal(new SettlementSettings(7, false, true), await restarted.Environment.GetSettlementSettingsAsync());
     }
 
     private static void RunGit(string workingDirectory, params string[] arguments)

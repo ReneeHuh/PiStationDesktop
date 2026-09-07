@@ -192,7 +192,7 @@ public sealed partial class SourceControlHostingService(
         SourceControlProvider provider,
         PullRequestState? state) => provider switch
     {
-        SourceControlProvider.GitHub => ("gh", ["pr", "list", "--state", StateArgument(state), "--limit", "100", "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt"]),
+        SourceControlProvider.GitHub => ("gh", ["pr", "list", "--state", StateArgument(state), "--limit", "100", "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt,closedAt,mergedAt"]),
         SourceControlProvider.GitLab => ("glab", Compact(["mr", "list", state switch { PullRequestState.Closed => "--closed", PullRequestState.Merged => "--merged", PullRequestState.Draft => "--draft", null => "--all", _ => null }, "--per-page", "100", "--output", "json"])),
         SourceControlProvider.Bitbucket => throw UnsupportedProvider(provider),
         SourceControlProvider.AzureDevOps => ("az", ["repos", "pr", "list", "--status", AzureStateArgument(state), "--top", "100", "--output", "json"]),
@@ -351,7 +351,9 @@ public sealed partial class SourceControlHostingService(
             Text(item, "title") ?? "Untitled pull request", url, state, author,
             sourceBranch ?? string.Empty,
             targetBranch,
-            isDraft, labels, reviewers, checks, updated);
+            isDraft, labels, reviewers, checks, updated,
+            DateTimeOffset.TryParse(Text(item, "mergedAt") ?? Text(item, "merged_at") ?? Text(item, "closedAt") ?? Text(item, "closed_at") ?? Text(item, "closedDate"),
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var closedAt) ? closedAt : null);
     }
 
     private static PullRequestCheckState ReadChecks(JsonElement item)

@@ -302,6 +302,7 @@ internal static class ClientProjectionReducer
             CreateTurnBoundary(settled.TurnId, TurnBoundaryKind.Settled, settled.Metrics));
         return projection with
         {
+            CompletionSequence = Math.Max(projection.CompletionSequence, settled.CompletionSequence),
             RuntimeState = ThreadRuntimeState.Ready,
             CurrentTurnId = null,
             Timeline = timeline,
