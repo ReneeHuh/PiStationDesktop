@@ -74,6 +74,12 @@ public sealed partial class HostDatabase
                     CreatedUtc TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS ProjectDefaultsOverrides (
+                    ProjectId TEXT PRIMARY KEY NOT NULL,
+                    ConfigurationJson TEXT NOT NULL,
+                    FOREIGN KEY (ProjectId) REFERENCES Projects(ProjectId) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS Threads (
                     ThreadId TEXT PRIMARY KEY NOT NULL,
                     ProjectId TEXT NOT NULL,
@@ -276,6 +282,11 @@ public sealed partial class HostDatabase
         await InitializeSettlementAsync(connection, cancellationToken).ConfigureAwait(false);
         await RecoverHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
         await EnsureProjectConfigurationColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await using (var unsupportedModes = connection.CreateCommand())
+        {
+            unsupportedModes.CommandText = "UPDATE ThreadPiConfigurations SET RuntimeModeId = NULL WHERE RuntimeModeId NOT IN ('supervised','auto-accept-edits','auto','full-access'); UPDATE Projects SET DefaultRuntimeModeId = NULL WHERE DefaultRuntimeModeId NOT IN ('supervised','auto-accept-edits','auto','full-access');";
+            await unsupportedModes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await EnsureThreadCheckpointColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadLifecycleColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadWorkspaceColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -662,11 +673,15 @@ public sealed partial class HostDatabase
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadThread(reader) : null;
     }
 
-    public async Task<IReadOnlyList<HostThreadRecord>> SearchThreadsAsync(
+    public Task<IReadOnlyList<HostThreadRecord>> SearchThreadsAsync(ProjectId projectId, string query, bool includeArchived, int limit, CancellationToken cancellationToken = default) =>
+        SearchThreadsPageAsync(projectId, query, includeArchived, limit, 0, cancellationToken);
+
+    public async Task<IReadOnlyList<HostThreadRecord>> SearchThreadsPageAsync(
         ProjectId projectId,
         string query,
         bool includeArchived,
         int limit,
+        int offset,
         CancellationToken cancellationToken = default)
     {
         var threads = new List<HostThreadRecord>();
@@ -682,12 +697,13 @@ public sealed partial class HostDatabase
               AND ($includeArchived = 1 OR IsArchived = 0)
               AND ($query = '' OR Title LIKE $pattern ESCAPE '\' COLLATE NOCASE)
             ORDER BY IsArchived, IsPinned DESC, UpdatedUtc DESC, ThreadId
-            LIMIT $limit;
+            LIMIT $limit OFFSET $offset;
             """;
         command.Parameters.AddWithValue("$projectId", projectId.Value);
         command.Parameters.AddWithValue("$includeArchived", includeArchived ? 1 : 0);
         command.Parameters.AddWithValue("$query", query);
         command.Parameters.AddWithValue("$pattern", $"%{EscapeLikePattern(query)}%");
+        command.Parameters.AddWithValue("$offset", offset);
         command.Parameters.AddWithValue("$limit", limit);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

@@ -15,7 +15,7 @@ public static class PiRuntimeSettingsStore
             if (new FileInfo(path).Length > MaximumSettingsBytes) throw new IOException("Pi runtime settings exceed their size limit.");
             var settings = JsonSerializer.Deserialize(File.ReadAllText(path), ProtocolJsonContext.Default.PiRuntimeConfiguration)
                 ?? throw new JsonException("Pi runtime settings are empty.");
-            return settings with { Extensions = Validate(settings.Extensions, requireFiles: false) };
+            return settings with { Extensions = Validate(settings.Extensions, requireFiles: false), Launch = ValidateLaunch(settings.Launch ?? new()) };
         }
         var legacy = Path.Combine(dataRoot, "pi-executable.txt");
         return new(File.Exists(legacy) ? File.ReadAllText(legacy).Trim() : null, new());
@@ -51,5 +51,24 @@ public static class PiRuntimeSettingsStore
             File.Move(temporary, path, overwrite: true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    public static PiLaunchConfiguration ValidateLaunch(PiLaunchConfiguration configuration)
+    {
+        if (configuration.Arguments?.Count > 128 || configuration.EnvironmentVariables?.Count > 128)
+            throw new ArgumentException("Configure at most 128 arguments and environment variables.");
+        var reserved = new HashSet<string>(StringComparer.Ordinal)
+        { "--", "--mode", "--session", "--session-id", "--fork", "--session-dir", "--continue", "-c", "--resume", "-r", "--no-session",
+          "--extension", "-e", "--no-extensions", "-ne", "--help", "-h", "--version", "-v", "--print", "-p", "--export", "--list-models", "--tui-mode" };
+        foreach (var argument in configuration.Arguments ?? [])
+            if (argument is null || argument.Length > 32768 || argument.Contains('\0') || reserved.Contains(argument.Split('=')[0]))
+                throw new ArgumentException("Launch arguments cannot replace PiStation's RPC mode, session, or extension configuration.");
+        foreach (var (name, value) in configuration.EnvironmentVariables ?? new Dictionary<string, string?>())
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 128 || name.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_') ||
+                name.StartsWith("PISTATION_", StringComparison.OrdinalIgnoreCase) || value?.Contains('\0') == true)
+                throw new ArgumentException("Enter valid environment-variable names. PISTATION_ variables are managed by the desktop.");
+        if (configuration.CommandTimeoutSeconds is < 5 or > 600 || configuration.ShutdownTimeoutSeconds is < 1 or > 30)
+            throw new ArgumentException("Command timeout must be 5–600 seconds; shutdown timeout must be 1–30 seconds.");
+        return configuration;
     }
 }

@@ -11,6 +11,7 @@ public sealed class PiModelOptionViewModel(PiModelCapability capability)
     public string DisplayName { get; } = capability.DisplayName;
 
     public bool SupportsReasoning { get; } = capability.SupportsReasoning;
+    public IReadOnlyList<PiThinkingLevel>? SupportedThinkingLevels { get; } = capability.SupportedThinkingLevels;
 
     public PiModelSelection Selection => new(ProviderId, ModelId);
 }

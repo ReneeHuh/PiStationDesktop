@@ -24,7 +24,8 @@ public sealed partial class PiRpcConnection
     private async Task<JsonElement> ManageCoreAsync(string commandName, JsonObject action, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposeCancellation.Token);
-        timeout.CancelAfter(_options.DefaultCommandTimeout);
+        timeout.CancelAfter(action["action"]?.ToString() is "packageInstall" or "packageRemove" or "packageUpdate" or "login"
+            ? _options.LongRunningCommandTimeout : _options.DefaultCommandTimeout);
         if (!(await GetCommandsAsync(timeout.Token).ConfigureAwait(false)).Any(command => command.Name == commandName))
             throw new PiRpcCommandException(commandName, "The PiStation management extension is unavailable. Restart Pi after updating PiStation.");
         var id = Guid.NewGuid().ToString("N");

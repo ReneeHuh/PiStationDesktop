@@ -136,6 +136,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             Journal.Commit(new RuntimeStateChangedEvent(ThreadRuntimeState.Starting));
             var process = await _processFactory.StartAsync(_project, _thread, cancellationToken).ConfigureAwait(false);
             _process = process;
+            _extensionFailures.Clear();
             _automationStatus = null;
             var generation = Interlocked.Increment(ref _generation);
             try
@@ -447,7 +448,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     $"revision {current.Revision}; reload it before saving.");
             }
 
-            if (runtimeModeId is not null)
+            if (runtimeModeId is not null && (!PiPermissionModes.IsSupported(runtimeModeId) || _options.ManagementExtensionPath is null))
             {
                 throw new HostOperationException(
                     ProtocolErrorCodes.PiConfigurationUnsupported,
@@ -496,6 +497,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     }
                 }
 
+                if (_options.ManagementExtensionPath is not null)
+                    await connection.ManageAsync(new System.Text.Json.Nodes.JsonObject { ["action"] = "permission", ["mode"] = runtimeModeId ?? "full-access" }, cancellationToken).ConfigureAwait(false);
                 var update = await _database.UpdateThreadPiConfigurationAsync(
                     _thread.ThreadId,
                     expectedRevision,
@@ -512,9 +515,19 @@ public sealed partial class PiThreadController : IAsyncDisposable
 
                 return update.Configuration;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch
             {
-                await TryRestoreActivePiConfigurationAsync(connection, originalState).ConfigureAwait(false);
+                try
+                {
+                    if (_options.ManagementExtensionPath is not null)
+                        await connection.ManageAsync(new System.Text.Json.Nodes.JsonObject { ["action"] = "permission", ["mode"] = current.RuntimeModeId ?? "full-access" }, CancellationToken.None).ConfigureAwait(false);
+                    await TryRestoreActivePiConfigurationAsync(connection, originalState).ConfigureAwait(false);
+                }
+                catch (Exception restoreError)
+                {
+                    await DisposePreviousProcessAsync().ConfigureAwait(false);
+                    await FailRuntimeAsync(restoreError).ConfigureAwait(false);
+                }
                 throw;
             }
         }
@@ -1326,6 +1339,9 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 await SettleAsync().ConfigureAwait(false);
                 break;
             case PiUnknownEvent unknown:
+                if (unknown.EventType == "extension_error" && unknown.Payload.TryGetProperty("extensionPath", out var extensionPath) &&
+                    extensionPath.ValueKind == JsonValueKind.String && unknown.Payload.TryGetProperty("error", out var extensionError))
+                    _extensionFailures[extensionPath.GetString()!] = LimitPreview(extensionError.ToString(), 4096);
                 Journal.Commit(new UnknownRuntimeEvent(unknown.EventType, LimitPreview(unknown.Payload.GetRawText(), 1024)));
                 break;
         }
@@ -1767,12 +1783,15 @@ public sealed partial class PiThreadController : IAsyncDisposable
         ThreadPiConfiguration configuration,
         CancellationToken cancellationToken)
     {
-        if (configuration.RuntimeModeId is not null)
+        if (configuration.RuntimeModeId is not null && !PiPermissionModes.IsSupported(configuration.RuntimeModeId))
         {
             throw new HostOperationException(
                 ProtocolErrorCodes.PiConfigurationUnsupported,
                 $"Stored runtime mode '{configuration.RuntimeModeId}' is not supported by Pi RPC.");
         }
+
+        if (configuration.RuntimeModeId is not null)
+            await connection.ManageAsync(new System.Text.Json.Nodes.JsonObject { ["action"] = "permission", ["mode"] = configuration.RuntimeModeId }, cancellationToken).ConfigureAwait(false);
 
         if (configuration.Model is not null)
         {
@@ -1797,7 +1816,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
         }
     }
 
-    private static async Task<ThreadPiConfigurationSnapshot> ReadPiConfigurationSnapshotAsync(
+    private async Task<ThreadPiConfigurationSnapshot> ReadPiConfigurationSnapshotAsync(
         PiRpcConnection connection,
         ThreadPiConfiguration configuration,
         CancellationToken cancellationToken)
@@ -1805,21 +1824,31 @@ public sealed partial class PiThreadController : IAsyncDisposable
         var state = await connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
         var models = await connection.GetAvailableModelsAsync(cancellationToken).ConfigureAwait(false);
         var thinkingLevels = await connection.GetAvailableThinkingLevelsAsync(cancellationToken).ConfigureAwait(false);
+        var modelLevels = new Dictionary<(string, string), IReadOnlyList<PiThinkingLevel>>();
+        string? activeMode = null;
+        if (_options.ManagementExtensionPath is not null)
+        {
+            var desktop = await connection.ManageAsync(new System.Text.Json.Nodes.JsonObject { ["action"] = "capabilities" }, cancellationToken).ConfigureAwait(false);
+            activeMode = desktop.GetProperty("permissionMode").GetString();
+            foreach (var entry in desktop.GetProperty("models").EnumerateArray())
+                modelLevels[(entry.GetProperty("providerId").GetString()!, entry.GetProperty("modelId").GetString()!)] =
+                    entry.GetProperty("thinkingLevels").EnumerateArray().Select(level => ParsePiThinkingLevel(level.GetString()!)).ToArray();
+        }
         var capabilities = new PiConfigurationCapabilities(
-            models.Select(static model => new PiModelCapability(
+            models.Select(model => new PiModelCapability(
                 model.ProviderId,
                 model.ModelId,
                 model.DisplayName,
                 model.SupportsReasoning,
-                model.ContextWindow)).ToArray(),
+                model.ContextWindow, modelLevels.GetValueOrDefault((model.ProviderId, model.ModelId)))).ToArray(),
             thinkingLevels.Select(ParsePiThinkingLevel).ToArray(),
-            []);
+            _options.ManagementExtensionPath is null ? [] : PiPermissionModes.Capabilities);
         return new ThreadPiConfigurationSnapshot(
             configuration,
             capabilities,
             state.Model is null ? null : new PiModelSelection(state.Model.ProviderId, state.Model.ModelId),
             ParsePiThinkingLevel(state.ThinkingLevel),
-            null);
+            activeMode);
     }
 
     private static async Task TryRestoreActivePiConfigurationAsync(

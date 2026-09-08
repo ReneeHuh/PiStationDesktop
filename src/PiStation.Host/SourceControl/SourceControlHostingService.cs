@@ -42,15 +42,40 @@ public sealed partial class SourceControlHostingService(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (request.Offset < 0 || request.Offset > int.MaxValue - 101 || request.Offset % 100 != 0 ||
+            request.SourceBranch is { } branch && (string.IsNullOrWhiteSpace(branch) || branch.Length > 1024 || branch.Any(char.IsControl)))
+            throw new ArgumentException("Use a valid pull request page and source branch.");
         var workspace = await _resolver.ResolveAsync(
             request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken)
             .ConfigureAwait(false);
-        var (fileName, arguments) = BuildListCommand(repository.Provider, request.State);
+        var (fileName, arguments) = BuildListCommand(repository.Provider, request.State, request.Offset, request.SourceBranch);
         var result = await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken)
             .ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
-        return new ListPullRequestsResult(repository, ParsePullRequests(repository, result.StandardOutput));
+        var parsed = ParsePullRequests(repository, result.StandardOutput);
+        var page = repository.Provider == SourceControlProvider.GitHub ? parsed.Skip(request.Offset).ToArray() : parsed;
+        return new ListPullRequestsResult(repository, page.Take(100).ToArray(),
+            (repository.Provider == SourceControlProvider.GitHub ? page.Length > 100 : page.Length == 100) ? request.Offset + 100 : null);
+    }
+
+    public async Task<PullRequestDescriptor> GetPullRequestAsync(WorkspaceTarget target, string number, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(number, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) || id <= 0)
+            throw new ArgumentException("A positive pull request number is required.");
+        var workspace = await _resolver.ResolveAsync(target.ProjectId, target.ThreadId, cancellationToken).ConfigureAwait(false);
+        var repository = await DetectAsync(new(target), cancellationToken).ConfigureAwait(false);
+        var (tool, arguments) = repository.Provider switch
+        {
+            SourceControlProvider.GitHub => ("gh", new[] { "pr", "view", number, "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt,closedAt,mergedAt" }),
+            SourceControlProvider.GitLab => ("glab", new[] { "mr", "view", number, "--output", "json" }),
+            SourceControlProvider.AzureDevOps => ("az", new[] { "repos", "pr", "show", "--id", number, "--output", "json" }),
+            _ => throw UnsupportedProvider(repository.Provider),
+        };
+        var result = await RunAsync(tool, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken).ConfigureAwait(false);
+        EnsureProviderSucceeded(result, repository.Provider);
+        using var document = JsonDocument.Parse(result.StandardOutput);
+        return ParsePullRequest(repository, document.RootElement);
     }
 
     public async Task<SourceControlOperationResult> CloneAsync(
@@ -150,12 +175,12 @@ public sealed partial class SourceControlHostingService(
 
     internal static (string FileName, string[] Arguments) BuildListCommand(
         SourceControlProvider provider,
-        PullRequestState? state) => provider switch
+        PullRequestState? state, int offset = 0, string? sourceBranch = null) => provider switch
     {
-        SourceControlProvider.GitHub => ("gh", ["pr", "list", "--state", StateArgument(state), "--limit", "100", "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt,closedAt,mergedAt"]),
-        SourceControlProvider.GitLab => ("glab", Compact(["mr", "list", state switch { PullRequestState.Closed => "--closed", PullRequestState.Merged => "--merged", PullRequestState.Draft => "--draft", null => "--all", _ => null }, "--per-page", "100", "--output", "json"])),
+        SourceControlProvider.GitHub => ("gh", Compact(["pr", "list", "--state", StateArgument(state), "--limit", (offset + 101).ToString(System.Globalization.CultureInfo.InvariantCulture), "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt,closedAt,mergedAt", sourceBranch is null ? null : "--head", sourceBranch])),
+        SourceControlProvider.GitLab => ("glab", Compact(["mr", "list", state switch { PullRequestState.Closed => "--closed", PullRequestState.Merged => "--merged", PullRequestState.Draft => "--draft", null => "--all", _ => null }, "--per-page", "100", "--page", (offset / 100 + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), "--output", "json", sourceBranch is null ? null : "--source-branch", sourceBranch])),
         SourceControlProvider.Bitbucket => throw UnsupportedProvider(provider),
-        SourceControlProvider.AzureDevOps => ("az", ["repos", "pr", "list", "--status", AzureStateArgument(state), "--top", "100", "--output", "json"]),
+        SourceControlProvider.AzureDevOps => ("az", Compact(["repos", "pr", "list", "--status", AzureStateArgument(state), "--top", "100", "--skip", offset.ToString(System.Globalization.CultureInfo.InvariantCulture), "--output", "json", sourceBranch is null ? null : "--source-branch", sourceBranch])),
         _ => throw UnsupportedProvider(provider),
     };
 

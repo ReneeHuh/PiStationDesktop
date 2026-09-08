@@ -11,7 +11,8 @@ public sealed class PiResourceRow(PiResourceDescriptor resource)
     public string Heading => $"{Resource.Kind} · {Resource.Name}";
     public string Source => $"{Resource.Scope} · {Resource.Source}";
     public string Path => Resource.Path;
-    public string State => (Resource.ConfirmedLoaded ? "Confirmed in this runtime" : "Not confirmed in this runtime") +
+    public string State => Resource.LoadError is { Length: > 0 } error ? "Extension error: " + error :
+        (Resource.ConfirmedLoaded ? "Confirmed in this runtime" : "Pi has not reported a loaded feature for this resource") +
         (Resource.Enabled ? " · enabled in Pi settings" : " · disabled in Pi settings");
     public string ToggleLabel => Resource.Enabled ? "Disable" : "Enable";
     public bool CanToggle => Resource.CanToggle;
@@ -28,7 +29,18 @@ public sealed class PiResourcesViewModel : ObservableObject
     public ThreadId? ThreadId { get; private set; }
     public PiResourcesSnapshot? Snapshot { get; private set; }
     public ObservableCollection<PiResourceRow> Resources { get; } = [];
-    public bool IsBusy { get => _isBusy; internal set { if (SetProperty(ref _isBusy, value)) OnPropertyChanged(nameof(CanEdit)); } }
+    public ObservableCollection<PiPackageDescriptor> Packages { get; } = [];
+    public ObservableCollection<PiPackageSearchItem> PackageSearchResults { get; } = [];
+    public string PackageSearchQuery { get; set; } = "";
+    public int? NextPackageSearchOffset { get; private set; }
+    public bool CanLoadMorePackages => NextPackageSearchOffset is not null && !IsBusy;
+    internal void ResetPackageSearch() { PackageSearchResults.Clear(); NextPackageSearchOffset = null; OnPropertyChanged(nameof(CanLoadMorePackages)); }
+    public ObservableCollection<PiProviderStatus> Providers { get; } = [];
+    public PiProviderStatus? SelectedProvider { get; set; }
+    public string PackageSource { get; set; } = "";
+    public void SelectPackageSource(string source) { PackageSource = source; OnPropertyChanged(nameof(PackageSource)); }
+    public bool PackageLocal { get; set; }
+    public bool IsBusy { get => _isBusy; internal set { if (SetProperty(ref _isBusy, value)) { OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(CanLoadMorePackages)); } } }
     public bool CanEdit => !IsBusy && Snapshot is not null;
     public string Status { get => _status; internal set => SetProperty(ref _status, value); }
     public string TrustSummary { get => _trustSummary; private set => SetProperty(ref _trustSummary, value); }
@@ -51,6 +63,15 @@ public sealed class PiResourcesViewModel : ObservableObject
     {
         ThreadId = threadId;
         Snapshot = snapshot;
+        if (snapshot.PackageSearchResults is not null)
+        {
+            foreach (var item in snapshot.PackageSearchResults.Where(item => !PackageSearchResults.Any(existing => existing.Source == item.Source))) PackageSearchResults.Add(item);
+            NextPackageSearchOffset = snapshot.NextPackageSearchOffset;
+        }
+        Packages.Clear(); foreach (var package in snapshot.Packages ?? []) Packages.Add(package);
+        Providers.Clear(); foreach (var provider in snapshot.Providers) Providers.Add(provider);
+        SelectedProvider = Providers.FirstOrDefault();
+        OnPropertyChanged(nameof(SelectedProvider));
         Resources.Clear();
         foreach (var resource in snapshot.Resources.OrderBy(item => item.Kind).ThenBy(item => item.Name))
             Resources.Add(new(resource));
@@ -69,6 +90,8 @@ public sealed class PiResourcesViewModel : ObservableObject
     {
         ThreadId = null;
         Snapshot = null;
+        Packages.Clear(); Providers.Clear(); SelectedProvider = null;
+        ResetPackageSearch();
         Resources.Clear();
         TrustSummary = "Project trust has not been inspected.";
         Directories = Diagnostics = ProviderSummary = string.Empty;

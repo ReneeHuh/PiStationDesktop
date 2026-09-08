@@ -69,6 +69,29 @@ public sealed class ShellLayoutViewModel : ObservableObject
     };
 
     private readonly string? _settingsPath;
+    public PiModelSelection? LastModel { get; private set; }
+    public PiThinkingLevel? LastThinkingLevel { get; private set; }
+    public SidebarPreferences Sidebar { get; private set; } = new();
+    public void ConfigureSidebar(SidebarPreferences preferences)
+    {
+        Sidebar = preferences with { PreviewCount = Math.Clamp(preferences.PreviewCount, 1, 15), ProjectSort = Math.Clamp(preferences.ProjectSort, 0, 3), ThreadSort = Math.Clamp(preferences.ThreadSort, 0, 1) };
+        Save();
+    }
+    private readonly List<ModelPickerPreference> _modelPreferences = [];
+    public ModelPickerPreference GetModelPreference(PiModelSelection model) =>
+        _modelPreferences.FirstOrDefault(preference => preference.Model == model) ?? new(model);
+    public void SetModelPreference(ModelPickerPreference preference)
+    {
+        _modelPreferences.RemoveAll(item => item.Model == preference.Model);
+        _modelPreferences.Add(preference);
+        Save();
+    }
+    public void RememberModel(PiModelSelection? model, PiThinkingLevel? thinkingLevel)
+    {
+        LastModel = model;
+        LastThinkingLevel = thinkingLevel;
+        Save();
+    }
     private bool _isSidebarCollapsed;
     private bool _isRightPanelOpen;
     private double _rightPanelWidth = DefaultRightPanelWidth;
@@ -643,6 +666,12 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 }
             }
 
+            LastModel = snapshot.LastModel;
+            LastThinkingLevel = snapshot.LastThinkingLevel;
+            Sidebar = snapshot.Sidebar ?? new();
+            Sidebar = Sidebar with { PreviewCount = Math.Clamp(Sidebar.PreviewCount, 1, 15), ProjectSort = Math.Clamp(Sidebar.ProjectSort, 0, 3), ThreadSort = Math.Clamp(Sidebar.ThreadSort, 0, 1) };
+            _modelPreferences.Clear();
+            _modelPreferences.AddRange(snapshot.ModelPreferences ?? []);
             _previewWorkspaces.Clear();
             if (snapshot.PreviewWorkspaces is not null)
             {
@@ -748,7 +777,11 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 _previewAutomationPermissions,
                 _browserProfiles,
                 _defaultBrowserProfileId,
-                _previewDevToolsPolicy);
+                _previewDevToolsPolicy,
+                LastModel,
+                LastThinkingLevel,
+                _modelPreferences,
+                Sidebar);
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(snapshot, SerializerOptions));
@@ -793,8 +826,16 @@ public sealed class ShellLayoutViewModel : ObservableObject
         IReadOnlyDictionary<string, PreviewAutomationAccess>? PreviewAutomationPermissions = null,
         IReadOnlyList<BrowserProfilePreference>? BrowserProfiles = null,
         string? DefaultBrowserProfileId = null,
-        PreviewDevToolsPolicy? PreviewDevToolsPolicy = null);
+        PreviewDevToolsPolicy? PreviewDevToolsPolicy = null,
+        PiModelSelection? LastModel = null,
+        PiThinkingLevel? LastThinkingLevel = null,
+        IReadOnlyList<ModelPickerPreference>? ModelPreferences = null,
+        SidebarPreferences? Sidebar = null);
 }
+
+public sealed record ModelPickerPreference(PiModelSelection Model, bool Favorite = false, bool Hidden = false, int Order = 1000);
+public sealed record SidebarPreferences(bool GroupByRepository = false, int ProjectSort = 0, int ThreadSort = 0,
+    int PreviewCount = 6, IReadOnlyList<string>? ProjectOrder = null);
 
 public sealed record CommandKeybindingPreference(
     string CommandId,

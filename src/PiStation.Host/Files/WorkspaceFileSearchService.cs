@@ -37,7 +37,7 @@ public sealed class WorkspaceFileSearchService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Query is null ||
+        if (request.Offset < 0 || request.ScanOffset < 0 || request.ScanOffset > int.MaxValue - _options.MaximumFileSearchScannedFiles || request.Query is null ||
             string.IsNullOrWhiteSpace(request.ProjectId.Value) ||
             request.Query.Length > FileSearchDefaults.MaximumQueryLength ||
             request.MaximumResults is < 1 or > FileSearchDefaults.MaximumResults)
@@ -96,7 +96,8 @@ public sealed class WorkspaceFileSearchService(
                 }
 
                 scannedFiles++;
-                if (scannedFiles > _options.MaximumFileSearchScannedFiles)
+                if (scannedFiles <= request.ScanOffset) continue;
+                if (scannedFiles - request.ScanOffset > _options.MaximumFileSearchScannedFiles)
                 {
                     reachedScanLimit = true;
                     break;
@@ -127,10 +128,13 @@ public sealed class WorkspaceFileSearchService(
             request.ProjectId,
             query,
             ordered
+                .Skip(request.Offset)
                 .Take(request.MaximumResults)
                 .Select(static candidate => new ProjectFileMatch(candidate.RelativePath, candidate.FileName))
                 .ToArray(),
-            reachedScanLimit || ordered.Length > request.MaximumResults);
+            reachedScanLimit || ordered.Length > (long)request.Offset + request.MaximumResults,
+            ordered.Length > (long)request.Offset + request.MaximumResults ? request.Offset + request.MaximumResults : reachedScanLimit ? 0 : null,
+            ordered.Length > (long)request.Offset + request.MaximumResults ? request.ScanOffset : reachedScanLimit ? request.ScanOffset + _options.MaximumFileSearchScannedFiles : 0);
     }
 
     public async Task<ListProjectEntriesResult> ListAsync(
@@ -138,7 +142,7 @@ public sealed class WorkspaceFileSearchService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (string.IsNullOrWhiteSpace(request.ProjectId.Value) ||
+        if (request.Offset < 0 || string.IsNullOrWhiteSpace(request.ProjectId.Value) ||
             request.MaximumResults is < 1 or > WorkspaceEntryDefaults.MaximumResults)
         {
             throw new HostOperationException(
@@ -149,9 +153,9 @@ public sealed class WorkspaceFileSearchService(
         var root = await ResolveRootAsync(request.ProjectId, request.ThreadId, cancellationToken)
             .ConfigureAwait(false);
         var entries = new List<ProjectWorkspaceEntry>();
+        var visitedEntries = 0;
         var directories = new Queue<string>();
         directories.Enqueue(root);
-        var scannedFiles = 0;
         var truncated = false;
         while (directories.Count != 0 && !truncated)
         {
@@ -190,7 +194,7 @@ public sealed class WorkspaceFileSearchService(
                     break;
                 }
 
-                entries.Add(new ProjectWorkspaceEntry(
+                if (visitedEntries++ >= request.Offset) entries.Add(new ProjectWorkspaceEntry(
                     relativePath,
                     Path.GetFileName(fullPath),
                     isDirectory,
@@ -198,11 +202,6 @@ public sealed class WorkspaceFileSearchService(
                 if (isDirectory)
                 {
                     directories.Enqueue(fullPath);
-                }
-                else if (++scannedFiles >= _options.MaximumFileSearchScannedFiles)
-                {
-                    truncated = directories.Count != 0;
-                    break;
                 }
             }
         }
@@ -213,7 +212,8 @@ public sealed class WorkspaceFileSearchService(
                 .OrderBy(static entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(static entry => entry.RelativePath, StringComparer.Ordinal)
                 .ToArray(),
-            truncated);
+            truncated,
+            truncated && entries.Count == request.MaximumResults ? request.Offset + entries.Count : null);
     }
 
     public async Task<SearchProjectContentsResult> SearchContentsAsync(
@@ -221,6 +221,9 @@ public sealed class WorkspaceFileSearchService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentOutOfRangeException.ThrowIfNegative(request.Offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(request.ScanOffset);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.ScanOffset, int.MaxValue - _options.MaximumFileSearchScannedFiles);
         if (string.IsNullOrWhiteSpace(request.ProjectId.Value) ||
             string.IsNullOrEmpty(request.Query) ||
             request.Query.Length > ContentSearchDefaults.MaximumQueryLength ||
@@ -254,6 +257,8 @@ public sealed class WorkspaceFileSearchService(
         var root = await ResolveRootAsync(request.ProjectId, request.ThreadId, cancellationToken)
             .ConfigureAwait(false);
         var matches = new List<ProjectContentMatch>();
+        var skippedMatches = 0;
+        var hasMoreMatches = false;
         var directories = new Queue<string>();
         directories.Enqueue(root);
         var scannedFiles = 0;
@@ -287,7 +292,8 @@ public sealed class WorkspaceFileSearchService(
                     continue;
                 }
 
-                if (++scannedFiles > _options.MaximumFileSearchScannedFiles)
+                if (++scannedFiles <= request.ScanOffset) continue;
+                if (scannedFiles - request.ScanOffset > _options.MaximumFileSearchScannedFiles)
                 {
                     truncated = true;
                     break;
@@ -336,17 +342,14 @@ public sealed class WorkspaceFileSearchService(
                         continue;
                     }
 
+                    if (skippedMatches++ < request.Offset) continue;
+                    if (matches.Count >= request.MaximumResults) { truncated = true; hasMoreMatches = true; break; }
                     matches.Add(new ProjectContentMatch(
                         relativePath,
                         Path.GetFileName(fullPath),
                         lineNumber,
                         line,
                         ranges));
-                    if (matches.Count >= request.MaximumResults)
-                    {
-                        truncated = true;
-                        break;
-                    }
                 }
 
                 if (truncated)
@@ -356,7 +359,9 @@ public sealed class WorkspaceFileSearchService(
             }
         }
 
-        return new SearchProjectContentsResult(request.ProjectId, request.Query, matches, truncated);
+        return new SearchProjectContentsResult(request.ProjectId, request.Query, matches, truncated,
+            hasMoreMatches ? request.Offset + matches.Count : truncated ? 0 : null,
+            hasMoreMatches ? request.ScanOffset : truncated ? request.ScanOffset + _options.MaximumFileSearchScannedFiles : 0);
     }
 
     private async Task<string> ResolveRootAsync(

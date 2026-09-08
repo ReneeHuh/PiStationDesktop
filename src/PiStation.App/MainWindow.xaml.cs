@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Windowing;
 using PiStation.App.ViewModels;
 using PiStation.App.Views;
 using PiStation.App.Views.Controls;
@@ -18,6 +20,8 @@ public sealed partial class MainWindow : Window
     private readonly int _textScalePercent;
     private readonly ShellPage _shellPage;
     private readonly ChatHeader _chatHeader;
+    private bool _discardEditsOnClose;
+    private bool _closeDialogOpen;
 
     public MainWindow(ShellViewModel viewModel, int textScalePercent = 100)
     {
@@ -37,6 +41,7 @@ public sealed partial class MainWindow : Window
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.Resize(new SizeInt32(1200, 800));
+        AppWindow.Closing += OnWindowClosing;
 
         _shellPage = new ShellPage(viewModel);
         _shellPage.SidebarCollapsedChanged += OnSidebarCollapsedChanged;
@@ -57,12 +62,44 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
+        AppWindow.Closing -= OnWindowClosing;
         Activated -= OnReadWindowActivated;
         _viewModel.SetReadWindowActive(false);
         _viewModel.Layout.PropertyChanged -= OnLayoutPropertyChanged;
         _shellPage.SidebarCollapsedChanged -= OnSidebarCollapsedChanged;
         _chatHeader.CommandPaletteRequested -= OnCommandPaletteRequested;
         _shellPage.Release();
+    }
+
+    private async void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_discardEditsOnClose) return;
+        var files = _viewModel.WorkbenchFiles.UnsavedDocumentNames;
+        var plans = _viewModel.Plan.UnsavedPlanCount;
+        if (files.Count == 0 && plans == 0) return;
+        args.Cancel = true;
+        if (_closeDialogOpen) return;
+        _closeDialogOpen = true;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootGrid.XamlRoot,
+                Title = "Unsaved edits",
+                Content = $"{files.Count} file(s) and {plans} plan(s) have unsaved edits, including other workspaces.\n" +
+                    string.Join('\n', files.Take(12)),
+                PrimaryButtonText = "Keep editing",
+                SecondaryButtonText = "Discard edits and close",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Secondary)
+            {
+                _discardEditsOnClose = true;
+                Close();
+            }
+        }
+        catch (Exception error) { _viewModel.ReportRuntimeError(error); }
+        finally { _closeDialogOpen = false; }
     }
 
     private async void OnCommandPaletteRequested(object? sender, EventArgs e) =>

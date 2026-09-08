@@ -71,7 +71,7 @@ public sealed partial class ShellViewModel
         {
             foreach (var group in ProjectGroups)
             {
-                group.Apply(group.AllThreads, InboxShelf);
+                group.Apply(group.AllThreads, InboxShelf, Layout.Sidebar);
             }
         });
         await SetShowingArchivedThreadsAsync(shelf == ThreadInboxShelf.Archived).ConfigureAwait(false);
@@ -95,21 +95,15 @@ public sealed partial class ShellViewModel
             }
 
             var projects = await client.ListProjectsAsync().ConfigureAwait(false);
+            var allThreads = new List<ThreadDescriptor>();
             foreach (var project in projects)
             {
-                await client.SearchThreadsAsync(new SearchThreadsRequest(project.ProjectId, string.Empty,
-                    IncludeArchived: true, Limit: ThreadLifecycleDefaults.MaximumSearchLimit)).ConfigureAwait(false);
-                await RunOnUiThreadAsync(() =>
+                int? offset = 0;
+                while (offset is { } pageOffset)
                 {
-                    if (!ReferenceEquals(_client, client))
-                    {
-                        return;
-                    }
-
-                    var group = ProjectGroups.FirstOrDefault(item => item.Project.ProjectId == project.ProjectId);
-                    if (group is null) { group = new ProjectGroupViewModel(project); ProjectGroups.Add(group); }
-                    group.Apply(client.ThreadMetadata.GetProjectThreads(project.ProjectId, includeArchived: true), InboxShelf);
-                }).ConfigureAwait(false);
+                    var page = await client.SearchThreadsAsync(new(project.ProjectId, string.Empty, true, ThreadLifecycleDefaults.MaximumSearchLimit, pageOffset)).ConfigureAwait(false);
+                    allThreads.AddRange(page.Threads); offset = page.NextOffset;
+                }
             }
             await RunOnUiThreadAsync(() =>
             {
@@ -118,8 +112,23 @@ public sealed partial class ShellViewModel
                     return;
                 }
 
-                foreach (var removed in ProjectGroups.Where(group => !projects.Any(project => project.ProjectId == group.Project.ProjectId)).ToArray())
-                    ProjectGroups.Remove(removed);
+                var preferences = Layout.Sidebar;
+                var groups = new List<ProjectGroupViewModel>();
+                foreach (var members in projects.GroupBy(project => preferences.GroupByRepository ? project.RepositoryKey ?? project.ProjectId.Value : project.ProjectId.Value, StringComparer.OrdinalIgnoreCase))
+                {
+                    var group = ProjectGroups.FirstOrDefault(item => item.GroupKey == members.Key) ?? new ProjectGroupViewModel(members.First()) { GroupKey = members.Key };
+                    group.SetMembers(members.ToArray());
+                    group.Apply(allThreads.Where(thread => members.Any(project => project.ProjectId == thread.ProjectId)).DistinctBy(thread => thread.ThreadId).ToArray(), InboxShelf, preferences);
+                    groups.Add(group);
+                }
+                IEnumerable<ProjectGroupViewModel> ordered = preferences.ProjectSort switch
+                {
+                    1 => groups.OrderByDescending(group => group.AllThreads.Select(thread => thread.UpdatedUtc).DefaultIfEmpty(group.Project.CreatedUtc).Max()),
+                    2 => groups.OrderByDescending(group => group.Project.CreatedUtc),
+                    3 => groups.OrderBy(group => preferences.ProjectOrder?.ToList().IndexOf(group.Project.ProjectId.Value) is >= 0 and var rank ? rank : int.MaxValue),
+                    _ => groups.OrderBy(group => group.DisplayName, StringComparer.OrdinalIgnoreCase),
+                };
+                Replace(ProjectGroups, ordered.ToArray());
             }).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

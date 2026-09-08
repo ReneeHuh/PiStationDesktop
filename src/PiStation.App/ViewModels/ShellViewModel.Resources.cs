@@ -5,6 +5,19 @@ namespace PiStation.App.ViewModels;
 public sealed partial class ShellViewModel
 {
     public PiResourcesViewModel PiResources { get; } = new();
+    private int _packageSearchOffset;
+    private string _packageSearchQuery = "";
+    public async Task SearchPiPackagesAsync(bool loadMore)
+    {
+        if (PiResources.IsBusy) return;
+        if (!loadMore || _packageSearchQuery != PiResources.PackageSearchQuery)
+        {
+            PiResources.ResetPackageSearch(); _packageSearchOffset = 0; _packageSearchQuery = PiResources.PackageSearchQuery;
+        }
+        else if (PiResources.NextPackageSearchOffset is { } offset) _packageSearchOffset = offset;
+        else return;
+        await ManagePiResourcesAsync("packageSearch");
+    }
 
     public Task RefreshPiResourcesAsync(CancellationToken cancellationToken = default) =>
         ManagePiResourcesAsync("inspect", cancellationToken: cancellationToken);
@@ -20,9 +33,12 @@ public sealed partial class ShellViewModel
             PiResources.Status = "Refresh the selected thread before making changes.";
             return;
         }
-        var request = new ManagePiResourcesRequest(thread.ThreadId, action, resource?.Resource.Id, enabled,
+        var request = new ManagePiResourcesRequest(thread.ThreadId, action,
+            action is "login" or "logout" ? PiResources.SelectedProvider?.ProviderId : resource?.Resource.Id, enabled,
             action == "saveModel" ? PiResources.Snapshot?.ModelsRevision : resource?.Resource.Revision,
-            action == "saveModel" ? PiResources.CreateModel() : null);
+            action == "saveModel" ? PiResources.CreateModel() : null,
+            PiResources.PackageSource.Trim(), PiResources.PackageLocal, PiResources.PackageSearchQuery,
+            action == "packageSearch" ? _packageSearchOffset : 0);
         PiResources.IsBusy = true;
         PiResources.Status = action == "inspect" ? "Reading Pi resources…" : "Saving Pi configuration…";
         try

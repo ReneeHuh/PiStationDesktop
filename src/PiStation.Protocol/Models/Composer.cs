@@ -12,7 +12,8 @@ public sealed record ComposerContext(
     string? RelativePath = null,
     int? StartLine = null,
     int? EndLine = null,
-    string? SourceTextSha256 = null);
+    string? SourceTextSha256 = null,
+    string? Comment = null);
 
 public static class ComposerContextDefaults
 {
@@ -22,7 +23,8 @@ public static class ComposerContextDefaults
         static string Escape(string value) => value.Replace("&", "&amp;", StringComparison.Ordinal)
             .Replace("\"", "&quot;", StringComparison.Ordinal).Replace("<", "&lt;", StringComparison.Ordinal).Replace(">", "&gt;", StringComparison.Ordinal);
         return prompt + "\n\n" + string.Join("\n\n", context.Select(chip =>
-            $"<pistation_context kind=\"{chip.Kind}\" label=\"{Escape(chip.Label)}\">\n{chip.Text}\n</pistation_context>"));
+            $"<pistation_context kind=\"{Escape(chip.Kind)}\" label=\"{Escape(chip.Label)}\">\n{chip.Text}\n</pistation_context>" +
+            (string.IsNullOrWhiteSpace(chip.Comment) ? "" : $"\nUser comment on this citation:\n{chip.Comment}")));
     }
 
     public const int MaximumItems = 32;
@@ -31,9 +33,9 @@ public static class ComposerContextDefaults
     public static void Validate(IReadOnlyList<ComposerContext>? context)
     {
         if (context is null) return;
-        if (context.Count > MaximumItems || context.Sum(static item => (long)(item?.Text?.Length ?? 0)) > MaximumTextCharacters ||
+        if (context.Count > MaximumItems || context.Sum(static item => (long)(item?.Text?.Length ?? 0) + (item?.Comment?.Length ?? 0)) > MaximumTextCharacters ||
             context.Any(static item => item is null || item.Text is null || item.Label is null || string.IsNullOrWhiteSpace(item.Id) || item.Id.Length > 128 ||
-                string.IsNullOrWhiteSpace(item.Kind) || item.Kind.Length > 64 || item.Label.Length > 1024 ||
+                string.IsNullOrWhiteSpace(item.Kind) || item.Kind.Length > 64 || item.Label.Length > 1024 || item.Comment?.Length > 8192 ||
                 item.StartLine is <= 0 || item.EndLine is <= 0 || item.EndLine < item.StartLine ||
                 (item.SourceTextSha256 is { } hash && (hash.Length != 64 || !hash.All(Uri.IsHexDigit)))) ||
             context.Select(static item => item.Id).Distinct(StringComparer.Ordinal).Count() != context.Count)

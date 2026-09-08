@@ -2,7 +2,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { DefaultPackageManager, getAgentDir, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, getAgentDir, ModelRuntime, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getPermissionMode, permissionModes, reviewToolCall, setPermissionMode } from "./pistation-permissions.ts";
 
 const commandName = "pistation-desktop-resources";
 const kinds = ["extensions", "skills", "prompts"] as const;
@@ -27,6 +30,7 @@ function requireRevision(actual: string, expected: unknown) {
 }
 
 export default function (pi: any) {
+  pi.on("tool_call", (event: any, ctx: any) => reviewToolCall(event, ctx));
   pi.registerCommand(commandName, {
     description: "PiStation resource and provider management",
     handler: async (argumentsText: string, ctx: any) => {
@@ -36,11 +40,26 @@ export default function (pi: any) {
         request = JSON.parse(Buffer.from(argumentsText, "base64url").toString("utf8"));
         if (!/^[a-f0-9]{32}$/.test(request.id)) throw new Error("Invalid management request identity.");
         if (!ctx.isIdle() || ctx.hasPendingMessages()) throw new Error("Finish the active turn before managing Pi.");
+        if (request.action === "capabilities" || request.action === "permission") {
+          if (request.action === "permission") setPermissionMode(request.mode);
+          ctx.ui.setStatus("pistation-management:" + request.id, JSON.stringify({ success: true, data: {
+            permissionMode: getPermissionMode(), permissionModes,
+            models: ctx.modelRegistry.getAvailable().map((model: any) => ({ providerId: model.provider, modelId: model.id,
+              thinkingLevels: getSupportedThinkingLevels(model) })),
+          } }));
+          return;
+        }
         const agentDir = getAgentDir();
         const trusted = ctx.isProjectTrusted();
         const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });
         const settingsErrors = settings.drainErrors();
+        if (request.action === "automation") {
+          ctx.ui.setStatus("pistation-management:" + request.id, JSON.stringify({ success: true,
+            data: { autoCompaction: settings.getCompactionSettings().enabled, autoRetry: settings.getRetrySettings().enabled } }));
+          return;
+        }
         const packageManager = new DefaultPackageManager({ cwd: ctx.cwd, agentDir, settingsManager: settings });
+        packageManager.setProgressCallback((event: any) => ctx.ui.setStatus("Pi packages", limit(`${event.action}: ${event.source} · ${event.message ?? event.type}`)));
         const missing: string[] = [];
         // Inventory must not install packages or execute their extension entry points.
         const resolved = await packageManager.resolve(async (source: string) => { missing.push(source); return "skip"; });
@@ -166,6 +185,57 @@ export default function (pi: any) {
             renameSync(temporary, modelsPath);
           } finally { if (existsSync(temporary)) unlinkSync(temporary); }
           message = "Provider and model saved. Restart the thread to load the configuration.";
+        } else if (["packageInstall", "packageRemove", "packageUpdate"].includes(request.action)) {
+          if (settingsErrors.length) throw new Error("Fix Pi settings errors before changing packages.");
+          if (request.packageLocal && !trusted) throw new Error("Trust this project before changing its packages.");
+          const source = request.packageSource;
+          if (typeof source !== "string" || !source.trim() || source.length > 4096 || /[\u0000-\u001f]/.test(source)) throw new Error("Enter a package source such as npm:package, a Git URL, or a local path.");
+          const options = { local: !!request.packageLocal };
+          if (request.action === "packageInstall") await packageManager.installAndPersist(source, options);
+          else if (request.action === "packageRemove") await packageManager.removeAndPersist(source, options);
+          else await packageManager.update(source);
+          await settings.flush();
+          const errors = settings.drainErrors();
+          if (errors.length) throw new Error("The package operation ran, but Pi could not save its configuration. Refresh before retrying.");
+          message = "Package operation completed. Restart the thread to load the updated resources.";
+          ctx.ui.setStatus("Pi packages", message);
+        } else if (request.action === "login" || request.action === "logout") {
+          const providerId = request.resourceId;
+          if (typeof providerId !== "string" || !ctx.modelRegistry.getProvider(providerId)) throw new Error("Choose an available Pi provider.");
+          const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), allowModelNetwork: false });
+          for (const id of ctx.modelRegistry.getRegisteredProviderIds()) {
+            const native = ctx.modelRegistry.getRegisteredNativeProvider(id);
+            const provider = ctx.modelRegistry.getRegisteredProviderConfig(id);
+            if (native) runtime.registerNativeProvider(native); else if (provider) runtime.registerProvider(id, provider);
+          }
+          if (request.action === "logout") await runtime.logout(providerId);
+          else {
+            const abort = new AbortController();
+            const timer = setTimeout(() => abort.abort(), 8 * 60 * 1000);
+            try {
+              await runtime.login(providerId, "oauth", {
+                signal: abort.signal,
+                prompt: async (prompt: any) => {
+                  if (prompt.type === "secret") throw new Error("Use Pi's login terminal for secret entry. This desktop sign-in supports browser and device-code flows.");
+                  const answer = prompt.type === "select" ? await ctx.ui.select(prompt.message, prompt.options.map((option: any) => option.label))
+                    : await ctx.ui.input(prompt.message, prompt.placeholder);
+                  if (answer === undefined) { abort.abort(); throw new Error("Sign-in cancelled."); }
+                  return prompt.type === "select" ? prompt.options.find((option: any) => option.label === answer)?.id ?? answer : answer;
+                },
+                notify: (event: any) => {
+                  const url = event.type === "auth_url" ? event.url : event.verificationUri;
+                  ctx.ui.setStatus("Pi sign-in", limit(event.userCode ? `Code: ${event.userCode} · ${url}` : event.instructions ?? event.message ?? url));
+                  if (url && process.platform === "win32" && new URL(url).protocol === "https:") {
+                    const browser = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { windowsHide: true, stdio: "ignore" });
+                    browser.on("error", () => ctx.ui.notify("Open this sign-in URL: " + url, "info")); browser.unref();
+                  }
+                },
+              });
+            } finally { clearTimeout(timer); }
+          }
+          await ctx.modelRegistry.refresh();
+          message = request.action === "login" ? "Signed in. Provider credentials refreshed." : "Signed out of stored Pi credentials. Environment or ambient credentials may remain configured.";
+          ctx.ui.setStatus("Pi sign-in", message);
         } else if (request.action !== "inspect") throw new Error("Unsupported Pi management action.");
 
         const providerIds = [...new Set(ctx.modelRegistry.getAll().map((model: any) => model.provider))] as string[];
@@ -186,7 +256,7 @@ export default function (pi: any) {
           agentDirectory: agentDir, projectDirectory: ctx.cwd, projectTrusted: trusted,
           savedProjectTrust: new ProjectTrustStore(agentDir).get(ctx.cwd),
           resources: resources.slice(0, 1024).map(({ metadata, originalPath, ...resource }) => resource),
-          providers, diagnostics, modelsRevision, message,
+          providers, diagnostics, modelsRevision, message, packages: packageManager.listConfiguredPackages(),
         };
         ctx.ui.setStatus("pistation-management:" + request.id, JSON.stringify({ success: true, data }));
       } catch (error) {

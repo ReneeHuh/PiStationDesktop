@@ -42,6 +42,8 @@ namespace PiStation.Protocol.Serialization;
 [JsonSerializable(typeof(BrowsePiSessionsRequest))]
 [JsonSerializable(typeof(PiSessionBrowserResult))]
 [JsonSerializable(typeof(PiSessionSnapshot))]
+[JsonSerializable(typeof(SentMessageContent[]))]
+[JsonSerializable(typeof(PiSessionPageRequest))]
 [JsonSerializable(typeof(CopyPiSessionRequest))]
 [JsonSerializable(typeof(ExportPiSessionRequest))]
 [JsonSerializable(typeof(PiSessionExportResult))]

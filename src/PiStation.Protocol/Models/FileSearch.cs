@@ -6,7 +6,9 @@ public sealed record SearchProjectFilesRequest(
     ProjectId ProjectId,
     string Query,
     int MaximumResults = FileSearchDefaults.DefaultMaximumResults,
-    ThreadId? ThreadId = null);
+    ThreadId? ThreadId = null,
+    int Offset = 0,
+    int ScanOffset = 0);
 
 public sealed record ProjectFileMatch(
     string RelativePath,
@@ -16,12 +18,15 @@ public sealed record SearchProjectFilesResult(
     ProjectId ProjectId,
     string Query,
     IReadOnlyList<ProjectFileMatch> Matches,
-    bool IsTruncated);
+    bool IsTruncated,
+    int? NextOffset = null,
+    int NextScanOffset = 0);
 
 public sealed record ListProjectEntriesRequest(
     ProjectId ProjectId,
     int MaximumResults = WorkspaceEntryDefaults.DefaultMaximumResults,
-    ThreadId? ThreadId = null);
+    ThreadId? ThreadId = null,
+    int Offset = 0);
 
 public sealed record ProjectWorkspaceEntry(
     string RelativePath,
@@ -32,7 +37,8 @@ public sealed record ProjectWorkspaceEntry(
 public sealed record ListProjectEntriesResult(
     ProjectId ProjectId,
     IReadOnlyList<ProjectWorkspaceEntry> Entries,
-    bool IsTruncated);
+    bool IsTruncated,
+    int? NextOffset = null);
 
 public sealed record SearchProjectContentsRequest(
     ProjectId ProjectId,
@@ -41,7 +47,9 @@ public sealed record SearchProjectContentsRequest(
     bool CaseSensitive = false,
     bool WholeWord = false,
     bool UseRegularExpression = false,
-    ThreadId? ThreadId = null);
+    ThreadId? ThreadId = null,
+    int Offset = 0,
+    int ScanOffset = 0);
 
 public sealed record ProjectContentMatchRange(int Start, int End);
 
@@ -56,7 +64,9 @@ public sealed record SearchProjectContentsResult(
     ProjectId ProjectId,
     string Query,
     IReadOnlyList<ProjectContentMatch> Matches,
-    bool IsTruncated);
+    bool IsTruncated,
+    int? NextOffset = null,
+    int NextScanOffset = 0);
 
 public sealed record ReadProjectFileRequest(
     ProjectId ProjectId,

@@ -14,6 +14,23 @@ namespace PiStation.ClientRuntime.Tests;
 public sealed class EnvironmentClientIntegrationTests
 {
     [Fact]
+    public async Task ThreadSearchPagesKeepContinuationAndEarlierCachedThreads()
+    {
+        using var directory = new ClientTestDirectory();
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions());
+        await using var client = CreateClient(host);
+        await client.ConnectAsync();
+        var project = await client.AddProjectAsync(new(directory.CreateDirectory("project")));
+        for (var i = 0; i < 5; i++) await client.CreateThreadAsync(new(project.ProjectId, "Paged " + i));
+        var first = await client.SearchThreadsAsync(new(project.ProjectId, "", true, 2));
+        var second = await client.SearchThreadsAsync(new(project.ProjectId, "", true, 2, first.NextOffset!.Value));
+        var third = await client.SearchThreadsAsync(new(project.ProjectId, "", true, 2, second.NextOffset!.Value));
+        Assert.Null(third.NextOffset);
+        Assert.Equal(5, first.Threads.Concat(second.Threads).Concat(third.Threads).Select(thread => thread.ThreadId).Distinct().Count());
+        Assert.All(first.Threads, thread => Assert.NotNull(client.ThreadMetadata.GetCurrent(thread.ThreadId)));
+    }
+
+    [Fact]
     public async Task ClientRunsACompleteTurnAndResumesItsSubscriptionAfterReconnect()
     {
         using var temporaryDirectory = new ClientTestDirectory();

@@ -295,11 +295,20 @@ public sealed partial class EnvironmentService : IAsyncDisposable
     public Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default) =>
         _database.ListHostingOperationsAsync(cancellationToken);
 
-    public Task<SourceControlOperationResult> MutatePullRequestAsync(
+    public async Task<SourceControlOperationResult> MutatePullRequestAsync(
         MutatePullRequestRequest request,
-        CancellationToken cancellationToken = default) => new HostingOperationRunner(_database).RunAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await new HostingOperationRunner(_database).RunAsync(
             request.OperationId, "Update pull request", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.MutatePullRequestRequest),
-            token => _sourceControl.MutatePullRequestAsync(request, token), cancellationToken);
+            token => _sourceControl.MutatePullRequestAsync(request, token), cancellationToken).ConfigureAwait(false);
+        if (result.Succeeded && request.Mutation is PullRequestMutationKind.Merge or PullRequestMutationKind.Close)
+        {
+            try { await SweepThreadSettlementAsync(DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false); }
+            catch (Exception error) { _diagnostics.Record("Pull request updated; immediate settlement refresh failed: " + error.Message); }
+        }
+        return result;
+    }
 
     public Task<GeneratedSourceControlText> GenerateSourceControlTextAsync(
         GenerateSourceControlTextRequest request,
@@ -575,7 +584,27 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                 ProtocolErrorCodes.ProjectNotFound,
                 $"Project '{request.ProjectId}' was not found.");
         var workspaceMode = request.WorkspaceMode ?? project.DefaultWorkspaceMode;
+        await using var sharedLease = request.ReuseWorktreeFromThreadId is not null
+            ? await _gitCommands.AcquireProjectLockAsync(project.ProjectId, cancellationToken).ConfigureAwait(false) : null;
+        HostThreadRecord? sharedWorktree = null;
+        if (request.ReuseWorktreeFromThreadId is { } sourceId)
+        {
+            sharedWorktree = await _database.GetThreadAsync(sourceId, cancellationToken).ConfigureAwait(false);
+            var registered = await _gitCommands.ListWorktreesAsync(new ListGitWorktreesRequest(project.ProjectId), cancellationToken).ConfigureAwait(false);
+            if (sharedWorktree is null || sharedWorktree.ProjectId != project.ProjectId ||
+                sharedWorktree.WorkspaceMode != ThreadWorkspaceMode.Worktree ||
+                string.IsNullOrWhiteSpace(sharedWorktree.WorktreePath) || !Directory.Exists(sharedWorktree.WorktreePath) ||
+                !registered.Worktrees.Any(tree => string.Equals(Path.GetFullPath(tree.Path), Path.GetFullPath(sharedWorktree.WorktreePath), StringComparison.OrdinalIgnoreCase)))
+                throw new HostOperationException(ProtocolErrorCodes.WorktreeOwnershipMismatch, "The source thread no longer has a registered worktree in this project.");
+        }
         var thread = await _projects.CreateThreadAsync(request, cancellationToken).ConfigureAwait(false);
+        if (sharedWorktree is not null)
+        {
+            await _database.UpdateThreadWorkspaceAsync(thread.ThreadId, ThreadWorkspaceMode.Worktree,
+                sharedWorktree.BranchName, sharedWorktree.WorktreePath, true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return await GetThreadAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+        }
         if (workspaceMode != ThreadWorkspaceMode.Worktree)
         {
             return thread;

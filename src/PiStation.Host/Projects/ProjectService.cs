@@ -39,6 +39,7 @@ public sealed class ProjectService(HostDatabase database)
             configuration.DefaultRuntimeModeId,
             configuration.AutoPullDefaultBranch,
             cancellationToken).ConfigureAwait(false);
+        configuration = await ApplyOverridesAsync(project.ProjectId, configuration, cancellationToken).ConfigureAwait(false);
         await _database.UpdateProjectConfigurationAsync(
             project.ProjectId,
             configuration.DefaultWorkspaceMode,
@@ -69,6 +70,7 @@ public sealed class ProjectService(HostDatabase database)
         {
             var configuration = await ProjectConfigurationLoader.LoadAsync(project.CanonicalPath, cancellationToken)
                 .ConfigureAwait(false);
+            configuration = await ApplyOverridesAsync(project.ProjectId, configuration, cancellationToken).ConfigureAwait(false);
             if (configuration.DefaultWorkspaceMode != project.DefaultWorkspaceMode ||
                 !configuration.Scripts.SequenceEqual(project.Scripts ?? []) ||
                 configuration.Icon != project.Icon ||
@@ -104,6 +106,8 @@ public sealed class ProjectService(HostDatabase database)
             }
         }
 
+        for (var index = 0; index < refreshed.Count; index++)
+            refreshed[index] = refreshed[index] with { RepositoryKey = await ProjectRepositoryIdentity.ReadAsync(refreshed[index].CanonicalPath, cancellationToken).ConfigureAwait(false) };
         return refreshed;
     }
 
@@ -145,17 +149,55 @@ public sealed class ProjectService(HostDatabase database)
             ?? throw new HostOperationException(
                 ProtocolErrorCodes.ProjectNotFound,
                 $"Project '{request.ProjectId}' was not found.");
+        if (!PiPermissionModes.IsSupported(request.DefaultRuntimeModeId))
+        {
+            throw new HostOperationException(ProtocolErrorCodes.PiConfigurationUnsupported,
+                "Pi does not support arbitrary runtime mode IDs. Clear the runtime mode to use Pi defaults.");
+        }
+        if (request.UpdateCustomization)
+        {
+            if (request.Scripts?.Count > 50 || (request.Scripts ?? []).Any(script =>
+                    string.IsNullOrWhiteSpace(script.Id) || script.Id.Length > 128 ||
+                    string.IsNullOrWhiteSpace(script.Name) || script.Name.Length > 200 ||
+                    string.IsNullOrWhiteSpace(script.Command) || script.Command.Length > 32768 || !Enum.IsDefined(script.Icon)) ||
+                (request.Scripts ?? []).Select(script => script.Id).Distinct(StringComparer.Ordinal).Count() != (request.Scripts?.Count ?? 0))
+                throw new ArgumentException("Use up to 50 named scripts with unique IDs and valid commands.");
+            if (request.Icon is { Length: > 0 } icon &&
+                !(icon.StartsWith("emoji:", StringComparison.Ordinal) && icon.Length <= 40) &&
+                (!Path.IsPathFullyQualified(icon) || !File.Exists(icon) ||
+                 !new[] { ".png", ".jpg", ".jpeg", ".ico", ".webp", ".gif" }.Contains(Path.GetExtension(icon), StringComparer.OrdinalIgnoreCase)))
+                throw new ArgumentException("Choose a local image or an emoji for the project icon.");
+        }
+        else if (await _database.GetProjectDefaultsOverrideAsync(request.ProjectId, cancellationToken).ConfigureAwait(false) is { UpdateCustomization: true } previous)
+            request = request with { Scripts = previous.Scripts, Icon = previous.Icon, UpdateCustomization = true };
+        await _database.SaveProjectDefaultsOverrideAsync(request, cancellationToken).ConfigureAwait(false);
         await _database.UpdateProjectConfigurationAsync(
             request.ProjectId,
             request.DefaultWorkspaceMode,
-            project.Scripts ?? [],
-            project.Icon,
+            request.UpdateCustomization ? request.Scripts ?? [] : project.Scripts ?? [],
+            request.UpdateCustomization ? request.Icon : project.Icon,
             request.DefaultModel,
             request.DefaultThinkingLevel,
             request.DefaultRuntimeModeId,
             request.AutoPullDefaultBranch,
             cancellationToken).ConfigureAwait(false);
         return (await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false))!;
+    }
+
+    private async Task<ProjectConfiguration> ApplyOverridesAsync(ProjectId projectId,
+        ProjectConfiguration configuration, CancellationToken cancellationToken)
+    {
+        var saved = await _database.GetProjectDefaultsOverrideAsync(projectId, cancellationToken).ConfigureAwait(false);
+        return saved is null ? configuration with { DefaultRuntimeModeId = PiPermissionModes.IsSupported(configuration.DefaultRuntimeModeId) ? configuration.DefaultRuntimeModeId : null } : configuration with
+        {
+            DefaultWorkspaceMode = saved.DefaultWorkspaceMode,
+            DefaultModel = saved.DefaultModel,
+            DefaultThinkingLevel = saved.DefaultThinkingLevel,
+            DefaultRuntimeModeId = PiPermissionModes.IsSupported(saved.DefaultRuntimeModeId) ? saved.DefaultRuntimeModeId : null,
+            AutoPullDefaultBranch = saved.AutoPullDefaultBranch,
+            Scripts = saved.UpdateCustomization ? saved.Scripts ?? [] : configuration.Scripts,
+            Icon = saved.UpdateCustomization ? saved.Icon ?? configuration.Icon : configuration.Icon,
+        };
     }
 
     public async Task<ThreadDescriptor> CreateThreadAsync(
@@ -178,7 +220,10 @@ public sealed class ProjectService(HostDatabase database)
             branchName: null,
             worktreePath: null,
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (project.DefaultModel is not null || project.DefaultThinkingLevel is not null ||
+        var model = project.DefaultModel ?? request.InheritedModel;
+        var thinking = project.DefaultThinkingLevel ??
+            (project.DefaultModel is null || project.DefaultModel == request.InheritedModel ? request.InheritedThinkingLevel : null);
+        if (model is not null || thinking is not null ||
             !string.IsNullOrWhiteSpace(project.DefaultRuntimeModeId))
         {
             _ = await _database.GetOrCreateThreadPiConfigurationAsync(thread.ThreadId, cancellationToken)
@@ -186,8 +231,8 @@ public sealed class ProjectService(HostDatabase database)
             _ = await _database.UpdateThreadPiConfigurationAsync(
                 thread.ThreadId,
                 0,
-                project.DefaultModel,
-                project.DefaultThinkingLevel,
+                model,
+                thinking,
                 project.DefaultRuntimeModeId,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -214,7 +259,7 @@ public sealed class ProjectService(HostDatabase database)
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Limit is < 1 or > ThreadLifecycleDefaults.MaximumSearchLimit)
+        if (request.Offset < 0 || request.Limit is < 1 or > ThreadLifecycleDefaults.MaximumSearchLimit)
         {
             throw new HostOperationException(
                 ProtocolErrorCodes.ThreadSearchInvalid,
@@ -229,11 +274,12 @@ public sealed class ProjectService(HostDatabase database)
         }
 
         var query = ThreadMetadataValidation.NormalizeSearchQuery(request.Query);
-        var threads = await _database.SearchThreadsAsync(
+        var threads = await _database.SearchThreadsPageAsync(
             request.ProjectId,
             query,
             request.IncludeArchived,
             request.Limit + 1,
+            request.Offset,
             cancellationToken).ConfigureAwait(false);
         var descriptors = new List<ThreadDescriptor>();
         foreach (var thread in threads.Take(request.Limit))
@@ -241,6 +287,7 @@ public sealed class ProjectService(HostDatabase database)
             descriptors.Add(await _database.EnrichThreadDescriptorAsync(thread, cancellationToken).ConfigureAwait(false));
         }
 
-        return new SearchThreadsResult(descriptors, threads.Count > request.Limit);
+        return new SearchThreadsResult(descriptors, threads.Count > request.Limit,
+            threads.Count > request.Limit ? request.Offset + request.Limit : null);
     }
 }

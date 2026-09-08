@@ -306,17 +306,18 @@
                                 PlaceholderText="Commit message (Pi generates one if empty)"
                                 AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="180"
                                 Text="{x:Bind ViewModel.WorkbenchChanges.CommitMessage, Mode=TwoWay}" />
+                            <Button Content="Load more branches" Click="OnLoadMoreRefsClicked" IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanLoadMoreRefs, Mode=OneWay}" />
                             <Button Content="Generate message with Pi" Click="OnGenerateCommitMessageClicked" IsEnabled="{x:Bind ViewModel.Settings.CanGenerateText, Mode=OneWay}" automation:AutomationProperties.AutomationId="GenerateCommitMessageButton" />
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <Button
                                     automation:AutomationProperties.AutomationId="CommitGitChangesButton"
                                     Click="OnCommitGitChangesClicked"
-                                    Content="Commit"
+                                    Content="Commit selected"
                                     IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanCommit, Mode=OneWay}" />
                                 <Button
                                     automation:AutomationProperties.AutomationId="CommitPushGitChangesButton"
                                     Click="OnCommitPushGitChangesClicked"
-                                    Content="Commit + push"
+                                    Content="Commit selected + push"
                                     IsEnabled="{x:Bind ViewModel.WorkbenchChanges.CanCommit, Mode=OneWay}" />
                                 <Button
                                     automation:AutomationProperties.AutomationId="PushGitBranchButton"
@@ -356,21 +357,8 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Border
-                                            MinWidth="24"
-                                            Padding="4,2"
-                                            VerticalAlignment="Center"
-                                            Background="{ThemeResource PiControlSurfaceBrush}"
-                                            BorderBrush="{ThemeResource PiBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="{StaticResource PiRadiusSmall}">
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
-                                                Foreground="{ThemeResource PiAccentBrush}"
-                                                Text="{x:Bind StatusCode}" />
-                                        </Border>
+                                        <CheckBox IsChecked="{x:Bind IsSelectedForCommit, Mode=TwoWay}" VerticalAlignment="Center"
+                                                  automation:AutomationProperties.Name="{x:Bind AccessibleName}" Content="{x:Bind StatusCode}" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                             <TextBlock
                                                 FontWeight="SemiBold"
@@ -785,6 +773,8 @@
                                 Visibility="{x:Bind ViewModel.WorkbenchFiles.ContentSearchOptionsVisibility, Mode=OneWay}" />
                         </Grid>
 
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                        <Button Content="Load more" Click="OnLoadMoreFilesClicked" IsEnabled="{x:Bind ViewModel.WorkbenchFiles.CanLoadMore, Mode=OneWay}" />
                         <TextBlock
                             x:Name="WorkbenchFileStatusText"
                             Grid.Row="1"
@@ -794,6 +784,7 @@
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.WorkbenchFiles.Status, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.WorkbenchFiles.StatusVisibility, Mode=OneWay}" />
+                        </StackPanel>
 
                         <Grid
                             x:Name="FileWorkbenchLayoutGrid"

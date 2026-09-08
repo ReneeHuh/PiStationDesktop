@@ -7,6 +7,18 @@ namespace PiStation.Host.Tests;
 
 public sealed class SourceControlHostingServiceTests
 {
+    [Fact]
+    public void PullRequestPagesAndBranchLookupsUseProviderPagingArguments()
+    {
+        var github = SourceControlHostingService.BuildListCommand(SourceControlProvider.GitHub, null, 100, "feature/old").Arguments;
+        Assert.Equal("201", github[Array.IndexOf(github, "--limit") + 1]);
+        Assert.Equal("feature/old", github[Array.IndexOf(github, "--head") + 1]);
+        var gitlab = SourceControlHostingService.BuildListCommand(SourceControlProvider.GitLab, PullRequestState.Closed, 200, "feature/old").Arguments;
+        Assert.Equal("3", gitlab[Array.IndexOf(gitlab, "--page") + 1]); Assert.Contains("--source-branch", gitlab);
+        var azure = SourceControlHostingService.BuildListCommand(SourceControlProvider.AzureDevOps, null, 100).Arguments;
+        Assert.Equal("100", azure[Array.IndexOf(azure, "--skip") + 1]);
+    }
+
     [Theory]
     [InlineData("git@github.com:openai/example.git", SourceControlProvider.GitHub, "openai", "example", "https://github.com/openai/example")]
     [InlineData("https://gitlab.com/group/example.git", SourceControlProvider.GitLab, "group", "example", "https://gitlab.com/group/example")]

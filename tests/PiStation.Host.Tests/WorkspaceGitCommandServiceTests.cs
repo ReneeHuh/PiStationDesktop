@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using PiStation.Host.Errors;
 using PiStation.Host.Git;
+using PiStation.Host.Hosting;
 using PiStation.Host.Persistence;
 using PiStation.Host.Projects;
 using PiStation.Host.Workspaces;
@@ -14,6 +15,27 @@ namespace PiStation.Host.Tests;
 
 public sealed class WorkspaceGitCommandServiceTests
 {
+    [Fact]
+    public async Task NewThreadCanReuseWorktreeAndSharedCheckoutCannotBeRemoved()
+    {
+        using var directory = new HostTestDirectory();
+        var options = directory.CreateOptions(); var root = directory.CreateDirectory("project"); InitializeRepository(root);
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(options);
+        var project = await host.Environment.AddProjectAsync(new(root));
+        var first = await host.Environment.CreateThreadAsync(new(project.ProjectId, WorkspaceMode: ThreadWorkspaceMode.Worktree, RunSetupScript: false));
+        var second = await host.Environment.CreateThreadAsync(new(project.ProjectId, ReuseWorktreeFromThreadId: first.ThreadId));
+        Assert.NotEqual(first.ThreadId, second.ThreadId); Assert.Equal(first.WorktreePath, second.WorktreePath);
+        Assert.Equal(first.BranchName, second.BranchName); Assert.Equal(ThreadWorkspaceMode.Worktree, second.WorkspaceMode);
+        var database = new HostDatabase(options); await database.InitializeAsync();
+        var service = CreateService(database, options);
+        var result = await ExecuteAsync(service, database, ClientId.New(), CommandId.New(), project.ProjectId,
+            new GitRemoveWorktreeCommand(first.WorktreePath!, true, first.WorktreePath), first.ThreadId);
+        Assert.Equal(CommandReceiptState.Rejected, result.Receipt.State); Assert.True(Directory.Exists(second.WorktreePath));
+        var other = await host.Environment.AddProjectAsync(new(directory.CreateDirectory("other")));
+        await Assert.ThrowsAsync<HostOperationException>(() => host.Environment.CreateThreadAsync(new(other.ProjectId, ReuseWorktreeFromThreadId: first.ThreadId)));
+        Assert.Empty(await host.Environment.ListThreadsAsync(other.ProjectId));
+    }
+
     [Fact]
     public async Task InitBranchesSelectedCommitPushAndPullCompleteThroughReceipts()
     {
@@ -208,7 +230,7 @@ public sealed class WorkspaceGitCommandServiceTests
         Assert.Equal(Path.Combine(projectRoot, "brand.png"), project.Icon);
         Assert.Equal(new PiModelSelection("fake", "fake-standard"), project.DefaultModel);
         Assert.Equal(PiThinkingLevel.High, project.DefaultThinkingLevel);
-        Assert.Equal("plan", project.DefaultRuntimeModeId);
+        Assert.Null(project.DefaultRuntimeModeId);
         Assert.True(project.AutoPullDefaultBranch);
         Assert.True(trusted.AreRepositoryScriptsTrusted);
         Assert.True(reloaded.AreRepositoryScriptsTrusted);

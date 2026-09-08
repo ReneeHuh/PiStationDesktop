@@ -211,6 +211,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock VerticalAlignment="Center" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiAccentBrush}" Text="{x:Bind Kind}" />
                                 <Button MaxWidth="220" Click="OnContextSourceClicked" Content="{x:Bind Label}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Go to source" />
+                                <Button Content="Comment" Click="OnEditCitationComment" Style="{StaticResource PiToolbarButtonStyle}" />
                                 <Button Click="OnRemoveContextClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Remove context">
                                     <FontIcon FontSize="10" Glyph="&#xE711;" />
                                 </Button>
@@ -410,7 +411,7 @@
                             automation:AutomationProperties.Name="Pi model"
                             DisplayMemberPath="DisplayName"
                             IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}"
-                            ItemsSource="{x:Bind ViewModel.PiConfiguration.Models}"
+                            ItemsSource="{x:Bind ViewModel.PiConfiguration.VisibleModels}"
                             SelectedItem="{x:Bind ViewModel.PiConfiguration.SelectedModel, Mode=OneWay}"
                             SelectionChanged="OnPiModelSelectionChanged"
                             Style="{StaticResource PiComposerComboBoxStyle}"
@@ -429,6 +430,13 @@
                             Style="{StaticResource PiComposerComboBoxStyle}"
                             ToolTipService.ToolTip="Reasoning"
                             Visibility="{x:Bind ViewModel.PiConfiguration.ThinkingLevelSelectorVisibility, Mode=OneWay}" />
+                        <Button Content="Models…" Click="OnOpenModelPicker" IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" />
+                        <ComboBox x:Name="PiPermissionSelector" DisplayMemberPath="DisplayName"
+                            ItemsSource="{x:Bind ViewModel.PiConfiguration.RuntimeModes}" SelectedItem="{x:Bind ViewModel.PiConfiguration.SelectedRuntimeMode, Mode=OneWay}"
+                            SelectionChanged="OnPiPermissionModeChanged" IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.PiConfiguration.RuntimeModeVisibility, Mode=OneWay}"
+                            Style="{StaticResource PiComposerComboBoxStyle}" automation:AutomationProperties.Name="Pi tool permission mode"
+                            ToolTipService.ToolTip="Controls Pi tool approvals, including bundled child agents. Trusted extensions run in the Pi process; this is not an operating-system sandbox." />
                     </StackPanel>
 
                     <Button

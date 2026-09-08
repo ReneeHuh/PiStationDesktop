@@ -9,6 +9,39 @@ namespace PiStation.Protocol.Tests;
 public sealed class PullRequestReviewContractTests
 {
     [Fact]
+    public void ReviewContinuationsRoundTripEveryCollectionAndPatchOffsets()
+    {
+        var snapshot = CreateSnapshot();
+        var pages = Enum.GetValues<PullRequestReviewPageKind>().Select(kind => new PullRequestReviewContinuation(kind,
+            "cursor", PullRequestReviewDefaults.RepositoryKey(snapshot.Repository), snapshot.PullRequest.Number,
+            snapshot.HeadCommitId, kind == PullRequestReviewPageKind.ThreadComments ? "thread" : null, snapshot.BaseCommitId)).ToArray();
+        snapshot = snapshot with { NextPages = pages, Files = [snapshot.Files[0] with { PatchLineOffset = 20_000 }] };
+        var restored = JsonSerializer.Deserialize(JsonSerializer.Serialize(snapshot, ProtocolJsonContext.Default.PullRequestReviewSnapshot),
+            ProtocolJsonContext.Default.PullRequestReviewSnapshot)!;
+        Assert.Equal(pages, restored.NextPages);
+        Assert.Equal(20_000, Assert.Single(restored.Files).PatchLineOffset);
+        foreach (var page in pages)
+        {
+            var request = new GetPullRequestReviewRequest(new(ProjectId.New()), snapshot.PullRequest.Number, page);
+            var roundTrip = JsonSerializer.Deserialize(JsonSerializer.Serialize(request, ProtocolJsonContext.Default.GetPullRequestReviewRequest),
+                ProtocolJsonContext.Default.GetPullRequestReviewRequest);
+            Assert.Equal(request, roundTrip);
+        }
+    }
+
+    [Fact]
+    public void GlobalSearchContinuationsAndIncompleteScanNoticesRoundTrip()
+    {
+        var request = new GlobalSearchRequest("needle", Continuation: "resume");
+        var result = new GlobalSearchResult([], true, "next", "Skipped oversized entry");
+        Assert.Equal(request, JsonSerializer.Deserialize(JsonSerializer.Serialize(request, ProtocolJsonContext.Default.GlobalSearchRequest), ProtocolJsonContext.Default.GlobalSearchRequest));
+        var restored = JsonSerializer.Deserialize(JsonSerializer.Serialize(result, ProtocolJsonContext.Default.GlobalSearchResult), ProtocolJsonContext.Default.GlobalSearchResult)!;
+        Assert.Equal(result.NextContinuation, restored.NextContinuation);
+        Assert.Equal(result.Notice, restored.Notice);
+        Assert.True(restored.IsTruncated);
+    }
+
+    [Fact]
     public void ReviewSnapshotRoundTripsNumberLinesSidesMetadataAndMissingPatches()
     {
         var snapshot = CreateSnapshot();

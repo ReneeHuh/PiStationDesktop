@@ -9,7 +9,7 @@ using PiStation.Protocol.Receipts;
 
 namespace PiStation.ClientRuntime.Tests;
 
-public sealed class PullRequestReviewIntegrationTests
+public sealed partial class PullRequestReviewIntegrationTests
 {
     [Fact]
     public async Task ReviewRoundTripUsesDurableReceiptsAndRejectsStaleOrForeignTargets()
@@ -180,7 +180,7 @@ public sealed class PullRequestReviewIntegrationTests
             return Success("""[{"filename":"src/App.cs","status":"modified","additions":1,"deletions":1,"patch":"@@ -1,2 +1,2 @@\n context\n-old\n+new"}]""");
         }
 
-        private string GraphQl() => """
+        public string GraphQl() => """
         {"data":{"viewer":{"login":"reviewer"},"repository":{"id":"repo-id","pullRequest":{
           "id":"pr-id","number":7,"title":"Review fixture","url":"https://github.com/owner/repo/pull/7","state":"OPEN","isDraft":false,
           "body":"Fixture description","updatedAt":"2026-09-06T12:00:00Z","author":{"login":"author"},

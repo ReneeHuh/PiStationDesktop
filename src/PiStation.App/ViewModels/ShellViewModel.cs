@@ -402,7 +402,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 .ConfigureAwait(false);
             RunOnUiThread(() =>
             {
-                Replace(Threads, ThreadInbox.Select(threads, IsShowingArchivedThreads ? ThreadInboxShelf.Archived : InboxShelf, DateTimeOffset.UtcNow));
+                Replace(Threads, SortSidebarThreads(ThreadInbox.Select(threads, IsShowingArchivedThreads ? ThreadInboxShelf.Archived : InboxShelf, DateTimeOffset.UtcNow)));
                 ThreadListStatus = threads.Count == 0 ? "No threads yet" : string.Empty;
                 ClearError();
             });
@@ -416,12 +416,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task CreateThreadAsync(CancellationToken cancellationToken = default)
     {
-        await CreateThreadInWorkspaceAsync(null, startFromOrigin: false, cancellationToken).ConfigureAwait(false);
+        await CreateThreadInWorkspaceAsync(null, startFromOrigin: false, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateThreadInWorkspaceAsync(
         ThreadWorkspaceMode? workspaceMode,
         bool startFromOrigin = false,
+        ThreadId? reuseWorktreeFromThreadId = null,
         CancellationToken cancellationToken = default)
     {
         var project = SelectedProject;
@@ -438,7 +439,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     new CreateThreadRequest(
                         project.ProjectId,
                         WorkspaceMode: workspaceMode,
-                        StartFromOrigin: startFromOrigin),
+                        StartFromOrigin: startFromOrigin,
+                        InheritedModel: PiConfiguration.SelectedModel?.Selection ?? Layout.LastModel,
+                        InheritedThinkingLevel: PiConfiguration.SelectedThinkingLevel?.Value ?? Layout.LastThinkingLevel,
+                        ReuseWorktreeFromThreadId: reuseWorktreeFromThreadId),
                     cancellationToken)
                 .ConfigureAwait(false);
             CancelThreadSearch();
@@ -745,6 +749,19 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    public async Task UnlinkPullRequestAsync(ThreadDescriptor thread, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var updated = await RequireClient().LinkThreadPullRequestAsync(
+                new LinkThreadPullRequestRequest(thread.ThreadId, null), cancellationToken).ConfigureAwait(false);
+            ApplySelectedThreadMetadata(updated);
+            await QueueThreadListRefreshAsync(debounce: false, cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.Status = "Pull request unlinked");
+        }
+        catch (Exception error) { ReportRuntimeError(error); }
+    }
+
     public async Task CloneHostedRepositoryAsync(
         string remoteUrl,
         string destinationPath,
@@ -918,6 +935,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public Task<GlobalSearchResult> SearchGlobalAsync(
         string query,
+        string? continuation = null,
         CancellationToken cancellationToken = default)
     {
         var normalized = (query ?? string.Empty).Trim();
@@ -927,7 +945,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         return RequireClient().SearchGlobalAsync(
-            new GlobalSearchRequest(normalized),
+            new GlobalSearchRequest(normalized, Continuation: continuation),
             cancellationToken);
     }
 
@@ -1731,7 +1749,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             if (!await GenerateCommitMessageAsync(token)) return;
         }
         await ExecuteWorkbenchGitCommandAsync(new GitRunActionCommand(action, WorkbenchChanges.CommitMessage,
-            WorkbenchChanges.Changes.Select(static change => change.RelativePath).ToArray()),
+            WorkbenchChanges.SelectedCommitPaths),
             action == GitActionKind.Commit ? "Committing changes…" : "Committing and pushing changes…", token);
     }
 
@@ -2457,6 +2475,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         var pinned = Threads.Where(static candidate => candidate.IsPinned).ToList();
         var currentIndex = pinned.FindIndex(candidate => candidate.ThreadId == thread.ThreadId);
+        if (currentIndex < 0) return;
         var destination = Math.Clamp(currentIndex + offset, 0, pinned.Count - 1);
         if (currentIndex < 0 || destination == currentIndex)
         {
@@ -2534,9 +2553,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var thinkingLevel = model.SupportsReasoning
             ? PiConfiguration.SelectedThinkingLevel?.Value ?? snapshot.ActiveThinkingLevel
             : PiThinkingLevel.Off;
+        if (model.SupportedThinkingLevels is { Count: > 0 } levels && !levels.Contains(thinkingLevel))
+            thinkingLevel = levels.Where(level => level <= thinkingLevel).DefaultIfEmpty(levels[0]).Max();
         return UpdatePiConfigurationAsync(
             model.Selection,
             thinkingLevel,
+            snapshot.Configuration.RuntimeModeId,
             cancellationToken);
     }
 
@@ -2554,7 +2576,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         return UpdatePiConfigurationAsync(
             PiConfiguration.SelectedModel?.Selection ?? snapshot.ActiveModel,
             thinkingLevel.Value,
+            snapshot.Configuration.RuntimeModeId,
             cancellationToken);
+    }
+
+    public Task SelectPiRuntimeModeAsync(PiRuntimeModeCapability mode, CancellationToken cancellationToken = default)
+    {
+        var snapshot = PiConfiguration.Snapshot;
+        if (snapshot is null || !CanConfigurePi || mode.RuntimeModeId == snapshot.ActiveRuntimeModeId) return Task.CompletedTask;
+        return UpdatePiConfigurationAsync(snapshot.ActiveModel, snapshot.ActiveThinkingLevel, mode.RuntimeModeId, cancellationToken);
     }
 
     public async Task SendPromptAsync(CancellationToken cancellationToken = default)
@@ -3605,6 +3635,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         bool debounce,
         CancellationToken cancellationToken = default)
     {
+        RunOnUiThread(() => { _threadSearchNextOffset = null; OnPropertyChanged(nameof(CanLoadMoreThreads)); });
         var project = SelectedProject;
         if (project is null)
         {
@@ -3647,6 +3678,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
             IReadOnlyList<ThreadDescriptor> threads;
             var isTruncated = false;
+            int? nextOffset = null;
             if (!showArchived && string.IsNullOrEmpty(query))
             {
                 threads = await RequireClient().ListThreadsAsync(projectId, refreshCancellation.Token)
@@ -3665,6 +3697,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     ? result.Threads.Where(static thread => thread.IsArchived).ToArray()
                     : result.Threads;
                 isTruncated = result.IsTruncated;
+                nextOffset = result.NextOffset;
             }
 
             RunOnUiThread(() =>
@@ -3686,6 +3719,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 }
 
                 ThreadListStatus = BuildThreadListStatus(threads.Count, query, showArchived, isTruncated);
+                _threadSearchNextOffset = nextOffset;
+                OnPropertyChanged(nameof(CanLoadMoreThreads));
                 ClearError();
             });
         }
@@ -3876,6 +3911,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task UpdatePiConfigurationAsync(
         PiModelSelection? model,
         PiThinkingLevel? thinkingLevel,
+        string? runtimeModeId,
         CancellationToken cancellationToken)
     {
         var thread = SelectedThread;
@@ -3893,7 +3929,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 snapshot.Configuration.Revision,
                 model,
                 thinkingLevel,
-                snapshot.Configuration.RuntimeModeId,
+                runtimeModeId,
                 cancellationToken).ConfigureAwait(false);
             if (result.Snapshot is null)
             {
@@ -3906,6 +3942,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 if (SelectedThread?.ThreadId == thread.ThreadId)
                 {
                     ApplyPiConfiguration(result.Snapshot);
+                    Layout.RememberModel(result.Snapshot.ActiveModel, result.Snapshot.ActiveThinkingLevel);
                 }
 
                 HandleCommandReceipt(result.Receipt);
@@ -3994,6 +4031,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         PiConfiguration.Apply(snapshot);
+        PiConfiguration.ApplyModelPreferences(Layout);
         RaisePiConfigurationStateChanged();
     }
 
@@ -4268,6 +4306,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var query = WorkbenchFiles.SearchQuery;
         RunOnUiThread(() =>
         {
+            WorkbenchFiles.NextOffset = null;
+            WorkbenchFiles.NextScanOffset = 0;
             WorkbenchFiles.SelectedFile = null;
             WorkbenchFiles.SelectedContentMatch = null;
             if (WorkbenchFiles.SearchMode == WorkspaceFileSearchMode.Contents)
@@ -4344,6 +4384,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     }
 
                     WorkbenchFiles.ContentMatches.Clear();
+                    WorkbenchFiles.NextOffset = result.NextOffset;
+                    WorkbenchFiles.NextScanOffset = result.NextScanOffset;
                     foreach (var match in result.Matches)
                     {
                         WorkbenchFiles.ContentMatches.Add(match);
@@ -4377,6 +4419,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     }
 
                     WorkbenchFiles.ApplyEntries(result.Entries);
+                    WorkbenchFiles.NextOffset = result.NextOffset;
                     var fileCount = result.Entries.Count(static entry => !entry.IsDirectory);
                     var directoryCount = result.Entries.Count - fileCount;
                     WorkbenchFiles.Status = result.Entries.Count == 0
@@ -4411,6 +4454,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 }
 
                 Replace(WorkbenchFiles.Files, pathResult.Matches);
+                WorkbenchFiles.NextOffset = pathResult.NextOffset;
+                WorkbenchFiles.NextScanOffset = pathResult.NextScanOffset;
                 WorkbenchFiles.Status = pathResult.Matches.Count == 0
                     ? "No matching project files"
                     : pathResult.IsTruncated

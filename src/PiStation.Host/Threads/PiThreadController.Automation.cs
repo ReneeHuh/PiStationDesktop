@@ -45,8 +45,17 @@ public sealed partial class PiThreadController
                 var state = await connection.GetStateAsync(token).ConfigureAwait(false);
                 if (saved.AutoCompaction is { } expected && state.ReportedAutoCompactionEnabled != expected)
                     throw new PiRpcCommandException("set_auto_compaction", "Pi reports a different effective value. Check project settings overrides.");
+                bool? verifiedRetry = null;
+                if (_options.ManagementExtensionPath is not null)
+                {
+                    var effective = await connection.ManageAsync(new System.Text.Json.Nodes.JsonObject { ["action"] = "automation" }, token).ConfigureAwait(false);
+                    verifiedRetry = effective.GetProperty("autoRetry").GetBoolean();
+                    if (saved.AutoRetry is { } expectedRetry && verifiedRetry != expectedRetry)
+                        throw new PiRpcCommandException("set_auto_retry", "Pi's effective retry settings differ from the saved override. Check project settings.");
+                }
                 _automationStatus = new(saved, saved.Revision, state.ReportedAutoCompactionEnabled, saved.AutoRetry,
-                    "Saved preferences processed. Reported values describe the last application, not a live settings poll. Unmanaged options are not rewritten; auto-retry is command-acknowledged only (Pi does not report it in get_state).");
+                    verifiedRetry is null ? "Preferences acknowledged. Retry readback requires the desktop management extension." :
+                    $"Preferences applied. Pi SDK effective retry readback: {verifiedRetry}. Compaction was verified with Pi runtime state.", verifiedRetry);
             }
             catch (Exception exception)
             {

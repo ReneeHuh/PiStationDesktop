@@ -14,6 +14,39 @@ public sealed partial class ConversationTimeline
 {
     private bool _sentAttachmentActionBusy;
 
+    private void OnSentVideoContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+    {
+        OnSentVideoUnloaded(sender, new RoutedEventArgs());
+        if (sender.IsLoaded) OnSentVideoLoaded(sender, new RoutedEventArgs());
+    }
+
+    private async void OnSentVideoLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MediaPlayerElement { DataContext: DraftAttachmentViewModel { IsVideo: true } attachment } player) return;
+        var request = new object();
+        player.Tag = request;
+        try
+        {
+            await PiStation.ClientRuntime.SentAttachmentAccess.VerifyAsync(attachment.Attachment);
+            var file = await StorageFile.GetFileFromPathAsync(attachment.Attachment.ServerPath);
+            if (!player.IsLoaded || player.DataContext != attachment || !ReferenceEquals(player.Tag, request)) return;
+            var previous = player.Source;
+            player.Source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
+            (previous as IDisposable)?.Dispose();
+        }
+        catch (Exception error) { ViewModel.ComposerPower.Status = $"Video unavailable: {error.Message}"; }
+    }
+
+    private void OnSentVideoUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MediaPlayerElement player) return;
+        player.Tag = null;
+        player.MediaPlayer?.Pause();
+        var source = player.Source;
+        player.Source = null;
+        (source as IDisposable)?.Dispose();
+    }
+
     private async void OnOpenSentCitation(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: ComposerContextChipViewModel citation })

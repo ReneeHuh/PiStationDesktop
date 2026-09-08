@@ -4,4 +4,4 @@ namespace PiStation.Protocol.Models;
 public sealed record PiAutomationSettings(bool? AutoCompaction = null, bool? AutoRetry = null, long Revision = 0);
 
 public sealed record PiAutomationStatus(PiAutomationSettings Saved, long? AppliedRevision,
-    bool? VerifiedAutoCompaction, bool? AcknowledgedAutoRetry, string Message);
+    bool? VerifiedAutoCompaction, bool? AcknowledgedAutoRetry, string Message, bool? VerifiedAutoRetry = null);

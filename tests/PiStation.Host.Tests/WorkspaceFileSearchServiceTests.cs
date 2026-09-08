@@ -11,6 +11,41 @@ namespace PiStation.Host.Tests;
 public sealed class WorkspaceFileSearchServiceTests
 {
     [Fact]
+    public async Task PagesContinueAcrossScanWindowsWithoutMissingFilesOrMatchingLines()
+    {
+        using var directory = new HostTestDirectory();
+        var options = directory.CreateOptions() with { MaximumFileSearchScannedFiles = 2 };
+        var root = directory.CreateDirectory("project");
+        Directory.CreateDirectory(Path.Combine(root, "nested"));
+        for (var i = 0; i < 7; i++) await File.WriteAllTextAsync(Path.Combine(root, i < 3 ? "" : "nested", $"file{i}.txt"), "needle\nneedle");
+        var database = new HostDatabase(options);
+        await database.InitializeAsync();
+        var project = await new ProjectService(database).AddAsync(new(root));
+        var service = new WorkspaceFileSearchService(database, options);
+        int? offset = 0; var scan = 0; var files = new List<string>(); var pages = 0;
+        while (offset is { } current && pages++ < 30)
+        {
+            var page = await service.SearchAsync(new(project.ProjectId, "file", 1, Offset: current, ScanOffset: scan));
+            files.AddRange(page.Matches.Select(match => match.RelativePath)); offset = page.NextOffset; scan = page.NextScanOffset;
+        }
+        Assert.Null(offset); Assert.Equal(7, files.Count); Assert.Equal(7, files.Distinct().Count());
+        offset = 0; scan = 0; pages = 0; var lines = new List<string>();
+        while (offset is { } current && pages++ < 30)
+        {
+            var page = await service.SearchContentsAsync(new(project.ProjectId, "needle", 1, Offset: current, ScanOffset: scan));
+            lines.AddRange(page.Matches.Select(match => match.RelativePath + ":" + match.LineNumber)); offset = page.NextOffset; scan = page.NextScanOffset;
+        }
+        Assert.Null(offset); Assert.Equal(14, lines.Count); Assert.Equal(14, lines.Distinct().Count());
+        offset = 0; pages = 0; var entries = new List<string>();
+        while (offset is { } current && pages++ < 30)
+        {
+            var page = await service.ListAsync(new(project.ProjectId, 2, Offset: current));
+            entries.AddRange(page.Entries.Select(entry => entry.RelativePath)); offset = page.NextOffset;
+        }
+        Assert.Null(offset); Assert.Equal(8, entries.Count); Assert.Equal(8, entries.Distinct().Count());
+    }
+
+    [Fact]
     public async Task SearchReturnsRankedContainedRelativePathsAndSkipsGeneratedTrees()
     {
         using var temporaryDirectory = new HostTestDirectory();

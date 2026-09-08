@@ -30,6 +30,9 @@ public sealed partial class ShellPage : Page
     private readonly CommandKeybindingManager _keybindings;
     private readonly List<KeyboardAccelerator> _commandAccelerators = [];
     private CancellationTokenSource? _paletteSearchCancellation;
+    private string? _paletteContinuation;
+    private readonly HashSet<string> _paletteSearchKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _paletteSearchNotices = new(StringComparer.Ordinal);
     private bool _paletteOpen;
     private bool _settingsOpen;
     private bool _disposed;
@@ -174,6 +177,16 @@ public sealed partial class ShellPage : Page
         Register(
             "thread.previous", "Previous Thread", "Thread", "Select the previous visible thread.",
             () => SelectAdjacentThreadAsync(-1), enableWhen: "threadOpen", defaultShortcut: "Ctrl+PageUp");
+        Register("thread.copyReference", "Copy Thread Reference", "Thread", "Copy the linked pull request URL or thread ID.", () =>
+        {
+            if (ViewModel.Workspace.SelectedThread is { } thread)
+            {
+                var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                data.SetText(thread.PullRequest?.Url ?? thread.ThreadId.Value);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+            }
+            return Task.CompletedTask;
+        }, enableWhen: "threadOpen");
         Register(
             "thread.next", "Next Thread", "Thread", "Select the next visible thread.",
             () => SelectAdjacentThreadAsync(1), enableWhen: "threadOpen", defaultShortcut: "Ctrl+PageDown");
@@ -434,6 +447,11 @@ public sealed partial class ShellPage : Page
         _paletteSearchCancellation?.Dispose();
         _paletteSearchCancellation = new CancellationTokenSource();
         var cancellationToken = _paletteSearchCancellation.Token;
+        _paletteContinuation = null;
+        _paletteSearchKeys.Clear();
+        _paletteSearchNotices.Clear();
+        CommandPaletteLoadMore.Visibility = Visibility.Collapsed;
+        CommandPaletteProgress.Visibility = Visibility.Collapsed;
         var rawQuery = CommandPaletteQuery.Text ?? string.Empty;
         var actionsOnly = rawQuery.StartsWith('>');
         var commandQuery = actionsOnly ? rawQuery[1..].TrimStart() : rawQuery;
@@ -459,37 +477,76 @@ public sealed partial class ShellPage : Page
         {
             CommandPaletteProgress.Visibility = Visibility.Visible;
             await Task.Delay(180, cancellationToken);
-            var result = await ViewModel.SearchGlobalAsync(globalQuery, cancellationToken);
+            var result = await ViewModel.SearchGlobalAsync(globalQuery, cancellationToken: cancellationToken);
             if (cancellationToken.IsCancellationRequested ||
                 !string.Equals(CommandPaletteQuery.Text, rawQuery, StringComparison.Ordinal))
             {
                 return;
             }
 
-            foreach (var item in result.Items)
-            {
-                PaletteItems.Add(new CommandPaletteItemViewModel(
-                    $"search:{item.Kind}:{item.ProjectId}:{item.ThreadId}:{item.BranchName}:{item.MessageId}",
-                    item.Kind.ToString(), item.Title, item.Snippet ?? item.Description, string.Empty, true,
-                    searchItem: item));
-            }
-
+            AppendPaletteSearchPage(result);
             SelectFirstPaletteItem();
-            CommandPaletteStatusText.Text = result.IsTruncated
-                ? $"{PaletteItems.Count} results • refine your search for more"
-                : $"{PaletteItems.Count} results";
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception exception)
         {
-            CommandPaletteStatusText.Text = $"Commands available • global search failed: {exception.Message}";
+            if (!cancellationToken.IsCancellationRequested)
+                CommandPaletteStatusText.Text = $"Commands available • global search failed: {exception.Message}";
         }
         finally
         {
             if (!cancellationToken.IsCancellationRequested)
             {
+                CommandPaletteProgress.Visibility = Visibility.Collapsed;
+            }
+        }
+    }
+
+    private void AppendPaletteSearchPage(GlobalSearchResult result)
+    {
+        foreach (var item in result.Items)
+        {
+            var key = $"search:{item.Kind}:{item.ProjectId}:{item.ThreadId}:{item.BranchName}:{item.MessageId}";
+            if (_paletteSearchKeys.Add(key))
+                PaletteItems.Add(new CommandPaletteItemViewModel(key, item.Kind.ToString(), item.Title,
+                    item.Snippet ?? item.Description, string.Empty, true, searchItem: item));
+        }
+        if (result.Notice is { Length: > 0 } notice) _paletteSearchNotices.Add(notice);
+        _paletteContinuation = result.NextContinuation;
+        CommandPaletteLoadMore.Visibility = _paletteContinuation is null ? Visibility.Collapsed : Visibility.Visible;
+        CommandPaletteLoadMore.IsEnabled = true;
+        CommandPaletteStatusText.Text = $"{PaletteItems.Count} results" +
+            (_paletteContinuation is null ? string.Empty : " • more to search") +
+            (_paletteSearchNotices.Count == 0 ? string.Empty : $" • {string.Join(" ", _paletteSearchNotices)}");
+    }
+
+    private async void OnCommandPaletteLoadMore(object sender, RoutedEventArgs e)
+    {
+        if (_paletteContinuation is not { } continuation || _paletteSearchCancellation is null ||
+            !CommandPaletteLoadMore.IsEnabled) return;
+        var token = _paletteSearchCancellation.Token;
+        var query = CommandPaletteQuery.Text;
+        CommandPaletteLoadMore.IsEnabled = false;
+        CommandPaletteProgress.Visibility = Visibility.Visible;
+        try
+        {
+            var result = await ViewModel.SearchGlobalAsync(query, continuation, token);
+            if (token.IsCancellationRequested || CommandPaletteQuery.Text != query) return;
+            if (result.NextContinuation == continuation) throw new InvalidDataException("Search did not advance. Start the search again.");
+            AppendPaletteSearchPage(result);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            if (!token.IsCancellationRequested) CommandPaletteStatusText.Text = $"Could not load more: {exception.Message}";
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                CommandPaletteLoadMore.IsEnabled = true;
                 CommandPaletteProgress.Visibility = Visibility.Collapsed;
             }
         }
@@ -724,6 +781,8 @@ public sealed partial class ShellPage : Page
         }
     }
 
+    private async void OnLoadMorePullRequestsClicked(object sender, RoutedEventArgs e) => await ViewModel.LoadMorePullRequestsAsync();
+
     private void SynchronizeProjectSettings()
     {
         var project = ViewModel.Workspace.SelectedProject;
@@ -733,16 +792,12 @@ public sealed partial class ShellPage : Page
         ProjectAutoPullToggle.IsOn = project?.AutoPullDefaultBranch == true;
         ProjectDefaultModelProviderInput.Text = project?.DefaultModel?.ProviderId ?? string.Empty;
         ProjectDefaultModelIdInput.Text = project?.DefaultModel?.ModelId ?? string.Empty;
-        ProjectDefaultRuntimeModeInput.Text = project?.DefaultRuntimeModeId ?? string.Empty;
-        ProjectDefaultThinkingSelector.SelectedIndex = project?.DefaultThinkingLevel switch
-        {
-            PiThinkingLevel.Off => 1,
-            PiThinkingLevel.Minimal => 2,
-            PiThinkingLevel.Low => 3,
-            PiThinkingLevel.Medium => 4,
-            PiThinkingLevel.High => 5,
-            _ => 0,
-        };
+        ProjectPermissionSelector.ItemsSource = PiPermissionModes.Capabilities;
+        ProjectPermissionSelector.SelectedItem = PiPermissionModes.Capabilities.First(mode => mode.RuntimeModeId == (project?.DefaultRuntimeModeId ?? "full-access"));
+        OnProjectModelDefaultsChanged(this, null!);
+        ProjectDefaultThinkingSelector.SelectedItem = ProjectDefaultThinkingSelector.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => (string)item.Tag == (project?.DefaultThinkingLevel?.ToString() ?? ""))
+            ?? ProjectDefaultThinkingSelector.Items[0];
         if (project is not null && string.IsNullOrWhiteSpace(PublishRepositoryInput.Text))
         {
             PublishRepositoryInput.Text = project.DisplayName;
@@ -770,7 +825,21 @@ public sealed partial class ShellPage : Page
             ProjectAutoPullToggle.IsOn,
             defaultModel,
             defaultThinking,
-            ProjectDefaultRuntimeModeInput.Text);
+            (ProjectPermissionSelector.SelectedItem as PiRuntimeModeCapability)?.RuntimeModeId);
+    }
+
+    private void OnProjectModelDefaultsChanged(object sender, TextChangedEventArgs args)
+    {
+        if (ProjectDefaultThinkingSelector is null || ProjectDefaultModelProviderInput is null || ProjectDefaultModelIdInput is null) return;
+        var selected = (ProjectDefaultThinkingSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        var model = ViewModel.PiConfiguration.Snapshot?.Capabilities.Models.FirstOrDefault(candidate =>
+            candidate.ProviderId == ProjectDefaultModelProviderInput.Text.Trim() && candidate.ModelId == ProjectDefaultModelIdInput.Text.Trim());
+        var levels = model?.SupportedThinkingLevels ?? (model?.SupportsReasoning == false ? [PiThinkingLevel.Off] : Enum.GetValues<PiThinkingLevel>());
+        ProjectDefaultThinkingSelector.Items.Clear();
+        ProjectDefaultThinkingSelector.Items.Add(new ComboBoxItem { Content = "Runtime default", Tag = "" });
+        foreach (var level in levels) ProjectDefaultThinkingSelector.Items.Add(new ComboBoxItem { Content = new PiThinkingLevelOptionViewModel(level).DisplayName, Tag = level.ToString() });
+        ProjectDefaultThinkingSelector.SelectedItem = ProjectDefaultThinkingSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => (string)item.Tag == selected)
+            ?? ProjectDefaultThinkingSelector.Items[0];
     }
 
     private async void OnRemoveProjectClicked(object sender, RoutedEventArgs e)

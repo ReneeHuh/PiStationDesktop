@@ -57,11 +57,12 @@ public sealed record PullRequestDescriptor(
 
 public sealed record DetectSourceControlRequest(WorkspaceTarget Target);
 
-public sealed record ListPullRequestsRequest(WorkspaceTarget Target, PullRequestState? State = null);
+public sealed record ListPullRequestsRequest(WorkspaceTarget Target, PullRequestState? State = null, int Offset = 0, string? SourceBranch = null);
 
 public sealed record ListPullRequestsResult(
     SourceControlRepository Repository,
-    IReadOnlyList<PullRequestDescriptor> PullRequests);
+    IReadOnlyList<PullRequestDescriptor> PullRequests,
+    int? NextOffset = null);
 
 public sealed record CloneHostedRepositoryRequest(
     string RemoteUrl,

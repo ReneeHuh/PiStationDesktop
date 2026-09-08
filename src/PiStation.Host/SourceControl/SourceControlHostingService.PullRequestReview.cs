@@ -24,24 +24,24 @@ query($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
     id
     pullRequest(number:$number) {
-      number title url state isDraft body updatedAt
+      number title url state isDraft body updatedAt changedFiles
       author { login }
       headRefName baseRefName headRefOid baseRefOid
-      labels(first:100) { nodes { name } pageInfo { hasNextPage } }
-      reviewRequests(first:100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } pageInfo { hasNextPage } }
-      commits(first:100) { nodes { commit { oid messageHeadline committedDate url author { name user { login } } } } pageInfo { hasNextPage } }
-      headCommit: commits(last:1) { nodes { commit { statusCheckRollup { contexts(first:100) { nodes { ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } pageInfo { hasNextPage } } } } } }
-      comments(first:100) { nodes { id body createdAt url author { login } } pageInfo { hasNextPage } }
-      reviews(first:100) { nodes { id body submittedAt url author { login } } pageInfo { hasNextPage } }
+      labels(first:100) { nodes { name } pageInfo { hasNextPage endCursor } }
+      reviewRequests(first:100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } pageInfo { hasNextPage endCursor } }
+      commits(first:100) { nodes { commit { oid messageHeadline committedDate url author { name user { login } } } } pageInfo { hasNextPage endCursor } }
+      headCommit: commits(last:1) { nodes { commit { statusCheckRollup { contexts(first:100) { nodes { ... on CheckRun { id name status conclusion detailsUrl } ... on StatusContext { id context state targetUrl } } pageInfo { hasNextPage endCursor } } } } } }
+      comments(first:100) { nodes { id body createdAt url author { login } } pageInfo { hasNextPage endCursor } }
+      reviews(first:100) { nodes { id body submittedAt url author { login } } pageInfo { hasNextPage endCursor } }
       reviewThreads(first:100) {
         nodes {
           id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
           comments(first:100) {
             nodes { id databaseId body createdAt url author { login } }
-            pageInfo { hasNextPage }
+            pageInfo { hasNextPage endCursor }
           }
         }
-        pageInfo { hasNextPage }
+        pageInfo { hasNextPage endCursor }
       }
     }
   }
@@ -57,29 +57,7 @@ query($owner:String!, $name:String!, $number:Int!) {
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken).ConfigureAwait(false);
         EnsureGitHub(repository);
         var number = ValidateNumber(request.Number);
-        using var response = await QueryReviewAsync(repository, number, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
-        var snapshot = ParseReviewSnapshot(repository, response, number);
-        var files = await GetFilesAsync(repository, number, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
-        using var finalResponse = await QueryReviewAsync(repository, number, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
-        var finalReview = ParseReview(repository, finalResponse, number);
-        if (!string.Equals(snapshot.HeadCommitId, finalReview.HeadCommitId, StringComparison.OrdinalIgnoreCase))
-            throw ReviewError("The pull request head changed while loading its files. Reload the review.");
-        var notices = new List<string>();
-        if (snapshot.Notice is not null) notices.Add(snapshot.Notice);
-        notices.AddRange(files.Notices);
-        var body = snapshot.Body;
-        if (body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)
-        {
-            body = body[..PullRequestReviewDefaults.MaximumBodyCharacters];
-            notices.Add("Pull request body was truncated to the review limit.");
-        }
-        return snapshot with
-        {
-            Body = body,
-            Files = files.Files,
-            IsTruncated = snapshot.IsTruncated || files.IsTruncated || notices.Count > 0,
-            Notice = notices.Count == 0 ? null : string.Join(" ", notices.Distinct(StringComparer.Ordinal))
-        };
+        return await ReadReviewPageAsync(repository, number, workspace.WorkspaceRoot, request.Page, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<SourceControlOperationResult> SubmitPullRequestReviewAsync(
@@ -92,7 +70,7 @@ query($owner:String!, $name:String!, $number:Int!) {
             if (request is null) return Rejected("A review request is required.", null);
             if (request.Target is null || request.Comments is null || request.Body is null)
                 throw ReviewError("The review target, body, and comments are required.");
-            var (workspace, repository, number, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken).ConfigureAwait(false);
+            var (workspace, repository, number, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, request.Comments).ConfigureAwait(false);
             if (request.Comments.Count > PullRequestReviewDefaults.MaximumInlineComments)
                 throw ReviewError("A review may contain at most 50 inline comments.");
             if (request.Body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)
@@ -137,7 +115,7 @@ query($owner:String!, $name:String!, $number:Int!) {
         {
             if (request is null) return Rejected("A thread reply request is required.", null);
             if (request.Target is null || request.ThreadId is null) throw ReviewError("The thread target and ID are required.");
-            var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken).ConfigureAwait(false);
+            var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, threadId: request.ThreadId).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(request.Body) || request.Body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)
                 throw ReviewError("A thread reply must contain 1–32768 characters.");
             var thread = FindThread(selected, request.ThreadId);
@@ -165,7 +143,7 @@ mutation($threadId:ID!, $body:String!) {
         {
             if (request is null) return Rejected("A thread resolution request is required.", null);
             if (request.Target is null || request.ThreadId is null) throw ReviewError("The thread target and ID are required.");
-            var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken).ConfigureAwait(false);
+            var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, threadId: request.ThreadId).ConfigureAwait(false);
             var thread = FindThread(selected, request.ThreadId);
             if (!thread.CanResolve) throw ReviewError("You do not have permission to resolve this review thread.");
             if (thread.IsResolved == request.IsResolved)
@@ -183,7 +161,8 @@ mutation($threadId:ID!, $body:String!) {
     }
 
     private async Task<(ResolvedThreadWorkspace Workspace, SourceControlRepository Repository, int Number, ParsedReview Selected)> ValidateWriteTargetAsync(
-        PullRequestReviewTarget target, CancellationToken cancellationToken)
+        PullRequestReviewTarget target, CancellationToken cancellationToken,
+        IReadOnlyList<PullRequestInlineComment>? comments = null, string? threadId = null)
     {
         if (target is null || target.Workspace is null || string.IsNullOrWhiteSpace(target.Repository) || string.IsNullOrWhiteSpace(target.HeadCommitId))
             throw ReviewError("The review target, repository, and head commit are required.");
@@ -197,18 +176,28 @@ mutation($threadId:ID!, $body:String!) {
         var initial = ParseReview(repository, response, number);
         if (!string.Equals(initial.HeadCommitId, target.HeadCommitId, StringComparison.OrdinalIgnoreCase))
             throw ReviewError("The pull request head changed. Reload the review before writing.");
-        var files = await GetFilesAsync(repository, number, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
+        var files = await GetWriteFilesAsync(repository, number, workspace.WorkspaceRoot, comments ?? [], cancellationToken).ConfigureAwait(false);
+        PullRequestDiscussion? additionalThread = null;
+        if (threadId is not null && !initial.Discussions.Any(thread => thread.Id == threadId))
+        {
+            using var threadResponse = await QueryReviewThreadAsync(repository, number, workspace.WorkspaceRoot, target.HeadCommitId, threadId, null, cancellationToken).ConfigureAwait(false);
+            additionalThread = ParseDiscussion(threadResponse.RootElement.GetProperty("data").GetProperty("node"));
+        }
         using var finalResponse = await QueryReviewAsync(repository, number, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
         var selected = ParseReview(repository, finalResponse, number);
         if (!string.Equals(initial.HeadCommitId, selected.HeadCommitId, StringComparison.OrdinalIgnoreCase) || !string.Equals(selected.HeadCommitId, target.HeadCommitId, StringComparison.OrdinalIgnoreCase))
             throw ReviewError("The pull request head changed while loading its files. Reload the review before writing.");
-        return (workspace, repository, number, selected with { Files = files.Files });
+        return (workspace, repository, number, selected with
+        {
+            Files = files,
+            Discussions = additionalThread is null ? selected.Discussions : [.. selected.Discussions, additionalThread]
+        });
     }
 
     private async Task<JsonDocument> QueryReviewAsync(SourceControlRepository repository, int number, string workspace, CancellationToken cancellationToken)
     {
         var variables = new { owner = repository.Owner, name = repository.Name, number };
-        return await ExecuteGraphQlAsync(repository, workspace, ReviewQuery, variables, cancellationToken).ConfigureAwait(false);
+        return await ExecutePagedReviewQueryAsync(repository, workspace, ReviewQuery, variables, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<JsonDocument> ExecuteGraphQlAsync(SourceControlRepository repository, string workspace, string query, object variables, CancellationToken cancellationToken)
@@ -245,59 +234,6 @@ mutation($threadId:ID!, $body:String!) {
             EnsureReviewProviderSucceeded(result);
         }
         return document;
-    }
-
-    private async Task<(IReadOnlyList<PullRequestChangedFile> Files, bool IsTruncated, IReadOnlyList<string> Notices)> GetFilesAsync(
-        SourceControlRepository repository, int number, string workspace, CancellationToken cancellationToken)
-    {
-        var allItems = new List<JsonElement>();
-        var morePages = false;
-        try
-        {
-            for (var page = 1; page <= 3; page++)
-            {
-                var endpoint = $"repos/{repository.Owner}/{repository.Name}/pulls/{number}/files?per_page=100&page={page}";
-                var result = await RunReviewCommandAsync(["api", "--hostname", repository.Host, "--include", endpoint], workspace, null, cancellationToken).ConfigureAwait(false);
-                EnsureReviewProviderSucceeded(result);
-                if (result.StandardOutput.Length >= 2 * 1024 * 1024) throw ReviewError("GitHub changed-file response exceeded the host safety limit.");
-                EnsureJsonResponse(ReviewResponseBody(result.StandardOutput), "GitHub returned an invalid changed-file response.");
-                using var document = JsonDocument.Parse(ReviewResponseBody(result.StandardOutput));
-                var items = document.RootElement.ValueKind == JsonValueKind.Array ? document.RootElement.EnumerateArray().ToArray() : [];
-                // JsonElement values are backed by the document; clone before disposing each page.
-                allItems.AddRange(items.Select(static item => item.Clone()));
-                if (items.Length < 100) break;
-                morePages = page == 3;
-            }
-        }
-        catch (JsonException exception) { throw ReviewError($"GitHub returned invalid changed-file JSON: {exception.Message}"); }
-        var truncated = allItems.Count > PullRequestReviewDefaults.MaximumFiles || morePages;
-        var notices = new List<string>();
-        if (truncated) notices.Add("Changed files were truncated at 300 files (the host reads at most three 100-file pages).");
-        var files = allItems.Take(PullRequestReviewDefaults.MaximumFiles).Select(ParseFile).ToArray();
-        var totalLines = 0;
-        var lineTruncated = false;
-        for (var i = 0; i < files.Length; i++)
-        {
-            var remaining = PullRequestReviewDefaults.MaximumDiffLines - totalLines;
-            if (remaining <= 0)
-            {
-                files = files[..i];
-                lineTruncated = true;
-                break;
-            }
-            if (files[i].Lines.Count > remaining)
-            {
-                files[i] = files[i] with { Lines = files[i].Lines.Take(remaining).ToArray() };
-                lineTruncated = true;
-                files = files[..(i + 1)];
-                totalLines += remaining;
-                break;
-            }
-            totalLines += files[i].Lines.Count;
-        }
-        if (lineTruncated) { truncated = true; notices.Add("Diff lines were truncated at 20,000 lines."); }
-        if (files.Any(file => file.PatchUnavailable)) notices.Add("One or more changed files have no patch (binary, renamed, or omitted by GitHub).");
-        return (files, truncated || files.Any(file => file.PatchUnavailable), notices);
     }
 
     private static PullRequestChangedFile ParseFile(JsonElement file)
@@ -459,7 +395,7 @@ mutation($threadId:ID!, $body:String!) {
         var descriptor = new PullRequestDescriptor(repository.Provider, $"{repository.Owner}/{repository.Name}", number.ToString(CultureInfo.InvariantCulture),
             Text(pr, "title") ?? $"Pull request #{number}", Text(pr, "url") ?? repository.WebUrl + "/pull/" + number,
             state, author, Text(pr, "headRefName") ?? string.Empty, Text(pr, "baseRefName") ?? string.Empty,
-            Boolean(pr, "isDraft"), labels, reviewers, ReadCheckState(checks),
+            Boolean(pr, "isDraft"), labels, reviewers, PullRequestReviewDefaults.GetCheckState(checks, checksTruncated),
             DateTimeOffset.TryParse(Text(pr, "updatedAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var updated) ? updated : DateTimeOffset.UtcNow);
         return new ParsedReview(descriptor, Text(pr, "body") ?? string.Empty, head, Text(pr, "baseRefOid") ?? string.Empty,
             NestedText(data, "viewer", "login") ?? string.Empty, commits, checks, discussions,
@@ -487,25 +423,7 @@ mutation($threadId:ID!, $body:String!) {
         var contexts = rollup.GetProperty("contexts"); truncated = HasNext(contexts);
         return Nodes(contexts).Take(PullRequestReviewDefaults.MaximumItems).Select(check => new PullRequestCheck(
             Text(check, "name") ?? Text(check, "context") ?? "Check", Text(check, "status") ?? Text(check, "state") ?? "UNKNOWN",
-            Text(check, "conclusion"), Text(check, "detailsUrl") ?? Text(check, "targetUrl"))).ToArray();
-    }
-
-    private static PullRequestCheckState ReadCheckState(IReadOnlyList<PullRequestCheck> checks)
-    {
-        if (checks.Count == 0) return PullRequestCheckState.Unknown;
-        if (checks.Any(check => (check.Conclusion ?? check.Status).Contains("FAIL", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Conclusion ?? check.Status).Equals("TIMED_OUT", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Conclusion ?? check.Status).Equals("ACTION_REQUIRED", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Conclusion ?? check.Status).Equals("STALE", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Conclusion ?? check.Status).Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Conclusion ?? check.Status).Contains("CANCEL", StringComparison.OrdinalIgnoreCase)))
-            return PullRequestCheckState.Failed;
-        if (checks.Any(check => (check.Conclusion ?? check.Status).Contains("PENDING", StringComparison.OrdinalIgnoreCase) ||
-                                (check.Status.Contains("QUEU", StringComparison.OrdinalIgnoreCase)) ||
-                                check.Status.Contains("PROGRESS", StringComparison.OrdinalIgnoreCase) ||
-                                check.Conclusion is null && !check.Status.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase) && !check.Status.Equals("PASS", StringComparison.OrdinalIgnoreCase)))
-            return PullRequestCheckState.Pending;
-        return PullRequestCheckState.Passed;
+            Text(check, "conclusion"), Text(check, "detailsUrl") ?? Text(check, "targetUrl"), Text(check, "id"))).ToArray();
     }
 
     private static IReadOnlyList<PullRequestDiscussion> ParseDiscussions(JsonElement pr, out bool truncated, out bool commentsTruncated)
@@ -516,14 +434,8 @@ mutation($threadId:ID!, $body:String!) {
         var result = new List<PullRequestDiscussion>();
         foreach (var thread in Nodes(connection).Take(PullRequestReviewDefaults.MaximumItems))
         {
-            var comments = thread.GetProperty("comments"); commentsTruncated |= HasNext(comments);
-            var parsedComments = Nodes(comments).Take(PullRequestReviewDefaults.MaximumItems).Select(comment => new PullRequestReviewComment(
-                Text(comment, "id") ?? Text(comment, "databaseId") ?? "", NestedText(comment, "author", "login") ?? "Unknown", Text(comment, "body") ?? "",
-                DateTimeOffset.TryParse(Text(comment, "createdAt"), out var created) ? created : DateTimeOffset.UtcNow, Text(comment, "url"))).ToArray();
-            var side = Text(thread, "diffSide")?.ToUpperInvariant() switch { "LEFT" => PullRequestDiffSide.Left, "RIGHT" => PullRequestDiffSide.Right, _ => (PullRequestDiffSide?)null };
-            result.Add(new PullRequestDiscussion(Text(thread, "id") ?? "", Text(thread, "path"), NumberNullable(thread, "line") ?? NumberNullable(thread, "originalLine"), side,
-                Boolean(thread, "isResolved"), Boolean(thread, "isOutdated"), Boolean(thread, "viewerCanReply"),
-                Boolean(thread, "isResolved") ? Boolean(thread, "viewerCanUnresolve") : Boolean(thread, "viewerCanResolve"), parsedComments));
+            commentsTruncated |= HasNext(thread, "comments");
+            result.Add(ParseDiscussion(thread));
         }
         if (pr.TryGetProperty("comments", out var general))
         {
@@ -547,6 +459,22 @@ mutation($threadId:ID!, $body:String!) {
             }
         }
         return result;
+    }
+
+    private static PullRequestDiscussion ParseDiscussion(JsonElement thread)
+    {
+        var comments = Nodes(thread.GetProperty("comments")).Select(comment => new PullRequestReviewComment(
+            Text(comment, "id") ?? Text(comment, "databaseId") ?? "", NestedText(comment, "author", "login") ?? "Unknown",
+            Text(comment, "body") ?? "", DateTimeOffset.TryParse(Text(comment, "createdAt"), out var created) ? created : DateTimeOffset.UtcNow,
+            Text(comment, "url"))).ToArray();
+        var side = Text(thread, "diffSide")?.ToUpperInvariant() switch
+        {
+            "LEFT" => PullRequestDiffSide.Left, "RIGHT" => PullRequestDiffSide.Right, _ => (PullRequestDiffSide?)null
+        };
+        return new PullRequestDiscussion(Text(thread, "id") ?? "", Text(thread, "path"),
+            NumberNullable(thread, "line") ?? NumberNullable(thread, "originalLine"), side,
+            Boolean(thread, "isResolved"), Boolean(thread, "isOutdated"), Boolean(thread, "viewerCanReply"),
+            Boolean(thread, "isResolved") ? Boolean(thread, "viewerCanUnresolve") : Boolean(thread, "viewerCanResolve"), comments);
     }
 
     private static PullRequestDiscussion FindThread(ParsedReview review, string id) => review.Discussions.FirstOrDefault(thread => string.Equals(thread.Id, id, StringComparison.Ordinal))

@@ -14,7 +14,8 @@ public enum GlobalSearchResultKind
 public sealed record GlobalSearchRequest(
     string Query,
     int MaximumResults = GlobalSearchDefaults.DefaultMaximumResults,
-    bool IncludeArchivedThreads = true);
+    bool IncludeArchivedThreads = true,
+    string? Continuation = null);
 
 public sealed record GlobalSearchItem(
     GlobalSearchResultKind Kind,
@@ -31,7 +32,9 @@ public sealed record GlobalSearchItem(
 
 public sealed record GlobalSearchResult(
     IReadOnlyList<GlobalSearchItem> Items,
-    bool IsTruncated);
+    bool IsTruncated,
+    string? NextContinuation = null,
+    string? Notice = null);
 
 public static class GlobalSearchDefaults
 {

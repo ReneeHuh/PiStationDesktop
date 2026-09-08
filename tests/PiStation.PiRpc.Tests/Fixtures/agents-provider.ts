@@ -16,6 +16,7 @@ export default function (pi: any) {
       let content: any[] = [{ type: "text", text: parent ? "Workflow reported." : "Result: " + prompt }];
       if (parent && !result) content = [{ type: "toolCall", id: "agents-" + Date.now(), name: "pistation_subagent", arguments: JSON.parse(prompt.slice(prompt.indexOf(marker) + marker.length)) }];
       if (!parent && !result && (prompt.includes("READ") || prompt.includes("WAIT"))) content = [{ type: "toolCall", id: "read-child", name: "read", arguments: { path: "README.md" } }];
+      if (!parent && !result && prompt.includes("WRITE")) content = [{ type: "toolCall", id: "write-child", name: "write", arguments: { path: "child-write.txt", content: "child mutation" } }];
       if (!parent && prompt.includes("CONTINUE")) content = [{ type: "text", text: context.messages.some((m: any) => JSON.stringify(m.content).includes("Result: READ")) ? "Remembered the previous child result." : "Missing child history." }];
       const message: any = { role: "assistant", api: model.api, provider: model.provider, model: model.id, content,
         stopReason: content[0].type === "toolCall" ? "toolUse" : "stop", timestamp: Date.now(),

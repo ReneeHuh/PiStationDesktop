@@ -15,6 +15,7 @@ public sealed class PiPlanViewModel : ObservableObject
     private bool _commandsAvailable;
     private string? _sessionId;
     private readonly Dictionary<string, (string Text, long Revision)> _edits = new(StringComparer.Ordinal);
+    public int UnsavedPlanCount => _edits.Count;
     public PiPlanState? Snapshot { get; private set; }
     public long EditRevision { get; private set; }
     public string EditText

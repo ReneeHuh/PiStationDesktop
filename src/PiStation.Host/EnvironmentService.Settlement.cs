@@ -43,8 +43,7 @@ public sealed partial class EnvironmentService
             var count = 0;
             foreach (var project in await _database.ListProjectsAsync(token).ConfigureAwait(false))
             {
-                ListPullRequestsResult? pullRequests = null;
-                var lookupAttempted = false;
+                var branchLookups = new Dictionary<string, ListPullRequestsResult?>(StringComparer.Ordinal);
                 foreach (var record in await _database.ListThreadsAsync(project.ProjectId, token).ConfigureAwait(false))
                 {
                     token.ThrowIfCancellationRequested();
@@ -56,26 +55,29 @@ public sealed partial class EnvironmentService
                             thread.SetupScriptState is SetupScriptState.Pending or SetupScriptState.Running) continue;
                         _threads.TryGetController(thread.ThreadId, out var controller);
                         if (ThreadSettlementPolicy.HasLiveWork(controller?.Journal.Projection)) continue;
-                        if (!lookupAttempted && (settings.OnMerge || settings.OnClose) && (thread.PullRequest is not null || thread.BranchName is not null))
+                        PullRequestDescriptor? pr = null;
+                        if ((settings.OnMerge || settings.OnClose) && thread.PullRequest is { } linkedRequest)
                         {
-                            lookupAttempted = true;
-                            using var lookupTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                            lookupTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+                            using var linkedTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                            linkedTimeout.CancelAfter(TimeSpan.FromSeconds(15));
                             try
                             {
-                                var merged = await _sourceControl.ListPullRequestsAsync(new(new(project.ProjectId), PullRequestState.Merged), lookupTimeout.Token).ConfigureAwait(false);
-                                var closed = await _sourceControl.ListPullRequestsAsync(new(new(project.ProjectId), PullRequestState.Closed), lookupTimeout.Token).ConfigureAwait(false);
-                                pullRequests = merged with { PullRequests = merged.PullRequests.Concat(closed.PullRequests).DistinctBy(p => p.Url).ToArray() };
+                                var exact = await _sourceControl.GetPullRequestAsync(new(project.ProjectId), linkedRequest.Number, linkedTimeout.Token).ConfigureAwait(false);
+                                if (exact.Provider == linkedRequest.Provider && string.Equals(exact.Url.TrimEnd('/'), linkedRequest.Url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)) pr = exact;
                             }
-                            catch (Exception) when (!token.IsCancellationRequested) { /* Unknown PR state never triggers PR settlement. */ }
+                            catch (Exception) when (!token.IsCancellationRequested) { /* Preserve unknown state on provider failure. */ }
                         }
-                        PullRequestDescriptor? pr = null;
-                        if (pullRequests is not null)
+                        if ((settings.OnMerge || settings.OnClose) && thread.PullRequest is null && thread.BranchName is { } branch)
                         {
-                            if (thread.PullRequest is { } link)
-                                pr = pullRequests.PullRequests.FirstOrDefault(p => p.Provider == link.Provider && p.Number == link.Number &&
-                                    string.Equals(p.Url.TrimEnd('/'), link.Url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
-                            else if (thread.BranchName is { } branch && branch != pullRequests.Repository.DefaultBranch)
+                            if (!branchLookups.TryGetValue(branch, out var pullRequests))
+                            {
+                                using var branchTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                                branchTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+                                try { pullRequests = await _sourceControl.ListPullRequestsAsync(new(new(project.ProjectId), SourceBranch: branch), branchTimeout.Token).ConfigureAwait(false); }
+                                catch (Exception) when (!token.IsCancellationRequested) { /* Unknown state does not settle. */ }
+                                branchLookups[branch] = pullRequests;
+                            }
+                            if (pullRequests is { NextOffset: null } && branch != pullRequests.Repository.DefaultBranch)
                             {
                                 var matches = pullRequests.PullRequests.Where(p => p.SourceBranch == branch).ToArray();
                                 if (matches.Length == 1) pr = matches[0]; // Ambiguous/reused branches do not guess.

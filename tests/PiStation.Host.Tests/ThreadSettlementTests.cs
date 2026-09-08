@@ -74,13 +74,15 @@ public sealed class ThreadSettlementTests
         await using var host = await PiStation.Host.Hosting.EmbeddedEnvironmentHost.StartAsync(options);
         var db = new HostDatabase(options);
         await db.InitializeAsync();
+        await host.Environment.SaveSettlementSettingsAsync(new(null, false, false));
         var project = await host.Environment.AddProjectAsync(new(directory.CreateDirectory("host-sweep")));
         var thread = await host.Environment.CreateThreadAsync(new(project.ProjectId));
         await db.RecordSettlementActivityAsync(thread.ThreadId, true, DateTimeOffset.UtcNow.AddDays(-5));
-        await host.Environment.SaveSettlementSettingsAsync(new(null, false, false));
         Assert.Equal(0, await host.Environment.SweepThreadSettlementAsync(DateTimeOffset.UtcNow));
+        Assert.False((await host.Environment.GetThreadAsync(thread.ThreadId)).IsSettled);
         await host.Environment.SaveSettlementSettingsAsync(new(3, false, false));
-        Assert.Equal(1, await host.Environment.SweepThreadSettlementAsync(DateTimeOffset.UtcNow));
+        // The background worker can win the race once settlement is enabled.
+        Assert.InRange(await host.Environment.SweepThreadSettlementAsync(DateTimeOffset.UtcNow), 0, 1);
         Assert.True((await host.Environment.GetThreadAsync(thread.ThreadId)).IsSettled);
         Assert.Equal(0, await host.Environment.SweepThreadSettlementAsync(DateTimeOffset.UtcNow));
         await host.Environment.SaveSettlementSettingsAsync(new(null, false, false));

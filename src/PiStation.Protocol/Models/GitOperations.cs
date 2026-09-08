@@ -35,7 +35,8 @@ public sealed record ListGitRefsResult(
     bool IsRepository,
     bool HasOriginRemote,
     int? NextCursor,
-    int TotalCount);
+    int TotalCount,
+    string? SnapshotId = null);
 
 public sealed record GitWorktreeDescriptor(
     string Path,

@@ -4,6 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { reviewToolCall } from "./pistation-permissions.ts";
 
 const command = "pistation-desktop-agents";
 const toolName = "pistation_subagent";
@@ -177,6 +178,9 @@ export default function (pi: any) {
           if (!model) throw new Error("The selected child model is unavailable: " + modelName);
           const memorySettings = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, packages: [] });
           const loader = new DefaultResourceLoader({ cwd: ctx.cwd, agentDir: getAgentDir(), settingsManager: memorySettings,
+            extensionFactories: [{ name: "PiStation child permissions", factory: (child: any) => {
+              child.on("tool_call", (event: any) => reviewToolCall(event, ctx, preset.name));
+            } }],
             noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
             appendSystemPrompt: [preset.systemPrompt] });
           await loader.reload();

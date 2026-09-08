@@ -13,8 +13,17 @@ public sealed class PiConfigurationViewModel : ObservableObject
     private string _status = string.Empty;
 
     public ObservableCollection<PiModelOptionViewModel> Models { get; } = [];
+    public ObservableCollection<PiModelOptionViewModel> VisibleModels { get; } = [];
+    internal void ApplyModelPreferences(ShellLayoutViewModel layout) => Replace(VisibleModels,
+        Models.Where(model => !layout.GetModelPreference(model.Selection).Hidden || model.Selection == SelectedModel?.Selection)
+            .OrderByDescending(model => layout.GetModelPreference(model.Selection).Favorite)
+            .ThenBy(model => layout.GetModelPreference(model.Selection).Order).ThenBy(model => model.ProviderId).ThenBy(model => model.DisplayName));
 
     public ObservableCollection<PiThinkingLevelOptionViewModel> ThinkingLevels { get; } = [];
+    public ObservableCollection<PiRuntimeModeCapability> RuntimeModes { get; } = [];
+    private PiRuntimeModeCapability? _selectedRuntimeMode;
+    public PiRuntimeModeCapability? SelectedRuntimeMode { get => _selectedRuntimeMode; private set => SetProperty(ref _selectedRuntimeMode, value); }
+    public Visibility RuntimeModeVisibility => RuntimeModes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     internal ThreadPiConfigurationSnapshot? Snapshot { get; set; }
 
@@ -53,6 +62,8 @@ public sealed class PiConfigurationViewModel : ObservableObject
     internal void Apply(ThreadPiConfigurationSnapshot snapshot)
     {
         Snapshot = snapshot;
+        Replace(RuntimeModes, snapshot.Capabilities.RuntimeModes);
+        SelectedRuntimeMode = RuntimeModes.FirstOrDefault(mode => mode.RuntimeModeId == snapshot.ActiveRuntimeModeId);
         Replace(Models, snapshot.Capabilities.Models.Select(static model => new PiModelOptionViewModel(model)));
         Replace(
             ThinkingLevels,
@@ -70,7 +81,10 @@ public sealed class PiConfigurationViewModel : ObservableObject
     {
         Snapshot = null;
         Replace(Models, []);
+        Replace(VisibleModels, []);
         Replace(ThinkingLevels, []);
+        Replace(RuntimeModes, []);
+        SelectedRuntimeMode = null;
         SelectedModel = null;
         SelectedThinkingLevel = null;
         Status = status;
@@ -87,6 +101,7 @@ public sealed class PiConfigurationViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ModelSelectorVisibility));
         OnPropertyChanged(nameof(ThinkingLevelSelectorVisibility));
+        OnPropertyChanged(nameof(RuntimeModeVisibility));
     }
 
     private static bool Matches(

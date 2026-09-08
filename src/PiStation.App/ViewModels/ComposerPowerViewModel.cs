@@ -231,11 +231,12 @@ public sealed record ComposerContextChipViewModel(
     string? RelativePath = null,
     int? StartLine = null,
     int? EndLine = null,
-    string? SourceTextSha256 = null)
+    string? SourceTextSha256 = null,
+    string? Comment = null)
 {
-    public ComposerContext ToContext() => new(Id, Kind, Label, Text, SourceThreadId, MessageId, RelativePath, StartLine, EndLine, SourceTextSha256);
+    public ComposerContext ToContext() => new(Id, Kind, Label, Text, SourceThreadId, MessageId, RelativePath, StartLine, EndLine, SourceTextSha256, Comment);
 
     public static ComposerContextChipViewModel FromContext(ComposerContext context) => new(
         context.Id, context.Kind, context.Label, context.Text, context.SourceThreadId,
-        context.MessageId, context.RelativePath, context.StartLine, context.EndLine, context.SourceTextSha256);
+        context.MessageId, context.RelativePath, context.StartLine, context.EndLine, context.SourceTextSha256, context.Comment);
 }

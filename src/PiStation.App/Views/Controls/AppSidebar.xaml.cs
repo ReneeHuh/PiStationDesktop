@@ -259,6 +259,24 @@ public sealed partial class AppSidebar : UserControl
     private async void OnBulkUnsettleClicked(object sender, RoutedEventArgs e) =>
         await RunBulkOperationAsync(ThreadBulkOperation.Unsettle);
 
+    private async void OnCheckoutProjectClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ProjectDescriptor project }) await ViewModel.SelectProjectAsync(project);
+    }
+    private void OnShowAllProjectTasks(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ProjectGroupViewModel group }) group.ShowAll();
+    }
+    private async void OnMoveProjectUp(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ProjectGroupViewModel group }) await ViewModel.MoveProjectAsync(group, -1);
+    }
+    private async void OnMoveProjectDown(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ProjectGroupViewModel group }) await ViewModel.MoveProjectAsync(group, 1);
+    }
+    private async void OnLoadMoreThreadsClicked(object sender, RoutedEventArgs e) => await ViewModel.LoadMoreThreadsAsync();
+
     private async void OnBulkSnoozeClicked(object sender, RoutedEventArgs e) =>
         await RunBulkOperationAsync(ThreadBulkOperation.Snooze, DateTimeOffset.Now.AddDays(1));
 
@@ -393,6 +411,27 @@ public sealed partial class AppSidebar : UserControl
         delete.Click += OnDeleteThreadClicked;
 
         var flyout = new MenuFlyout();
+        var copyReference = new MenuFlyoutItem { Text = "Copy thread reference" };
+        copyReference.Click += (_, _) =>
+        {
+            var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            data.SetText(thread.PullRequest?.Url ?? thread.ThreadId.Value);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+        };
+        flyout.Items.Add(copyReference);
+        if (thread.WorkspaceMode == ThreadWorkspaceMode.Worktree && thread.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId)
+        {
+            var reuse = new MenuFlyoutItem { Text = "New thread in this worktree" };
+            reuse.Click += async (_, _) => await ViewModel.CreateThreadInWorkspaceAsync(
+                ThreadWorkspaceMode.Worktree, reuseWorktreeFromThreadId: thread.ThreadId);
+            flyout.Items.Add(reuse);
+        }
+        if (thread.PullRequest is not null)
+        {
+            var unlink = new MenuFlyoutItem { Text = "Unlink pull request" };
+            unlink.Click += async (_, _) => await ViewModel.UnlinkPullRequestAsync(thread);
+            flyout.Items.Add(unlink);
+        }
         var unread = new MenuFlyoutItem { Text = "Mark unread", Tag = thread.ThreadId.Value, IsEnabled = thread.CompletionSequence > 0 };
         AutomationProperties.SetAutomationId(unread, "ContextMarkThreadUnreadMenuItem");
         unread.Click += OnMarkUnreadClicked;

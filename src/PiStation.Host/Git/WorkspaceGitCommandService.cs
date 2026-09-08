@@ -40,6 +40,13 @@ public sealed class WorkspaceGitCommandService
         _locks = locks ?? new WorkspaceOperationLocks();
     }
 
+    internal async Task<IAsyncDisposable> AcquireProjectLockAsync(ProjectId projectId, CancellationToken cancellationToken)
+    {
+        var workspace = await _resolver.ResolveAsync(projectId, null, cancellationToken).ConfigureAwait(false);
+        var identity = await ResolveLockIdentityAsync(workspace.ProjectRoot, cancellationToken).ConfigureAwait(false);
+        return await _locks.AcquireAsync(identity, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ListGitRefsResult> ListRefsAsync(
         ListGitRefsRequest request,
         CancellationToken cancellationToken = default)
@@ -149,7 +156,9 @@ public sealed class WorkspaceGitCommandService
             remotes.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Any(static remote => string.Equals(remote.Trim(), "origin", StringComparison.Ordinal)),
             request.Cursor + page.Length < ordered.Length ? request.Cursor + page.Length : null,
-            ordered.Length);
+            ordered.Length,
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(ordered))));
     }
 
     public async Task<ListGitWorktreesResult> ListWorktreesAsync(
@@ -618,6 +627,7 @@ public sealed class WorkspaceGitCommandService
                 "A worktree cannot be assigned after the thread has captured turn checkpoints.");
         }
 
+
         var branch = string.IsNullOrWhiteSpace(command.NewBranchName)
             ? $"pistation/{SanitizeBranchComponent(thread.Title)}-{thread.ThreadId.Value[..Math.Min(8, thread.ThreadId.Value.Length)]}"
             : command.NewBranchName.Trim();
@@ -718,6 +728,11 @@ public sealed class WorkspaceGitCommandService
                 ProtocolErrorCodes.GitConflict,
                 "This worktree has turn checkpoints. Delete the thread before removing its workspace.");
         }
+
+        var sharing = await _database.ListThreadsAsync(target.ProjectId, includeArchived: true, cancellationToken).ConfigureAwait(false);
+        if (sharing.Any(other => other.ThreadId != threadId && other.WorktreePath is { } path && PathsEqual(path, fullPath)))
+            throw new HostOperationException(ProtocolErrorCodes.GitConflict,
+                "Other threads still use this worktree. Remove their references before removing the checkout.");
 
         var dirty = Directory.Exists(fullPath) && !string.IsNullOrEmpty((await RunAsync(
             fullPath,

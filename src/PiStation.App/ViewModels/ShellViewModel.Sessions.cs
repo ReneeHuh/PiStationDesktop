@@ -7,7 +7,7 @@ public sealed partial class ShellViewModel
     public PiSessionsViewModel PiSessions { get; } = new();
     private CopyPiSessionRequest? _pendingSessionCopy;
 
-    public async Task BrowsePiSessionsAsync(CancellationToken cancellationToken = default)
+    public async Task BrowsePiSessionsAsync(bool loadMore = false, CancellationToken cancellationToken = default)
     {
         if (PiSessions.IsBusy) return;
         PiSessions.IsBusy = true;
@@ -15,14 +15,14 @@ public sealed partial class ShellViewModel
         var directory = PiSessions.Directory;
         try
         {
-            var result = await RequireClient().BrowsePiSessionsAsync(new(directory), cancellationToken).ConfigureAwait(false);
-            await RunOnUiThreadAsync(() => { if (PiSessions.Directory == directory) PiSessions.Apply(result); }).ConfigureAwait(false);
+            var result = await RequireClient().BrowsePiSessionsAsync(new(directory, loadMore ? PiSessions.BrowserNextOffset ?? 0 : 0), cancellationToken).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() => { if (PiSessions.Directory == directory) PiSessions.Apply(result, loadMore); }).ConfigureAwait(false);
         }
         catch (Exception exception) { RunOnUiThread(() => PiSessions.Status = exception.Message); }
         finally { RunOnUiThread(() => PiSessions.IsBusy = false); }
     }
 
-    public async Task InspectPiSessionAsync(CancellationToken cancellationToken = default)
+    public async Task InspectPiSessionAsync(bool loadMore = false, CancellationToken cancellationToken = default)
     {
         var thread = SelectedThread;
         if (thread is null) { PiSessions.Status = "Select a thread first."; return; }
@@ -31,8 +31,9 @@ public sealed partial class ShellViewModel
         PiSessions.Status = "Reading the selected session tree…";
         try
         {
-            var result = await RequireClient().InspectPiSessionAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
-            await RunOnUiThreadAsync(() => { if (SelectedThread?.ThreadId == thread.ThreadId) PiSessions.Apply(result); }).ConfigureAwait(false);
+            var result = await RequireClient().InspectPiSessionPageAsync(new(thread.ThreadId,
+                loadMore ? PiSessions.Snapshot?.NextOffset ?? 0 : 0, ExpectedRevision: loadMore ? PiSessions.Snapshot?.Revision : null), cancellationToken).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() => { if (SelectedThread?.ThreadId == thread.ThreadId) PiSessions.Apply(result, loadMore); }).ConfigureAwait(false);
         }
         catch (Exception exception) { RunOnUiThread(() => PiSessions.Status = exception.Message); }
         finally { RunOnUiThread(() => PiSessions.IsBusy = false); }

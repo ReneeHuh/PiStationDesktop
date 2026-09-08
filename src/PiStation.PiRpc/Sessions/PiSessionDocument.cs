@@ -9,8 +9,8 @@ namespace PiStation.PiRpc.Sessions;
 /// <summary>A lossless, bounded reader for Pi's current v3 JSONL session tree.</summary>
 public sealed class PiSessionDocument
 {
-    public const int MaximumBytes = 64 * 1024 * 1024;
-    public const int MaximumEntries = 50_000;
+    public const int MaximumBytes = 128 * 1024 * 1024;
+    public const int MaximumEntries = 100_000;
     private readonly JsonObject _header;
     private readonly IReadOnlyList<JsonObject> _entries;
     private readonly Dictionary<string, JsonObject> _byId;
@@ -34,21 +34,23 @@ public sealed class PiSessionDocument
     public static async Task<PiSessionDocument> ReadAsync(string path, CancellationToken cancellationToken = default)
     {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, true);
-        if (stream.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 64 MiB import limit.");
+        if (stream.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 128 MiB import limit.");
         using var buffer = new MemoryStream();
         await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-        if (buffer.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 64 MiB import limit.");
+        if (buffer.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 128 MiB import limit.");
         return Parse(buffer.ToArray());
     }
 
     public static PiSessionDocument Parse(byte[] bytes)
     {
-        if (bytes.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 64 MiB import limit.");
+        if (bytes.Length > MaximumBytes) throw new InvalidDataException("Pi session exceeds the 128 MiB import limit.");
         var entries = new List<JsonObject>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
         JsonObject? header = null;
         using var reader = new StringReader(new UTF8Encoding(false, true).GetString(bytes).TrimStart('\uFEFF'));
         var number = 0;
+        var version = 3;
+        string? previousId = null;
         while (reader.ReadLine() is { } line)
         {
             number++;
@@ -58,12 +60,26 @@ public sealed class PiSessionDocument
             catch (JsonException) { throw new InvalidDataException($"Invalid Pi session JSON on line {number}. The source was not changed."); }
             if (header is null)
             {
-                if (Text(entry, "type") != "session" || entry["version"]?.ToString() != "3" ||
+                if (!int.TryParse(entry["version"]?.ToString() ?? "1", out version) || version is < 1 or > 3 || Text(entry, "type") != "session" ||
                     !Guid.TryParse(Text(entry, "id"), out _) || string.IsNullOrWhiteSpace(Text(entry, "cwd")))
-                    throw new InvalidDataException("Select a Pi v3 JSONL session. Open older sessions in a current Pi version before importing them.");
+                    throw new InvalidDataException("Select a supported Pi v1, v2, or v3 JSONL session.");
                 header = entry;
+                header["version"] = 3;
                 continue;
             }
+            if (version == 1)
+            {
+                // Deterministic IDs keep retries and source revisions stable. The original file is never changed.
+                entry["id"] = "legacy-" + entries.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                entry["parentId"] = previousId;
+                if (entry["firstKeptEntryIndex"] is JsonValue index && index.TryGetValue<int>(out var keptIndex))
+                {
+                    if (keptIndex > 0 && keptIndex <= entries.Count) entry["firstKeptEntryId"] = Text(entries[keptIndex - 1], "id");
+                    entry.Remove("firstKeptEntryIndex");
+                }
+            }
+            if (version < 3 && entry["message"] is JsonObject legacyMessage && Text(legacyMessage, "role") == "hookMessage")
+                legacyMessage["role"] = "custom";
             var id = Text(entry, "id");
             var parent = Text(entry, "parentId");
             if (Text(entry, "type") is null or "session" || string.IsNullOrWhiteSpace(id) || id.Length > 256 ||
@@ -77,7 +93,8 @@ public sealed class PiSessionDocument
             if (Text(entry, "type") == "model_change" && (string.IsNullOrWhiteSpace(Text(entry, "provider")) || string.IsNullOrWhiteSpace(Text(entry, "modelId"))))
                 throw new InvalidDataException($"Invalid model configuration on line {number}.");
             entries.Add(entry);
-            if (entries.Count > MaximumEntries) throw new InvalidDataException("Pi session exceeds the 50,000-entry limit.");
+            previousId = id;
+            if (entries.Count > MaximumEntries) throw new InvalidDataException("Pi session exceeds the 100,000-entry limit.");
         }
         if (header is null) throw new InvalidDataException("The session is empty.");
         return new(header, entries, Convert.ToHexString(SHA256.HashData(bytes)));

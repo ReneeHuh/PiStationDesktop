@@ -532,12 +532,35 @@ public sealed partial class ComposerSurface : UserControl
     private async void OnToggleFollowUpDeliveryModeClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.ToggleQueueDeliveryModeAsync(QueuedMessageKind.FollowUp);
 
+    private async void OnEditCitationComment(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: ComposerContextChipViewModel chip }) return;
+        var input = new TextBox { Text = chip.Comment ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 8192, MinHeight = 100 };
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Comment on " + chip.Label, Content = input,
+            PrimaryButtonText = "Save comment", CloseButtonText = "Cancel" };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var index = ViewModel.ComposerPower.ContextChips.IndexOf(chip);
+        if (index < 0) return;
+        try
+        {
+            var replacement = chip with { Comment = input.Text };
+            ComposerContextDefaults.Validate(ViewModel.ComposerPower.ContextChips.Select(item => item == chip ? replacement.ToContext() : item.ToContext()).ToArray());
+            ViewModel.ComposerPower.ContextChips[index] = replacement;
+        }
+        catch (ArgumentException error) { ViewModel.ComposerPower.Status = error.Message; }
+    }
+
     private async void OnPiModelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (PiModelSelector.SelectedItem is PiModelOptionViewModel model)
         {
             await ViewModel.SelectPiModelAsync(model);
         }
+    }
+
+    private async void OnPiPermissionModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PiPermissionSelector.SelectedItem is PiRuntimeModeCapability mode) await ViewModel.SelectPiRuntimeModeAsync(mode);
     }
 
     private async void OnPiThinkingLevelSelectionChanged(object sender, SelectionChangedEventArgs e)

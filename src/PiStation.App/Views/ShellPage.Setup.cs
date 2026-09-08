@@ -25,6 +25,33 @@ public sealed partial class ShellPage
         if (ViewModel.PiResources.Snapshot is not null) await ViewModel.RefreshPiResourcesAsync();
     }
 
+    private async void OnSearchPiPackagesClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.SearchPiPackagesAsync(sender is FrameworkElement { Tag: "more" });
+
+    private void OnSelectPiPackageClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PiStation.Protocol.Models.PiPackageSearchItem package })
+            ViewModel.PiResources.SelectPackageSource(package.Source);
+    }
+
+    private async void OnPiPackageClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string action } element) return;
+        if (element.DataContext is PiStation.Protocol.Models.PiPackageDescriptor package)
+        {
+            ViewModel.PiResources.PackageSource = package.Source;
+            ViewModel.PiResources.PackageLocal = package.Scope == "project";
+        }
+        await ViewModel.ManagePiResourcesAsync(action);
+    }
+    private async void OnPiNativeAccountClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string action })
+        {
+            SettingsDialog.Hide();
+            await ViewModel.ManagePiResourcesAsync(action);
+        }
+    }
     private async void OnRefreshPiResourcesClicked(object sender, RoutedEventArgs e) => await ViewModel.RefreshPiResourcesAsync();
     private async void OnTogglePiResourceClicked(object sender, RoutedEventArgs e)
     {

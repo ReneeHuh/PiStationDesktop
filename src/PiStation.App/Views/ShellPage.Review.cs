@@ -94,6 +94,7 @@ public sealed partial class ShellPage
         var lines = new ListView { ItemsSource = review.Lines, MaxHeight = 220, SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "DisplayText" };
         AutomationProperties.SetAutomationId(lines, "PullRequestReviewDiffLines");
         lines.SelectionChanged += (_, _) => review.SelectedLine = lines.SelectedItem as PullRequestReviewLineViewModel;
+        lines.SetBinding(ListView.SelectedItemProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.SelectedLine)), Mode = BindingMode.OneWay });
         var side = new ComboBox { ItemsSource = Enum.GetValues<PullRequestDiffSide>(), Width = 115 };
         AutomationProperties.SetAutomationId(side, "PullRequestReviewSide");
         side.SetBinding(ComboBox.SelectedItemProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.SelectedSide)), Mode = BindingMode.TwoWay });
@@ -141,7 +142,13 @@ public sealed partial class ShellPage
         var recover = new Button { Content = "Refresh operation history" }; recover.Click += async (_, _) => await SafeReviewActionAsync(() => review.RecoverPendingAsync());
         var discard = new Button { Content = "Discard saved draft" }; discard.Click += async (_, _) => await SafeReviewActionAsync(() => review.DiscardDraftAsync());
 
+        var loadMore = new Button { Content = "Load more review data" };
+        AutomationProperties.SetAutomationId(loadMore, "PullRequestReviewLoadMore");
+        loadMore.SetBinding(Button.IsEnabledProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.CanLoadMore)), Mode = BindingMode.OneWay });
+        loadMore.Click += async (_, _) => await SafeReviewActionAsync(() => review.LoadMoreAsync());
         var root = new StackPanel { Spacing = 8, MaxWidth = 720 };
+        root.Children.Add(BindText(review, nameof(review.PaginationSummary), "PullRequestReviewPagination"));
+        root.Children.Add(loadMore);
         root.Children.Add(new Expander { Header = "Review details", IsExpanded = true, Content = new StackPanel { Spacing = 4, Children = { details, head, description, new TextBlock { Text = "Commits", FontWeight = FontWeights.SemiBold }, commitsPanel, new TextBlock { Text = "Checks", FontWeight = FontWeights.SemiBold }, checksPanel } } });
         root.Children.Add(new TextBlock { Text = "Hosted files", FontWeight = FontWeights.SemiBold }); root.Children.Add(files); root.Children.Add(fileSummary); root.Children.Add(lines);
         root.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { side, addInline } }); root.Children.Add(inlineBody); root.Children.Add(inlineDrafts); root.Children.Add(removeInline);

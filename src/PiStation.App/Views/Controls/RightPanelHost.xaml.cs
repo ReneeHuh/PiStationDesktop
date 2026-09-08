@@ -1665,6 +1665,9 @@ public sealed partial class RightPanelHost : UserControl
     private async void OnCreateGitBranchClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.CreateGitBranchAsync();
 
+    private async void OnLoadMoreFilesClicked(object sender, RoutedEventArgs e) => await ViewModel.LoadMoreWorkbenchFilesAsync();
+    private async void OnLoadMoreRefsClicked(object sender, RoutedEventArgs e) => await ViewModel.LoadMoreGitRefsAsync();
+
     private async void OnCommitGitChangesClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.CommitGitChangesAsync();
 

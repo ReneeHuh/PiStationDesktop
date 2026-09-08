@@ -5,6 +5,28 @@ namespace PiStation.Host.Tests;
 
 public sealed class PiRuntimeSettingsTests
 {
+    [Theory]
+    [InlineData("--")]
+    [InlineData("--mode=interactive")]
+    [InlineData("--session-id")]
+    [InlineData("--fork")]
+    [InlineData("-ne")]
+    [InlineData("--list-models")]
+    public void AdvancedArgumentsCannotOverrideManagedLifecycle(string argument) =>
+        Assert.Throws<ArgumentException>(() => PiRuntimeSettingsStore.ValidateLaunch(new([argument])));
+
+    [Fact]
+    public async Task AdvancedArgumentsEnvironmentAndTimeoutsRoundTrip()
+    {
+        using var directory = new HostTestDirectory();
+        var launch = PiRuntimeSettingsStore.ValidateLaunch(new(["--append-system-prompt", "a value with spaces"], new Dictionary<string, string?> { ["EXAMPLE_VALUE"] = "value with spaces" }, 120, 10));
+        await PiRuntimeSettingsStore.SaveAsync(directory.Path, new("pi", new(), launch));
+        var loaded = PiRuntimeSettingsStore.Load(directory.Path).Launch!;
+        Assert.Equal(launch.Arguments, loaded.Arguments); Assert.Equal("value with spaces", loaded.EnvironmentVariables!["EXAMPLE_VALUE"]);
+        Assert.Equal(120, loaded.CommandTimeoutSeconds); Assert.Equal(10, loaded.ShutdownTimeoutSeconds);
+        Assert.Throws<ArgumentException>(() => PiRuntimeSettingsStore.ValidateLaunch(new(EnvironmentVariables: new Dictionary<string, string?> { ["PISTATION_PERMISSION_MODE"] = "full-access" })));
+    }
+
     [Fact]
     public async Task MigratesLegacyPathAndPersistsExplicitExtensionPolicy()
     {

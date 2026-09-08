@@ -26,6 +26,9 @@
                                     <StackPanel Spacing="4" Margin="0,4">
                                         <TextBlock Text="{x:Bind FileName}" TextWrapping="Wrap" FontWeight="SemiBold" />
                                         <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" />
+                                        <MediaPlayerElement AutoPlay="False" AreTransportControlsEnabled="True" MaxHeight="280"
+                                            Loaded="OnSentVideoLoaded" Unloaded="OnSentVideoUnloaded" DataContextChanged="OnSentVideoContextChanged" Visibility="{x:Bind VideoVisibility}"
+                                            automation:AutomationProperties.Name="{x:Bind FileName}" />
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <Button Content="Preview" Click="OnPreviewSentAttachment" IsEnabled="{x:Bind IsImage}" automation:AutomationProperties.Name="Preview sent image" />
                                             <Button Content="Open" Click="OnOpenSentAttachment" automation:AutomationProperties.Name="Open sent attachment" />
@@ -44,6 +47,7 @@
                                     <Expander Header="{x:Bind Label}" HorizontalAlignment="Stretch">
                                         <StackPanel Spacing="6">
                                             <Button Content="Open source" Click="OnOpenSentCitation" automation:AutomationProperties.Name="Open citation source" />
+                                            <TextBlock Text="{x:Bind Comment}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                                             <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
                                                 <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                                             </ScrollViewer>

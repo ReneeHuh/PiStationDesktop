@@ -202,10 +202,24 @@
                                     HorizontalContentAlignment="Stretch" Padding="0" BorderThickness="0" Background="Transparent">
                                     <Expander.Header>
                                         <StackPanel Spacing="2" ToolTipService.ToolTip="{x:Bind CanonicalPath}">
-                                            <Button Content="{x:Bind DisplayName}" Click="OnGroupedProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Select project" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Image Width="22" Height="22" Source="{x:Bind ImageIcon, Mode=OneWay, Converter={StaticResource ProjectIconSourceConverter}}" />
+                                                <TextBlock Text="{x:Bind Emoji, Mode=OneWay}" FontSize="20" />
+                                            </StackPanel>
+                                            <Button Content="{x:Bind DisplayName, Mode=OneWay}" Click="OnGroupedProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Select project" />
                                             <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Summary, Mode=OneWay}" />
                                         </StackPanel>
                                     </Expander.Header>
+                                    <StackPanel>
+                                    <ItemsControl ItemsSource="{x:Bind Members}">
+                                        <ItemsControl.ItemTemplate><DataTemplate x:DataType="models:ProjectDescriptor">
+                                            <Button Content="{x:Bind CanonicalPath}" Click="OnCheckoutProjectClicked" MaxWidth="260" ToolTipService.ToolTip="{x:Bind CanonicalPath}" />
+                                        </DataTemplate></ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Content="↑" Click="OnMoveProjectUp" /><Button Content="↓" Click="OnMoveProjectDown" />
+                                        <Button Content="Show all tasks" Click="OnShowAllProjectTasks" IsEnabled="{x:Bind CanShowMore, Mode=OneWay}" />
+                                    </StackPanel>
                                     <ListView ItemsSource="{x:Bind Threads}" SelectionMode="None" IsItemClickEnabled="True"
                                         ItemClick="OnGroupedThreadClicked" MaxHeight="260" ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}">
                                         <ListView.ItemTemplate>
@@ -222,6 +236,7 @@
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
                                     </ListView>
+                                    </StackPanel>
                                 </Expander>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -243,6 +258,7 @@
                             <Button.Flyout>
                                 <MenuFlyout>
                                     <MenuFlyoutItem Click="OnBulkSettleClicked" Text="Settle selected" />
+                                    <MenuFlyoutItem Click="OnLoadMoreThreadsClicked" Text="Load more search results" IsEnabled="{x:Bind ViewModel.CanLoadMoreThreads, Mode=OneWay}" />
                                     <MenuFlyoutItem Click="OnBulkMarkUnreadClicked" Text="Mark selected unread" automation:AutomationProperties.AutomationId="BulkMarkUnreadMenuItem" />
                                     <MenuFlyoutItem Click="OnBulkUnsettleClicked" Text="Unsettle selected" />
                                     <MenuFlyoutItem Click="OnBulkSnoozeClicked" Text="Snooze selected for one day" />
@@ -282,6 +298,8 @@
                         <Grid MinHeight="0">
                             <ListView
                                 x:Name="ThreadTabList"
+                                CanDragItems="True" AllowDrop="True" DragItemsStarting="OnPinnedDragStarting"
+                                DragOver="OnPinnedDragOver" Drop="OnPinnedDrop" DragItemsCompleted="OnPinnedDragCompleted"
                                 IsTabStop="False"
                                 automation:AutomationProperties.AutomationId="ThreadTabList"
                                 automation:AutomationProperties.Name="Threads"
@@ -476,9 +494,11 @@
                         </Grid>
                     </Border>
 
+                    <StackPanel Grid.Row="4">
+                    <Button Content="Load more threads" Click="OnLoadMoreThreadsClicked" Margin="20,4,8,0"
+                            Visibility="{x:Bind ViewModel.CanLoadMoreThreads, Mode=OneWay}" />
                     <TextBlock
                         x:Name="ThreadLifecycleStatusText"
-                        Grid.Row="4"
                         Margin="20,5,8,0"
                         automation:AutomationProperties.AutomationId="ThreadLifecycleStatusText"
                         automation:AutomationProperties.LiveSetting="Polite"
@@ -486,6 +506,7 @@
                         Text="{x:Bind ViewModel.Workspace.ThreadLifecycleStatus, Mode=OneWay}"
                         TextTrimming="CharacterEllipsis"
                         Visibility="{x:Bind ViewModel.Workspace.ThreadLifecycleStatusVisibility, Mode=OneWay}" />
+                    </StackPanel>
                 </Grid>
 
                 <Button

@@ -26,7 +26,8 @@ public sealed record ProjectDescriptor(
     PiModelSelection? DefaultModel = null,
     PiThinkingLevel? DefaultThinkingLevel = null,
     string? DefaultRuntimeModeId = null,
-    bool AutoPullDefaultBranch = false);
+    bool AutoPullDefaultBranch = false,
+    string? RepositoryKey = null);
 
 public enum ThreadWorkspaceMode
 {
@@ -150,7 +151,10 @@ public sealed record UpdateProjectDefaultsRequest(
     PiModelSelection? DefaultModel,
     PiThinkingLevel? DefaultThinkingLevel,
     string? DefaultRuntimeModeId,
-    bool AutoPullDefaultBranch);
+    bool AutoPullDefaultBranch,
+    IReadOnlyList<ProjectScript>? Scripts = null,
+    string? Icon = null,
+    bool UpdateCustomization = false);
 
 public sealed record ProjectSetupScriptResult(
     SetupScriptState State,
@@ -166,17 +170,22 @@ public sealed record CreateThreadRequest(
     string? BaseBranch = null,
     bool StartFromOrigin = false,
     string? BranchName = null,
-    bool RunSetupScript = true);
+    bool RunSetupScript = true,
+    PiModelSelection? InheritedModel = null,
+    PiThinkingLevel? InheritedThinkingLevel = null,
+    ThreadId? ReuseWorktreeFromThreadId = null);
 
 public sealed record SearchThreadsRequest(
     ProjectId ProjectId,
     string Query,
     bool IncludeArchived = false,
-    int Limit = ThreadLifecycleDefaults.DefaultSearchLimit);
+    int Limit = ThreadLifecycleDefaults.DefaultSearchLimit,
+    int Offset = 0);
 
 public sealed record SearchThreadsResult(
     IReadOnlyList<ThreadDescriptor> Threads,
-    bool IsTruncated);
+    bool IsTruncated,
+    int? NextOffset = null);
 
 public enum ThreadBulkOperation
 {

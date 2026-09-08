@@ -26,7 +26,13 @@ public enum WorkbenchFilePreviewKind
 public sealed class WorkbenchFilesViewModel : ObservableObject
 {
     private readonly Dictionary<string, WorkspaceFileSession> _sessions = new(StringComparer.Ordinal);
+    public IReadOnlyList<string> UnsavedDocumentNames => _sessions.Values.SelectMany(session => session.OpenDocuments)
+        .Where(document => document.IsDirty).Select(document => document.RelativePath).ToArray();
     private WorkspaceFileSession _session = new();
+    public int? NextOffset { get => _session.NextOffset; internal set { _session.NextOffset = value; OnPropertyChanged(nameof(CanLoadMore)); } }
+    public bool CanLoadMore => NextOffset is not null;
+    internal int NextScanOffset { get => _session.NextScanOffset; set => _session.NextScanOffset = value; }
+    internal void AppendEntries(IReadOnlyList<ProjectWorkspaceEntry> entries) => ApplyEntries(_session.Entries.Concat(entries).DistinctBy(entry => entry.RelativePath).ToArray());
     private int _searchModeIndex;
     private string _status = "Select a workspace to browse files";
 
@@ -215,6 +221,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
 
     internal void ApplyEntries(IReadOnlyList<ProjectWorkspaceEntry> entries)
     {
+        _session.Entries = entries;
         TreeRoots.Clear();
         var byPath = new Dictionary<string, WorkspaceTreeItemViewModel>(StringComparer.OrdinalIgnoreCase);
 
@@ -343,6 +350,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
 
     private void RaiseSessionProperties()
     {
+        OnPropertyChanged(nameof(CanLoadMore));
         OnPropertyChanged(nameof(TreeRoots));
         OnPropertyChanged(nameof(Files));
         OnPropertyChanged(nameof(ContentMatches));
@@ -379,6 +387,9 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
 
     private sealed class WorkspaceFileSession
     {
+        public int? NextOffset { get; set; }
+        public int NextScanOffset { get; set; }
+        public IReadOnlyList<ProjectWorkspaceEntry> Entries { get; set; } = [];
         public ObservableCollection<WorkspaceTreeItemViewModel> TreeRoots { get; } = [];
         public ObservableCollection<ProjectFileMatch> Files { get; } = [];
         public ObservableCollection<ProjectContentMatch> ContentMatches { get; } = [];

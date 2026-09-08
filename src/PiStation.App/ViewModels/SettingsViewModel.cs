@@ -50,6 +50,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string PiExecutablePath { get => _piExecutablePath; set => SetProperty(ref _piExecutablePath, value); }
     public string RuntimeSetupStatus { get => _runtimeSetupStatus; internal set => SetProperty(ref _runtimeSetupStatus, value); }
     private bool _discoverPiExtensions;
+    private string _piArguments = string.Empty;
+    private string _piEnvironment = string.Empty;
+    private double _piCommandTimeout = 30;
+    private double _piShutdownTimeout = 3;
+    public string PiArguments { get => _piArguments; set => SetProperty(ref _piArguments, value); }
+    public string PiEnvironment { get => _piEnvironment; set => SetProperty(ref _piEnvironment, value); }
+    public double PiCommandTimeout { get => _piCommandTimeout; set => SetProperty(ref _piCommandTimeout, value); }
+    public double PiShutdownTimeout { get => _piShutdownTimeout; set => SetProperty(ref _piShutdownTimeout, value); }
     private string _piExtensionPaths = string.Empty;
     public bool DiscoverPiExtensions { get => _discoverPiExtensions; set => SetProperty(ref _discoverPiExtensions, value); }
     public string PiExtensionPaths { get => _piExtensionPaths; set => SetProperty(ref _piExtensionPaths, value); }
@@ -140,22 +148,29 @@ public sealed partial class SettingsViewModel : ObservableObject
         UpdateSummary = snapshot.UpdateState;
     }
 
-    internal void ApplyPullRequests(ListPullRequestsResult result)
+    public int? NextPullRequestOffset { get; private set; }
+    public bool CanLoadMorePullRequests => NextPullRequestOffset is not null;
+
+    internal void ApplyPullRequests(ListPullRequestsResult result, bool append = false)
     {
         CanCreatePullRequest = false;
-        PullRequests.Clear();
+        if (!append) PullRequests.Clear();
+        NextPullRequestOffset = result.NextOffset;
+        OnPropertyChanged(nameof(CanLoadMorePullRequests));
         foreach (var pullRequest in result.PullRequests)
         {
-            PullRequests.Add(pullRequest);
+            if (!PullRequests.Any(existing => existing.Url == pullRequest.Url)) PullRequests.Add(pullRequest);
         }
 
         CanCreatePullRequest = result.Repository.CanWrite && HostingCapabilities.CanCreate(result.Repository.Provider);
         SourceControlSummary = $"{result.Repository.Provider} • {result.Repository.Owner}/{result.Repository.Name} • " +
-            $"{result.PullRequests.Count} pull requests • {(result.Repository.CanWrite ? "Authenticated" : "Authentication required for writes")}";
+            $"{PullRequests.Count} pull requests • {(result.Repository.CanWrite ? "Authenticated" : "Authentication required for writes")}";
     }
 
     internal void ClearSourceControl(string status)
     {
+        NextPullRequestOffset = null;
+        OnPropertyChanged(nameof(CanLoadMorePullRequests));
         CanCreatePullRequest = false;
         PullRequests.Clear();
         SourceControlSummary = status;

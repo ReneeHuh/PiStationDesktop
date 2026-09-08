@@ -11,9 +11,10 @@ namespace PiStation.Host.Threads;
 
 public sealed partial class PiThreadController
 {
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _extensionFailures = new(StringComparer.OrdinalIgnoreCase);
     public async Task<PiResourcesSnapshot> ManageResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken)
     {
-        if (request.ThreadId != _thread.ThreadId || request.Action is not ("inspect" or "toggle" or "trust" or "saveModel"))
+        if (request.ThreadId != _thread.ThreadId || request.Action is not ("inspect" or "toggle" or "trust" or "saveModel" or "packageInstall" or "packageRemove" or "packageUpdate" or "login" or "logout"))
             throw new HostOperationException(ProtocolErrorCodes.PiCommandRejected, "The Pi management request is invalid.");
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -36,8 +37,15 @@ public sealed partial class PiThreadController
             // Pi logs resource load failures on stderr, outside the command-discovery contract.
             var diagnostics = result.Diagnostics.ToList();
             if (!string.IsNullOrWhiteSpace(_process.StandardError)) diagnostics.Add(_process.StandardError);
+            var resources = result.Resources.ToList();
+            foreach (var path in (_options.Extensions.Paths ?? []).Concat(_extensionFailures.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+                if (!resources.Any(resource => string.Equals(resource.Path, path, StringComparison.OrdinalIgnoreCase)))
+                    resources.Add(new("explicit:" + path, "extensions", Path.GetFileName(path), path, "Explicit extension", "temporary", true, false, false, ""));
+            resources = resources.Select(resource => resource with { LoadError = _extensionFailures.GetValueOrDefault(resource.Path) ??
+                _process.StandardError.Split('\n').FirstOrDefault(line => line.Replace('\\', '/').Contains(resource.Path.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase) &&
+                    (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("failed", StringComparison.OrdinalIgnoreCase))) }).ToList();
             TouchRuntime();
-            return result with { Diagnostics = diagnostics };
+            return result with { Diagnostics = diagnostics, Resources = resources };
         }
         catch (Exception exception) when (exception is PiRpcException or JsonException)
         {

@@ -249,6 +249,8 @@ public sealed class EnvironmentClient : IEnvironmentClient
         InvokeAsync<PiSessionBrowserResult>("BrowsePiSessions", request, cancellationToken);
     public Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionSnapshot>("InspectPiSession", threadId, cancellationToken);
+    public Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSessionSnapshot>("InspectPiSessionPage", request, cancellationToken);
     public Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionExportResult>("ExportPiSession", request, cancellationToken);
     public async Task<ThreadDescriptor> CopyPiSessionAsync(CopyPiSessionRequest request, CancellationToken cancellationToken = default)
@@ -547,12 +549,13 @@ public sealed class EnvironmentClient : IEnvironmentClient
             request.ProjectId,
             result.Threads,
             request.IncludeArchived,
-            isComplete: string.IsNullOrWhiteSpace(request.Query) && !result.IsTruncated);
+            isComplete: request.Offset == 0 && string.IsNullOrWhiteSpace(request.Query) && !result.IsTruncated);
         return new SearchThreadsResult(
             result.Threads
                 .Select(thread => ThreadMetadata.GetCurrent(thread.ThreadId) ?? thread)
                 .ToArray(),
-            result.IsTruncated);
+            result.IsTruncated,
+            result.NextOffset);
     }
 
     public Task<GlobalSearchResult> SearchGlobalAsync(

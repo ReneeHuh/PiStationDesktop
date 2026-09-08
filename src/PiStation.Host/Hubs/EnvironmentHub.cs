@@ -190,6 +190,8 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         SessionOperationAsync(() => _environment.BrowsePiSessionsAsync(request, Context.ConnectionAborted));
     public Task<PiSessionSnapshot> InspectPiSession(ThreadId threadId) =>
         SessionOperationAsync(() => _environment.InspectPiSessionAsync(threadId, Context.ConnectionAborted));
+    public Task<PiSessionSnapshot> InspectPiSessionPage(PiSessionPageRequest request) =>
+        SessionOperationAsync(() => _environment.InspectPiSessionPageAsync(request, Context.ConnectionAborted));
     public Task<ThreadDescriptor> CopyPiSession(CopyPiSessionRequest request) =>
         SessionOperationAsync(() => _environment.CopyPiSessionAsync(request, Context.ConnectionAborted));
     public Task<PiSessionExportResult> ExportPiSession(ExportPiSessionRequest request) =>

@@ -32,7 +32,7 @@ public sealed partial class ShellViewModel
         Settings.WritingStatus = "Pi is generating text…";
         if (!forPullRequest) WorkbenchChanges.Status = Settings.WritingStatus;
         var model = PiConfiguration.SelectedModel?.Selection ?? project.DefaultModel;
-        var paths = forPullRequest ? null : WorkbenchChanges.Changes.Select(change => change.RelativePath).Order(StringComparer.Ordinal).ToArray();
+        var paths = forPullRequest ? null : WorkbenchChanges.SelectedCommitPaths;
         try
         {
             var result = await RequireClient().GenerateSourceControlTextAsync(new GenerateSourceControlTextRequest(
@@ -44,7 +44,7 @@ public sealed partial class ShellViewModel
                 Settings.WritingStatus = "The workspace changed during generation. Generate again in the selected workspace.";
                 return null;
             }
-            if (paths is not null && !paths.SequenceEqual(WorkbenchChanges.Changes.Select(change => change.RelativePath).Order(StringComparer.Ordinal)))
+            if (paths is not null && !paths.SequenceEqual(WorkbenchChanges.SelectedCommitPaths))
             {
                 Settings.WritingStatus = "The commit file selection changed during generation. Generate again for the selected files.";
                 WorkbenchChanges.Status = Settings.WritingStatus;

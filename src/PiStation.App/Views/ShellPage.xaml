@@ -242,14 +242,18 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+                <StackPanel Grid.Row="3" Spacing="6">
+                <Button x:Name="CommandPaletteLoadMore" Content="Load more search results"
+                    automation:AutomationProperties.AutomationId="CommandPaletteLoadMore"
+                    Click="OnCommandPaletteLoadMore" Visibility="Collapsed" />
                 <TextBlock
                     x:Name="CommandPaletteStatusText"
-                    Grid.Row="3"
                     automation:AutomationProperties.AutomationId="CommandPaletteStatusText"
                     FontSize="{StaticResource PiFontSizeCaption}"
                     Foreground="{ThemeResource PiTextMutedBrush}"
                     Text="Type &gt; to search commands only. Use Up, Down, and Enter to navigate."
                     TextWrapping="Wrap" />
+                </StackPanel>
             </Grid>
         </ContentDialog>
 
@@ -308,6 +312,12 @@
                             <TextBlock Text="Checked every minute while PiStation is open. Active tasks and approvals are protected. Un-settle keeps a thread active until its next task. Saving rules does not reopen settled threads." TextWrapping="Wrap" />
                             <Button Content="Save settlement rules" Click="OnSaveSettlementSettingsClicked" automation:AutomationProperties.AutomationId="SaveSettlementSettingsButton" />
                             <TextBlock Text="{x:Bind ViewModel.Settings.Status, Mode=OneWay}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Sidebar" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <Button Content="Configure grouping and sorting…" Click="OnConfigureSidebar" />
                         </StackPanel>
                     </Border>
                     <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
@@ -583,8 +593,8 @@
                             </ComboBox>
                             <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBox x:Name="ProjectDefaultModelProviderInput" Header="Default model provider" PlaceholderText="openai" Style="{StaticResource PiTextBoxStyle}" />
-                                <TextBox x:Name="ProjectDefaultModelIdInput" Grid.Column="1" Header="Default model ID" PlaceholderText="model ID" Style="{StaticResource PiTextBoxStyle}" />
+                                <TextBox x:Name="ProjectDefaultModelProviderInput" Header="Default model provider" PlaceholderText="openai" TextChanged="OnProjectModelDefaultsChanged" Style="{StaticResource PiTextBoxStyle}" />
+                                <TextBox x:Name="ProjectDefaultModelIdInput" Grid.Column="1" Header="Default model ID" PlaceholderText="model ID" TextChanged="OnProjectModelDefaultsChanged" Style="{StaticResource PiTextBoxStyle}" />
                             </Grid>
                             <ComboBox x:Name="ProjectDefaultThinkingSelector" Header="Default reasoning level" Style="{StaticResource PiComboBoxStyle}">
                                 <ComboBoxItem Content="Runtime default" Tag="" />
@@ -593,12 +603,16 @@
                                 <ComboBoxItem Content="Low" Tag="Low" />
                                 <ComboBoxItem Content="Medium" Tag="Medium" />
                                 <ComboBoxItem Content="High" Tag="High" />
+                                <ComboBoxItem Content="Extra high" Tag="XHigh" />
+                                <ComboBoxItem Content="Maximum" Tag="Max" />
                             </ComboBox>
-                            <TextBox x:Name="ProjectDefaultRuntimeModeInput" Header="Default runtime mode" PlaceholderText="Optional extension mode ID" Style="{StaticResource PiTextBoxStyle}" />
+                            <TextBlock Text="Reasoning levels depend on the selected model. Pi validates the default when starting a thread." TextWrapping="Wrap" />
+                            <ComboBox x:Name="ProjectPermissionSelector" Header="Default tool permission mode" DisplayMemberPath="DisplayName" />
                             <ToggleSwitch x:Name="ProjectAutoPullToggle" Header="Automatically fast-forward the clean default branch when Pi Station starts" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="OnSaveProjectDefaultsClicked" Content="Save defaults" Style="{StaticResource PiPrimaryButtonStyle}" />
                                 <Button Click="OnRemoveProjectClicked" Content="Remove project" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button Click="OnCustomizeProjectClicked" Content="Icon and scripts…" Style="{StaticResource PiSecondaryButtonStyle}" />
                             </StackPanel>
                             <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Project icons are loaded from iconPath in t3.json, then common favicon locations. Named t3.json scripts appear in the Add menu." TextWrapping="Wrap" />
                         </StackPanel>
@@ -627,6 +641,14 @@
                             <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="Pi executable or package path" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
                             <CheckBox Content="Discover installed Pi extensions" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />
+                            <Expander Header="Advanced runtime settings" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBox Header="Launch arguments (one argument per line)" Text="{x:Bind ViewModel.Settings.PiArguments, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
+                                    <TextBox Header="Environment variables (NAME=value, one per line)" Text="{x:Bind ViewModel.Settings.PiEnvironment, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
+                                    <NumberBox Header="Command timeout in seconds" Minimum="5" Maximum="600" Value="{x:Bind ViewModel.Settings.PiCommandTimeout, Mode=TwoWay}" />
+                                    <NumberBox Header="Shutdown timeout in seconds" Minimum="1" Maximum="30" Value="{x:Bind ViewModel.Settings.PiShutdownTimeout, Mode=TwoWay}" />
+                                </StackPanel>
+                            </Expander>
                             <TextBlock Text="Discovery follows Pi's saved project trust decisions. Explicit paths below load code you choose to trust. The bundled browser extension stays available with its per-thread browser permission controls." TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
                             <TextBox Header="Additional trusted extensions (one absolute path per line)" Text="{x:Bind ViewModel.Settings.PiExtensionPaths, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="72" MaxHeight="160" TextWrapping="Wrap" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PiExtensionPathsInput" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -644,6 +666,9 @@
                     <Border Tag="PiResources" Style="{StaticResource PiElevatedSurfaceStyle}" Visibility="Collapsed">
                         <StackPanel Spacing="10" automation:AutomationProperties.AutomationId="PiResourcesSettingsPanel">
                             <TextBlock Text="Pi resources and providers" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <Expander Header="Extension compatibility" HorizontalAlignment="Stretch">
+                                <TextBlock Text="Native Pi RPC supports dialogs, text editors, status messages, notifications, and text widgets. Terminal components, custom TUI editors, overlays, headers, and footers require Pi's terminal UI. Extensions that register no commands or tools cannot be confirmed loaded by RPC. Targeted external-agent controls require a stable child handle and a compatible control command from that extension." TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            </Expander>
                             <TextBlock Text="{x:Bind ViewModel.PiResources.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiResourcesStatusText" />
                             <Button Content="Refresh resources" Click="OnRefreshPiResourcesClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RefreshPiResourcesButton" />
                             <Button Content="Restart selected thread" Click="OnRestartConfiguredPiClicked" IsEnabled="{x:Bind ViewModel.CanRestartPi, Mode=OneWay}" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RestartResourcePiButton" />
@@ -682,6 +707,45 @@
                                     <ScrollViewer MaxHeight="180">
                                         <TextBlock Text="{x:Bind ViewModel.PiResources.ProviderSummary, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiProviderSummaryText" />
                                     </ScrollViewer>
+                                </StackPanel>
+                            </Expander>
+                            <ComboBox Header="Provider account" ItemsSource="{x:Bind ViewModel.PiResources.Providers}" DisplayMemberPath="DisplayName" SelectedItem="{x:Bind ViewModel.PiResources.SelectedProvider, Mode=TwoWay}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Sign in with browser" Tag="login" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" />
+                                <Button Content="Sign out" Tag="logout" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" />
+                            </StackPanel>
+                            <Expander Header="Packages" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}">
+                                <StackPanel Spacing="8">
+                                    <TextBox Header="Find Pi packages on npm" Text="{x:Bind ViewModel.PiResources.PackageSearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Search packages" Click="OnSearchPiPackagesClicked" />
+                                        <Button Content="Load more packages" Tag="more" Click="OnSearchPiPackagesClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanLoadMorePackages, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.PiResources.PackageSearchResults}" SelectionMode="None">
+                                        <ListView.ItemTemplate><DataTemplate x:DataType="models:PiPackageSearchItem">
+                                            <StackPanel Spacing="4"><TextBlock Text="{x:Bind Name}" /><TextBlock Text="{x:Bind Version}" />
+                                                <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" />
+                                                <Button Content="Use this package" Click="OnSelectPiPackageClicked" />
+                                            </StackPanel>
+                                        </DataTemplate></ListView.ItemTemplate>
+                                    </ListView>
+                                    <TextBox Header="Package source" PlaceholderText="npm:package, Git URL, or local path" Text="{x:Bind ViewModel.PiResources.PackageSource, Mode=TwoWay}" />
+                                    <CheckBox Content="Install for this project" IsChecked="{x:Bind ViewModel.PiResources.PackageLocal, Mode=TwoWay}" />
+                                    <Button Content="Install package" Tag="packageInstall" Click="OnPiPackageClicked" />
+                                    <ItemsControl ItemsSource="{x:Bind ViewModel.PiResources.Packages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:PiPackageDescriptor">
+                                                <StackPanel Spacing="4" Margin="0,6">
+                                                    <TextBlock Text="{x:Bind Source}" TextWrapping="Wrap" /><TextBlock Text="{x:Bind Scope}" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <Button Content="Update" Tag="packageUpdate" Click="OnPiPackageClicked" ToolTipService.ToolTip="Update this package source in all scopes where Pi has it configured" />
+                                                        <Button Content="Reinstall" Tag="packageInstall" Click="OnPiPackageClicked" />
+                                                        <Button Content="Remove" Tag="packageRemove" Click="OnPiPackageClicked" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </Expander>
                             <Expander Header="Add or update a custom model" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="CustomPiModelExpander">
@@ -750,7 +814,10 @@
                                     <Button Content="Copy whole session" Click="OnCopyPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="CopyPiSessionButton" />
                                     <TextBlock Text="JSONL retains the full tree and embedded images. HTML is a readable text transcript of the active branch. Linked files remain external." TextWrapping="Wrap" FontSize="12" />
                                     <Button Content="Export Pi JSONL…" Tag="jsonl" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionJsonlButton" />
+                                    <Button Content="Load more tree entries" Click="OnLoadMoreSessionEntries" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreEntries, Mode=OneWay}" />
+                                    <Button Content="Load more session files" Click="OnLoadMoreSessionFiles" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreCandidates, Mode=OneWay}" />
                                     <Button Content="Export readable HTML…" Tag="html" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionHtmlButton" />
+                                    <Button Content="Export session and attachments…" Tag="bundle" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
@@ -829,6 +896,7 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Expander>
+                            <Button Content="Load more pull requests" Click="OnLoadMorePullRequestsClicked" IsEnabled="{x:Bind ViewModel.Settings.CanLoadMorePullRequests, Mode=OneWay}" />
                             <ListView MaxHeight="260" ItemsSource="{x:Bind ViewModel.Settings.PullRequests, Mode=OneWay}" SelectionMode="None">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="models:PullRequestDescriptor">

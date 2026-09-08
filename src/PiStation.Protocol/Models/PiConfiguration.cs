@@ -22,7 +22,16 @@ public sealed record PiModelCapability(
     string ModelId,
     string DisplayName,
     bool SupportsReasoning,
-    int? ContextWindow = null);
+    int? ContextWindow = null,
+    IReadOnlyList<PiThinkingLevel>? SupportedThinkingLevels = null);
+
+public static class PiPermissionModes
+{
+    public static bool IsSupported(string? mode) => mode is null or "supervised" or "auto-accept-edits" or "auto" or "full-access";
+    public static IReadOnlyList<PiRuntimeModeCapability> Capabilities { get; } =
+    [new("supervised", "Supervised"), new("auto-accept-edits", "Auto-accept edits"),
+     new("auto", "Auto (ask when review unavailable)"), new("full-access", "Full access")];
+}
 
 public sealed record PiRuntimeModeCapability(
     string RuntimeModeId,

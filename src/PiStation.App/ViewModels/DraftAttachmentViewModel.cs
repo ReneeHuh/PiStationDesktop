@@ -17,6 +17,8 @@ public sealed class DraftAttachmentViewModel(DraftAttachment attachment)
     public string Detail => $"{FormatBytes(Attachment.ByteLength)} • {Attachment.MediaType}";
 
     public bool IsImage => Attachment.MediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+    public bool IsVideo => Attachment.MediaType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+    public Visibility VideoVisibility => IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility PreviewVisibility => IsImage ? Visibility.Visible : Visibility.Collapsed;
 

@@ -15,6 +15,13 @@ public sealed partial class EnvironmentService
         try
         {
             var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+            if (request.Action == "packageSearch")
+            {
+                var found = await Projects.PiPackageCatalog.SearchAsync(request.PackageSearchQuery ?? "", request.PackageSearchOffset, cancellationToken).ConfigureAwait(false);
+                var snapshot = await controller.ManageResourcesAsync(request with { Action = "inspect" }, cancellationToken).ConfigureAwait(false);
+                return snapshot with { PackageSearchResults = found.Items, NextPackageSearchOffset = found.NextOffset,
+                    Message = $"{found.Items.Count} Pi packages found on npm. Select a package to fill its source, then install it." };
+            }
             return await controller.ManageResourcesAsync(request, cancellationToken).ConfigureAwait(false);
         }
         finally { _runtimeConfigurationGate.Release(); }
@@ -45,10 +52,12 @@ public sealed partial class EnvironmentService
         {
             var path = string.IsNullOrWhiteSpace(request.ExecutablePath) ? null : request.ExecutablePath.Trim();
             var extensions = PiRuntimeSettingsStore.Validate(request.Extensions ?? _options.Extensions);
+            var launch = PiRuntimeSettingsStore.ValidateLaunch(request.Launch ?? _options.LaunchConfiguration);
             var installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = path }, cancellationToken).ConfigureAwait(false);
-            await PiRuntimeSettingsStore.SaveAsync(_options.CanonicalDataRoot, new(path, extensions), cancellationToken).ConfigureAwait(false);
+            await PiRuntimeSettingsStore.SaveAsync(_options.CanonicalDataRoot, new(path, extensions, launch), cancellationToken).ConfigureAwait(false);
             _options.PiInstallation = installation;
             _options.Extensions = extensions;
+            _options.LaunchConfiguration = launch;
             return new PiRuntimeSetupResult(true, path, installation.PiVersion.ToString(),
                 $"Pi {installation.PiVersion} is ready. Extension changes apply to new runtimes. Restart an idle thread to apply them there.", extensions);
         }

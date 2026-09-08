@@ -96,7 +96,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             Lines.Clear();
             if (value is not null)
             {
-                foreach (var line in value.Lines.Take(PullRequestReviewDefaults.MaximumDiffLines))
+                foreach (var line in value.Lines)
                     Lines.Add(new PullRequestReviewLineViewModel(value, line));
             }
             SelectedLine = null;
@@ -173,6 +173,11 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
     public bool CanResolve => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null && SelectedDiscussion?.CanResolve == true;
     public bool HasPendingOperation => PendingOperationId is not null;
     public bool HasSnapshot => Snapshot is not null;
+    public bool CanLoadMore => _hasLoaded && Snapshot?.NextPages?.Count > 0 && !IsBusy && !IsStaleHead &&
+        PendingOperationId is null && !_isDiscarding && !_disposed;
+    public string PaginationSummary => Snapshot is null ? string.Empty :
+        $"{Files.Count} files • {Snapshot.Commits.Count} commits • {Snapshot.Checks.Count} checks • {Discussions.Count} discussions" +
+        (Snapshot.NextPages?.Count > 0 ? " • more available" : string.Empty);
     public bool CanEditDraft => _hasLoaded && !IsBusy && !_isDiscarding && PendingOperationId is null && !_disposed;
     public string Description => Snapshot?.Body ?? string.Empty;
     public string SelectedFileSummary => SelectedFile is null
@@ -185,14 +190,16 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
     public string HeadSummary => Snapshot is null ? string.Empty : $"Head {Snapshot.HeadCommitId} • base {Snapshot.BaseCommitId}";
     public string DetailsSummary => Snapshot is null ? string.Empty :
         $"{Snapshot.PullRequest.Title} • #{Snapshot.PullRequest.Number} • {Snapshot.PullRequest.Author} • " +
-        $"{Snapshot.PullRequest.SourceBranch} → {Snapshot.PullRequest.TargetBranch}";
+        $"{Snapshot.PullRequest.SourceBranch} → {Snapshot.PullRequest.TargetBranch}" +
+        (Snapshot.PullRequest.Labels.Count == 0 ? string.Empty : $"\nLabels: {string.Join(", ", Snapshot.PullRequest.Labels)}") +
+        (Snapshot.PullRequest.Reviewers.Count == 0 ? string.Empty : $"\nReviewers: {string.Join(", ", Snapshot.PullRequest.Reviewers)}");
     public string CommitsSummary => Snapshot is null ? string.Empty :
         Snapshot.Commits.Count == 0 ? "No commits reported." :
-        string.Join("\n", Snapshot.Commits.Take(PullRequestReviewDefaults.MaximumItems).Select(commit =>
+        string.Join("\n", Snapshot.Commits.Select(commit =>
             $"{commit.Sha[..Math.Min(10, commit.Sha.Length)]}  {commit.Title}  ({commit.Author})"));
     public string ChecksSummary => Snapshot is null ? string.Empty :
         Snapshot.Checks.Count == 0 ? "No checks reported." :
-        string.Join("\n", Snapshot.Checks.Take(PullRequestReviewDefaults.MaximumItems).Select(check =>
+        string.Join("\n", Snapshot.Checks.Select(check =>
             $"{check.Name}: {check.Conclusion ?? check.Status}"));
 
     public async Task LoadAsync(ProjectId projectId, WorkspaceTarget target, PullRequestDescriptor pullRequest,
@@ -259,8 +266,8 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
                 throw new InvalidDataException("The review response belongs to another pull request.");
             Snapshot = snapshot;
             Repository = snapshot.Repository;
-            foreach (var file in snapshot.Files.Take(PullRequestReviewDefaults.MaximumFiles)) Files.Add(file);
-            foreach (var discussion in snapshot.Discussions.Take(PullRequestReviewDefaults.MaximumItems * 3)) Discussions.Add(discussion);
+            foreach (var file in snapshot.Files) Files.Add(file);
+            foreach (var discussion in snapshot.Discussions) Discussions.Add(discussion);
             SelectedFile = Files.FirstOrDefault();
             SelectedDiscussion = Discussions.FirstOrDefault();
             var repositoryKey = PullRequestReviewDefaults.RepositoryKey(snapshot.Repository);
@@ -310,6 +317,127 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
         {
             if (generation == Volatile.Read(ref _loadGeneration)) IsBusy = false;
         }
+    }
+
+    public async Task LoadMoreAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanLoadMore || Snapshot is not { } original || _capturedTarget is null) return;
+        var continuation = original.NextPages![0];
+        var generation = Volatile.Read(ref _loadGeneration);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+            _loadCancellation?.Token ?? CancellationToken.None);
+        var token = cancellation.Token;
+        IsBusy = true;
+        SetStatus("Loading more review data…");
+        try
+        {
+            var page = await _clientFactory().GetPullRequestReviewAsync(
+                new GetPullRequestReviewRequest(_capturedTarget, original.PullRequest.Number, continuation), token);
+            if (generation != Volatile.Read(ref _loadGeneration) || token.IsCancellationRequested) return;
+            if (PullRequestReviewDefaults.RepositoryKey(page.Repository) != PullRequestReviewDefaults.RepositoryKey(original.Repository) ||
+                page.PullRequest.Number != original.PullRequest.Number)
+                throw new InvalidDataException("The review page belongs to another pull request.");
+            if (page.HeadCommitId != original.HeadCommitId || page.BaseCommitId != original.BaseCommitId)
+            {
+                IsStaleHead = true;
+                throw new InvalidDataException("The pull request head or base changed. Reload the review.");
+            }
+            if (page.NextPages?.Contains(continuation) == true)
+                throw new InvalidDataException("The review page did not advance. Reload the review.");
+            var mergedFiles = original.Files.ToList();
+            foreach (var file in page.Files)
+            {
+                var index = mergedFiles.FindIndex(existing => existing.Path == file.Path);
+                if (index < 0)
+                {
+                    if (file.PatchLineOffset != 0) throw new InvalidDataException("The review patch page is out of order.");
+                    mergedFiles.Add(file);
+                }
+                else
+                {
+                    var existing = mergedFiles[index];
+                    if (file.PatchLineOffset != existing.Lines.Count) throw new InvalidDataException("The review patch page is out of order.");
+                    mergedFiles[index] = existing with { Lines = [.. existing.Lines, .. file.Lines] };
+                }
+            }
+            var mergedDiscussions = original.Discussions.ToList();
+            foreach (var discussion in page.Discussions)
+            {
+                var index = mergedDiscussions.FindIndex(existing => existing.Id == discussion.Id);
+                if (index < 0) mergedDiscussions.Add(discussion);
+                else mergedDiscussions[index] = discussion with
+                {
+                    Comments = MergeByKey(mergedDiscussions[index].Comments, discussion.Comments, comment => comment.Id)
+                };
+            }
+            var next = original.NextPages!.Skip(1).Concat(page.NextPages ?? []).Distinct().ToArray();
+            var notices = new[] { original.Notice, page.Notice }.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.Ordinal);
+            var notice = string.Join(" ", notices);
+            var selectedPath = SelectedFile?.Path;
+            var selectedLine = SelectedLine?.Line;
+            var discussionId = SelectedDiscussion?.Id ?? ReplyThreadId;
+            var mergedChecks = MergeByKey(original.Checks, page.Checks, check => check.Id ?? $"{check.Name}:{check.Url}");
+            Snapshot = original with
+            {
+                Files = mergedFiles,
+                Commits = MergeByKey(original.Commits, page.Commits, commit => commit.Sha),
+                Checks = mergedChecks,
+                Discussions = mergedDiscussions,
+                PullRequest = original.PullRequest with
+                {
+                    Checks = PullRequestReviewDefaults.GetCheckState(mergedChecks, next.Any(value => value.Kind == PullRequestReviewPageKind.Checks)),
+                    Labels = original.PullRequest.Labels.Concat(page.PullRequest.Labels).Distinct(StringComparer.Ordinal).ToArray(),
+                    Reviewers = original.PullRequest.Reviewers.Concat(page.PullRequest.Reviewers).Distinct(StringComparer.Ordinal).ToArray()
+                },
+                NextPages = next, IsTruncated = next.Length > 0 || notice.Length > 0,
+                Notice = notice.Length == 0 ? null : notice
+            };
+            foreach (var file in mergedFiles)
+            {
+                var existing = Files.FirstOrDefault(value => value.Path == file.Path);
+                if (existing is null) Files.Add(file);
+                else if (!ReferenceEquals(existing, file)) Files[Files.IndexOf(existing)] = file;
+            }
+            SelectedFile = Files.FirstOrDefault(file => file.Path == selectedPath) ?? Files.FirstOrDefault();
+            if (selectedLine is not null) SelectedLine = Lines.FirstOrDefault(line => line.Line == selectedLine);
+            foreach (var discussion in mergedDiscussions)
+            {
+                var existing = Discussions.FirstOrDefault(value => value.Id == discussion.Id);
+                if (existing is null) Discussions.Add(discussion);
+                else if (!ReferenceEquals(existing, discussion)) Discussions[Discussions.IndexOf(existing)] = discussion;
+            }
+            // Updating the selected thread's comments must not retarget an unsent reply.
+            _selectedDiscussion = Discussions.FirstOrDefault(discussion => discussion.Id == discussionId);
+            OnPropertyChanged(nameof(SelectedDiscussion));
+            OnPropertyChanged(nameof(DiscussionSummary));
+            RaiseState();
+            SetStatus(notice.Length > 0 ? notice : next.Length > 0 ? "More review data loaded." : "All available review data loaded.");
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            if (generation == Volatile.Read(ref _loadGeneration))
+            {
+                if (exception.Message.Contains("head changed", StringComparison.OrdinalIgnoreCase) ||
+                    exception.Message.Contains("base changed", StringComparison.OrdinalIgnoreCase)) IsStaleHead = true;
+                SetStatus($"Could not load more review data: {exception.Message}");
+            }
+        }
+        finally { if (generation == Volatile.Read(ref _loadGeneration)) IsBusy = false; }
+    }
+
+    private static List<T> MergeByKey<T>(IReadOnlyList<T> original, IReadOnlyList<T> page, Func<T, string> key)
+    {
+        var values = original.ToList();
+        var indices = values.Select((value, index) => (Key: key(value), Index: index))
+            .ToDictionary(pair => pair.Key, pair => pair.Index, StringComparer.Ordinal);
+        foreach (var value in page)
+        {
+            var id = key(value);
+            if (indices.TryGetValue(id, out var index)) values[index] = value;
+            else { indices[id] = values.Count; values.Add(value); }
+        }
+        return values;
     }
 
     public void SetBody(string value)
@@ -642,6 +770,8 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
 
     private void RaiseState()
     {
+        OnPropertyChanged(nameof(CanLoadMore));
+        OnPropertyChanged(nameof(PaginationSummary));
         OnPropertyChanged(nameof(CanReadReview));
         OnPropertyChanged(nameof(CanWriteReview));
         OnPropertyChanged(nameof(CanSubmit));

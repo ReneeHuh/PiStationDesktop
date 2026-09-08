@@ -27,6 +27,8 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     public ObservableCollection<WorkbenchChangeItemViewModel> Changes { get; } = [];
 
     public ObservableCollection<GitRefDescriptor> Branches { get; } = [];
+    public int? NextRefsCursor { get; private set; }
+    public bool CanLoadMoreRefs => NextRefsCursor is not null && !IsBusy;
 
     public string CommitMessage
     {
@@ -55,13 +57,22 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(CanRunGitCommand));
                 OnPropertyChanged(nameof(CanCommit));
+                OnPropertyChanged(nameof(CanLoadMoreRefs));
             }
         }
     }
 
     public bool CanRunGitCommand => !IsBusy;
 
-    public bool CanCommit => !IsBusy && _isRepository && Changes.Count != 0;
+    public bool CanCommit => !IsBusy && _isRepository && Changes.Any(change => change.IsSelectedForCommit);
+
+    public string[] SelectedCommitPaths => Changes.Where(change => change.IsSelectedForCommit)
+        .Select(change => change.RelativePath).Order(StringComparer.Ordinal).ToArray();
+
+    public void SelectCommitFiles(bool selected)
+    {
+        foreach (var change in Changes) change.IsSelectedForCommit = selected;
+    }
 
     public Visibility RemoveWorktreeVisibility => string.IsNullOrWhiteSpace(_worktreePath)
         ? Visibility.Collapsed
@@ -145,6 +156,8 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     {
         Changes.Clear();
         Branches.Clear();
+        NextRefsCursor = null;
+        OnPropertyChanged(nameof(CanLoadMoreRefs));
         _isRepository = false;
         _headSha = null;
         _statusToken = string.Empty;
@@ -163,6 +176,8 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
 
     internal void Apply(GetProjectChangesResult result)
     {
+        var excluded = Changes.Where(change => !change.IsSelectedForCommit)
+            .Select(change => change.RelativePath).ToHashSet(StringComparer.Ordinal);
         Changes.Clear();
         _isRepository = result.IsRepository;
         _headSha = result.HeadSha;
@@ -185,7 +200,13 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         BranchDetail = FormatBranchDetail(result);
         foreach (var change in result.Changes)
         {
-            Changes.Add(new WorkbenchChangeItemViewModel(change));
+            var item = new WorkbenchChangeItemViewModel(change) { IsSelectedForCommit = !excluded.Contains(change.RelativePath) };
+            item.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(WorkbenchChangeItemViewModel.IsSelectedForCommit))
+                    OnPropertyChanged(nameof(CanCommit));
+            };
+            Changes.Add(item);
         }
 
         Status = result.Changes.Count == 0
@@ -204,13 +225,15 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanCommit));
     }
 
-    internal void ApplyRefs(ListGitRefsResult result)
+    internal void ApplyRefs(ListGitRefsResult result, bool append = false)
     {
         var selectedName = SelectedBranch?.Name ?? BranchName;
-        Branches.Clear();
+        if (!append) Branches.Clear();
+        NextRefsCursor = result.NextCursor;
+        OnPropertyChanged(nameof(CanLoadMoreRefs));
         foreach (var branch in result.Refs)
         {
-            Branches.Add(branch);
+            if (!Branches.Any(existing => existing.Name == branch.Name && existing.IsRemote == branch.IsRemote)) Branches.Add(branch);
         }
 
         SelectedBranch = Branches.FirstOrDefault(branch =>
@@ -287,8 +310,14 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     }
 }
 
-public sealed class WorkbenchChangeItemViewModel(ProjectChange change)
+public sealed class WorkbenchChangeItemViewModel(ProjectChange change) : ObservableObject
 {
+    private bool _isSelectedForCommit = true;
+    public bool IsSelectedForCommit
+    {
+        get => _isSelectedForCommit;
+        set => SetProperty(ref _isSelectedForCommit, value);
+    }
     public ProjectChange Change { get; } = change ?? throw new ArgumentNullException(nameof(change));
 
     public string RelativePath => Change.RelativePath;

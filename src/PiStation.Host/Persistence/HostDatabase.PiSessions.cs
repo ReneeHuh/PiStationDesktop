@@ -21,6 +21,7 @@ public sealed partial class HostDatabase
 
     public async Task<HostThreadRecord> CreateSessionCopyAsync(Guid operationId, string requestHash,
         ProjectId projectId, string title, string sessionPath, PiModelSelection? model, PiThinkingLevel? thinking,
+        IReadOnlyList<SentMessageContent> messages,
         CancellationToken cancellationToken)
     {
         var id = operationId.ToString("N");
@@ -50,6 +51,16 @@ public sealed partial class HostDatabase
         command.Parameters.AddWithValue("$thinking", (object?)thinking?.ToString() ?? DBNull.Value);
         command.Parameters.AddWithValue("$hash", requestHash);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var message in messages)
+        {
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = "INSERT INTO SentMessageContents(Id,ThreadId,ContentJson) VALUES($id,$thread,$json)";
+            insert.Parameters.AddWithValue("$id", message.Id);
+            insert.Parameters.AddWithValue("$thread", id);
+            insert.Parameters.AddWithValue("$json", System.Text.Json.JsonSerializer.Serialize(message, PiStation.Protocol.Serialization.ProtocolJsonContext.Default.SentMessageContent));
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(ThreadId.Parse(id), projectId, id, sessionPath, title, 0, false, false, now, now);
     }

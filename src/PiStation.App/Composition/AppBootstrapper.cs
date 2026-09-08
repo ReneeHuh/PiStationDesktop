@@ -37,6 +37,7 @@ internal static class AppBootstrapper
         }
         var configuredPath = launchOptions.PiExecutable ?? configuration.ExecutablePath;
         viewModel.ReportPiExtensions(configuration.Extensions);
+        viewModel.ReportPiLaunchConfiguration(configuration.Launch ?? new());
         try
         {
             piInstallation = await ResolvePiAsync(launchOptions with { PiExecutable = configuredPath }, cancellationToken).ConfigureAwait(false);
@@ -53,6 +54,7 @@ internal static class AppBootstrapper
             ApplicationDataRoot = launchOptions.DataRoot,
             EnvironmentName = "Local",
             PiInstallation = piInstallation,
+            LaunchConfiguration = configuration.Launch ?? new(),
             Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
             PlanExtensionPath = launchOptions.FakePiScenario is null or "plan-workflow"
                 ? Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-plan.ts") : null,

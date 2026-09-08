@@ -52,7 +52,7 @@ public sealed class PiSessionDocumentTests
     [Theory]
     [InlineData("\"parentId\":\"u3\"", "\"parentId\":\"missing\"")]
     [InlineData("\"id\":\"a3\"", "\"id\":\"a1\"")]
-    [InlineData("\"version\":3", "\"version\":2")]
+    [InlineData("\"version\":3", "\"version\":4")]
     public void InvalidOrUnsupportedSessionsAreRejected(string before, string after) =>
         Assert.Throws<InvalidDataException>(() => PiSessionDocument.Parse(Encoding.UTF8.GetBytes(Fixture().Replace(before, after, StringComparison.Ordinal))));
 
@@ -62,5 +62,24 @@ public sealed class PiSessionDocumentTests
         var document = PiSessionDocument.Parse(Encoding.UTF8.GetBytes(Fixture().Replace("\"stopReason\":\"stop\"", "\"stopReason\":\"toolUse\"", StringComparison.Ordinal)));
         Assert.Throws<InvalidDataException>(() => document.Copy(Guid.NewGuid().ToString("N"), "C:/target", "C:/source.jsonl", "a1"));
         Assert.Throws<InvalidDataException>(() => document.Copy(Guid.NewGuid().ToString("N"), "C:/target", "C:/source.jsonl", "u1"));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void LegacySessionsMigrateWithoutChangingSourceAndKeepStableEntryIds(int version)
+    {
+        var lines = Fixture().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonNode.Parse(line)!.AsObject()).ToArray();
+        lines[0]["version"] = version;
+        if (version == 1) foreach (var entry in lines.Skip(1)) { entry.Remove("id"); entry.Remove("parentId"); }
+        lines[4]["message"]!["role"] = "hookMessage";
+        var bytes = Encoding.UTF8.GetBytes(string.Join('\n', lines.Select(line => line.ToJsonString())));
+        var original = bytes.ToArray();
+        var first = PiSessionDocument.Parse(bytes);
+        var second = PiSessionDocument.Parse(bytes);
+        Assert.Equal(first.LeafId, second.LeafId);
+        Assert.Equal("custom", first.Entries[3]["message"]!["role"]!.GetValue<string>());
+        Assert.Equal(8, first.Entries.Count);
+        Assert.Equal(original, bytes);
     }
 }

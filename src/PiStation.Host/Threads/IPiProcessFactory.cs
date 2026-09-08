@@ -24,7 +24,10 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
         var installation = _options.PiInstallation ??
             throw new InvalidOperationException("No compatible Pi installation is configured.");
         var additionalArguments = _options.AdditionalPiArguments.ToList();
-        var environmentVariables = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var launch = PiRuntimeSettingsStore.ValidateLaunch(_options.LaunchConfiguration);
+        additionalArguments.AddRange(launch.Arguments ?? []);
+        var environmentVariables = new Dictionary<string, string?>(launch.EnvironmentVariables ?? new Dictionary<string, string?>(), StringComparer.OrdinalIgnoreCase);
+        environmentVariables["PISTATION_PERMISSION_MODE"] = "full-access";
         var extensions = _options.Extensions;
         if (_options.PlanExtensionPath is { } planPath)
         {
@@ -70,6 +73,8 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
                 AdditionalArguments = additionalArguments,
                 DiscoverExtensions = extensions.DiscoverInstalled,
                 EnvironmentVariables = environmentVariables,
+                ConnectionOptions = new() { DefaultCommandTimeout = TimeSpan.FromSeconds(launch.CommandTimeoutSeconds) },
+                ShutdownTimeout = TimeSpan.FromSeconds(launch.ShutdownTimeoutSeconds),
             },
             cancellationToken);
     }
