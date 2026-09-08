@@ -12,6 +12,9 @@ namespace PiStation.Protocol.Serialization;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(EnvironmentDescriptor))]
+[JsonSerializable(typeof(SourceControlWritingSettings))]
+[JsonSerializable(typeof(ReadArtifactFileRequest))]
+[JsonSerializable(typeof(ReadArtifactFileResult))]
 [JsonSerializable(typeof(PiAutomationSettings))]
 [JsonSerializable(typeof(PiAutomationStatus))]
 [JsonSerializable(typeof(SettlementSettings))]

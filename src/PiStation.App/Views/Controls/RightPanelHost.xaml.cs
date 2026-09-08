@@ -1270,64 +1270,7 @@ public sealed partial class RightPanelHost : UserControl
             return;
         }
 
-        var document = ViewModel.WorkbenchFiles.OpenExternalDocument(file.Path);
-        try
-        {
-            var properties = await file.GetBasicPropertiesAsync();
-            if (document.IsImage)
-            {
-                if (properties.Size > FileAssetDefaults.MaximumBytes)
-                {
-                    throw new InvalidOperationException($"The image exceeds the {FileAssetDefaults.MaximumBytes / (1024 * 1024)} MB preview limit.");
-                }
-
-                using var input = await file.OpenStreamForReadAsync();
-                using var memory = new MemoryStream();
-                await input.CopyToAsync(memory);
-                document.ApplyExternalImage(memory.ToArray(), checked((long)properties.Size));
-            }
-            else if (document.IsPdf || document.IsMedia)
-            {
-                if (properties.Size > FileAssetDefaults.MaximumBytes)
-                {
-                    throw new InvalidOperationException($"The file exceeds the {FileAssetDefaults.MaximumBytes / (1024 * 1024)} MB preview limit.");
-                }
-
-                document.ApplyExternalAsset(file.Path, checked((long)properties.Size));
-            }
-            else
-            {
-                using var input = await file.OpenStreamForReadAsync();
-                var maximum = FileReadDefaults.MaximumBytes;
-                var bytes = new byte[(int)Math.Min((ulong)maximum, properties.Size)];
-                var offset = 0;
-                while (offset < bytes.Length)
-                {
-                    var read = await input.ReadAsync(bytes.AsMemory(offset));
-                    if (read == 0)
-                    {
-                        break;
-                    }
-
-                    offset += read;
-                }
-
-                if (bytes.AsSpan(0, offset).Contains((byte)0))
-                {
-                    document.ApplyLoadFailure("This external binary file has no safe in-app renderer.");
-                    return;
-                }
-
-                var content = Encoding.UTF8.GetString(bytes, 0, offset).TrimStart('\uFEFF');
-                document.ApplyExternalText(content, checked((long)properties.Size), properties.Size > (ulong)offset);
-            }
-
-            await UpdateWorkspaceFilePreviewAsync();
-        }
-        catch (Exception exception)
-        {
-            document.ApplyLoadFailure($"Unable to open external file read-only: {exception.Message}");
-        }
+        await ViewModel.OpenArtifactFileAsync(file.Path);
     }
 
     private async void OnSaveWorkbenchFileClicked(object sender, RoutedEventArgs e) =>
@@ -1724,6 +1667,8 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnCommitGitChangesClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.CommitGitChangesAsync();
+
+    private async void OnGenerateCommitMessageClicked(object sender, RoutedEventArgs e) => await ViewModel.GenerateCommitMessageAsync();
 
     private async void OnCommitPushGitChangesClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.CommitAndPushGitChangesAsync();

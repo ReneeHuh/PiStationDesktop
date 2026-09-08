@@ -303,8 +303,10 @@
                             <TextBox
                                 x:Name="GitCommitMessageBox"
                                 automation:AutomationProperties.AutomationId="GitCommitMessageBox"
-                                PlaceholderText="Commit message (optional)"
+                                PlaceholderText="Commit message (Pi generates one if empty)"
+                                AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="180"
                                 Text="{x:Bind ViewModel.WorkbenchChanges.CommitMessage, Mode=TwoWay}" />
+                            <Button Content="Generate message with Pi" Click="OnGenerateCommitMessageClicked" IsEnabled="{x:Bind ViewModel.Settings.CanGenerateText, Mode=OneWay}" automation:AutomationProperties.AutomationId="GenerateCommitMessageButton" />
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <Button
                                     automation:AutomationProperties.AutomationId="CommitGitChangesButton"

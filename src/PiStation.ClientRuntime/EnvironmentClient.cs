@@ -17,6 +17,9 @@ namespace PiStation.ClientRuntime;
 
 public sealed class EnvironmentClient : IEnvironmentClient
 {
+    public Task<SourceControlWritingSettings> GetSourceControlWritingSettingsAsync(CancellationToken cancellationToken = default) => InvokeAsync<SourceControlWritingSettings>("GetSourceControlWritingSettings", cancellationToken);
+    public Task<ReadArtifactFileResult> ReadArtifactFileAsync(ReadArtifactFileRequest request, CancellationToken cancellationToken = default) => InvokeAsync<ReadArtifactFileResult>("ReadArtifactFile", request, cancellationToken);
+    public Task<SourceControlWritingSettings> SaveSourceControlWritingSettingsAsync(SourceControlWritingSettings settings, CancellationToken cancellationToken = default) => InvokeAsync<SourceControlWritingSettings>("SaveSourceControlWritingSettings", settings, cancellationToken);
     public Task<PiAutomationSettings> GetPiAutomationSettingsAsync(CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationSettings>("GetPiAutomationSettings", cancellationToken);
     public Task<PiAutomationSettings> SavePiAutomationSettingsAsync(PiAutomationSettings settings, CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationSettings>("SavePiAutomationSettings", settings, cancellationToken);
     public Task<PiAutomationStatus> GetPiAutomationStatusAsync(ThreadId threadId, CancellationToken cancellationToken = default) => InvokeAsync<PiAutomationStatus>("GetPiAutomationStatus", threadId, cancellationToken);

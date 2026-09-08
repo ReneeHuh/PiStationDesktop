@@ -13,6 +13,16 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     private readonly EnvironmentService _environment = environment ?? throw new ArgumentNullException(nameof(environment));
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
+    public async Task<SourceControlWritingSettings> GetSourceControlWritingSettings()
+    {
+        try { return await _environment.GetSourceControlWritingSettingsAsync(Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (Exception error) when (error is IOException or ArgumentException or System.Text.Json.JsonException) { throw new HubException(error.Message); }
+    }
+    public async Task<SourceControlWritingSettings> SaveSourceControlWritingSettings(SourceControlWritingSettings settings)
+    {
+        try { return await _environment.SaveSourceControlWritingSettingsAsync(settings, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException) { throw new HubException(error.Message); }
+    }
     public Task<PiAutomationSettings> GetPiAutomationSettings() => _environment.GetPiAutomationSettingsAsync(Context.ConnectionAborted);
     public Task<PiAutomationSettings> SavePiAutomationSettings(PiAutomationSettings settings) => _environment.SavePiAutomationSettingsAsync(settings, Context.ConnectionAborted);
     public Task<PiAutomationStatus> GetPiAutomationStatus(ThreadId threadId) => _environment.GetPiAutomationStatusAsync(threadId, Context.ConnectionAborted);
@@ -161,6 +171,7 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try { return await _environment.GenerateSourceControlTextAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
         catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+        catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException or PiStation.PiRpc.Diagnostics.PiRpcException) { throw new HubException(error.Message); }
     }
 
     public Task<DiagnosticsSnapshot> GetDiagnostics() =>
@@ -230,6 +241,13 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         {
             throw new HubException($"{exception.Code}: {exception.Message}");
         }
+    }
+
+    public async Task<ReadArtifactFileResult> ReadArtifactFile(ReadArtifactFileRequest request)
+    {
+        try { return await _environment.ReadArtifactFileAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException error) { throw new HubException($"{error.Code}: {error.Message}"); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { throw new HubException(error.Message); }
     }
 
     public async Task<ListProjectEntriesResult> ListProjectEntries(ListProjectEntriesRequest request)

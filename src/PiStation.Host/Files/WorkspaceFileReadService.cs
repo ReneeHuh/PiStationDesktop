@@ -365,7 +365,7 @@ public sealed class WorkspaceFileReadService(
         }
     }
 
-    private static string GetMediaType(string relativePath) => Path.GetExtension(relativePath).ToLowerInvariant() switch
+    internal static string GetMediaType(string relativePath) => Path.GetExtension(relativePath).ToLowerInvariant() switch
     {
         ".avif" => "image/avif",
         ".gif" => "image/gif",

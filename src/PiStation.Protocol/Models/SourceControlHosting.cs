@@ -109,7 +109,24 @@ public sealed record MutatePullRequestRequest(
 public sealed record GenerateSourceControlTextRequest(
     WorkspaceTarget Target,
     bool ForPullRequest,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? BaseBranch = null,
+    IReadOnlyList<string>? FilePaths = null,
+    PiModelSelection? Model = null);
+
+public enum SourceControlWritingStyle
+{
+    Default,
+    ConventionalCommits,
+    RepositoryConventions,
+    Custom,
+}
+
+public sealed record SourceControlWritingSettings(
+    SourceControlWritingStyle Style = SourceControlWritingStyle.Default,
+    string CustomInstructions = "",
+    PiModelSelection? Model = null,
+    long Revision = 0);
 
 public sealed record GeneratedSourceControlText(string Title, string Body);
 

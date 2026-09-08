@@ -578,6 +578,13 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     public string DisplayTitle => IsDirty ? $"{FileName} ●" : FileName;
     public bool CanSave => IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsExternal && !UsesAssetContent && !IsBinary;
     public bool CanReloadFromWorkspace => !IsExternal;
+    internal long ExternalReadVersion { get; private set; }
+    internal long BeginExternalRead()
+    {
+        IsLoading = true;
+        Status = "Loading artifact read-only…";
+        return ++ExternalReadVersion;
+    }
     public bool CanOpenInEditor => !IsExternal;
     public bool IsReadOnly => IsExternal || IsTruncated || UsesAssetContent || IsBinary;
 

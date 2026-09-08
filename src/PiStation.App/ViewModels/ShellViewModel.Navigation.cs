@@ -9,14 +9,16 @@ public sealed partial class ShellViewModel
     public async Task OpenMarkdownLinkAsync(string value)
     {
         var root = SelectedThread?.WorktreePath ?? SelectedProject?.CanonicalPath;
-        if (root is null || WorkspaceLink.Parse(value, root) is not { } link)
+        if (root is not null && WorkspaceLink.Parse(value, root) is { } link)
         {
-            ComposerPower.Status = "This link does not point to a file in the active workspace.";
+            Layout.SelectedPanel = WorkbenchPanelKind.Files;
+            Layout.IsRightPanelOpen = true;
+            await OpenWorkbenchFileAsync(link.RelativePath, link.Line).ConfigureAwait(false);
             return;
         }
-        Layout.SelectedPanel = WorkbenchPanelKind.Files;
-        Layout.IsRightPanelOpen = true;
-        await OpenWorkbenchFileAsync(link.RelativePath, link.Line).ConfigureAwait(false);
+        if (ArtifactLink.Parse(value) is { } artifact)
+            await OpenArtifactFileAsync(artifact.AbsolutePath, artifact.Line).ConfigureAwait(false);
+        else ComposerPower.Status = "This link does not point to a workspace file or an absolute artifact file.";
     }
 
     public async Task RevealComposerContextAsync(ComposerContextChipViewModel chip)

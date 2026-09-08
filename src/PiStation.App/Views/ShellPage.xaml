@@ -763,6 +763,25 @@
                         <StackPanel Spacing="10">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Source-control hosting" />
                             <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.SourceControlSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                            <Expander Header="Commit and PR writing" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <ComboBox Header="Writing style" SelectedIndex="{x:Bind ViewModel.Settings.WritingStyleIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" automation:AutomationProperties.AutomationId="SourceControlWritingStyle">
+                                        <ComboBoxItem Content="Default" />
+                                        <ComboBoxItem Content="Conventional Commits" />
+                                        <ComboBoxItem Content="Repository conventions" />
+                                        <ComboBoxItem Content="Custom instructions" />
+                                    </ComboBox>
+                                    <TextBox Header="Custom writing instructions" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="20000" Text="{x:Bind ViewModel.Settings.WritingInstructions, Mode=TwoWay}" />
+                                    <TextBlock Text="Leave provider and model empty to use the current Pi model. Use Pi provider/model IDs for a dedicated writer." TextWrapping="Wrap" />
+                                    <ComboBox Header="Choose a Pi model" ItemsSource="{x:Bind ViewModel.PiConfiguration.Models, Mode=OneWay}" DisplayMemberPath="DisplayName" SelectionChanged="OnWriterModelSelected" HorizontalAlignment="Stretch" />
+                                    <TextBox Header="Writer provider" MaxLength="256" Text="{x:Bind ViewModel.Settings.WriterProvider, Mode=TwoWay}" />
+                                    <TextBox Header="Writer model" MaxLength="256" Text="{x:Bind ViewModel.Settings.WriterModel, Mode=TwoWay}" />
+                                    <Button Content="Use current model" Click="OnUseCurrentWriterModelClicked" />
+                                    <Button Content="Save writing preferences" Click="OnSaveWritingSettingsClicked" automation:AutomationProperties.AutomationId="SaveWritingSettingsButton" />
+                                    <TextBox Header="PR base branch" PlaceholderText="Automatic (remote default, main or master)" MaxLength="256" Text="{x:Bind ViewModel.Settings.PullRequestBaseBranch, Mode=TwoWay}" />
+                                    <TextBlock Text="{x:Bind ViewModel.Settings.WritingStatus, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.LiveSetting="Polite" />
+                                </StackPanel>
+                            </Expander>
                             <Expander Header="Recent hosting operations">
                                 <StackPanel Spacing="8">
                                     <Button Click="OnRefreshSettingsClicked" Content="Refresh operation history" Style="{StaticResource PiSecondaryButtonStyle}" />
@@ -804,7 +823,8 @@
                                     <TextBox x:Name="PullRequestBodyInput" MinHeight="90" AcceptsReturn="True" Header="Description" Style="{StaticResource PiTextBoxStyle}" TextWrapping="Wrap" />
                                     <CheckBox x:Name="PullRequestDraftCheckBox" Content="Create as draft" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button Click="OnGeneratePullRequestTextClicked" Content="Generate text" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                        <Button Click="OnGeneratePullRequestTextClicked" Content="Generate with Pi" IsEnabled="{x:Bind ViewModel.Settings.CanGenerateText, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                        <TextBlock Text="{x:Bind ViewModel.Settings.WritingStatus, Mode=OneWay}" TextWrapping="Wrap" />
                                         <Button Click="OnCreatePullRequestClicked" IsEnabled="{x:Bind ViewModel.Settings.CanCreatePullRequest, Mode=OneWay}" Content="Create pull request" Style="{StaticResource PiPrimaryButtonStyle}" />
                                     </StackPanel>
                                 </StackPanel>

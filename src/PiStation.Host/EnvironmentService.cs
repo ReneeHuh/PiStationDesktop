@@ -119,7 +119,8 @@ public sealed partial class EnvironmentService : IAsyncDisposable
             options);
         var terminals = new TerminalSessionRegistry(database, options, workspaceResolver);
         var setupScripts = new ProjectSetupScriptRunner(database, terminals);
-        var sourceControl = sourceControlFactory?.Invoke(workspaceResolver, projects) ?? new SourceControlHostingService(workspaceResolver, projects);
+        var sourceControl = sourceControlFactory?.Invoke(workspaceResolver, projects) ?? new SourceControlHostingService(workspaceResolver, projects,
+            textGenerator: new PiSourceControlTextGenerator(options), writingSettings: new SourceControlWritingSettingsStore(options.CanonicalDataRoot));
         var diagnostics = new HostDiagnosticsService(options, database, threads, terminals);
         var service = new EnvironmentService(
             options,
@@ -154,7 +155,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         ProtocolVersion.Current,
         _options.PiInstallation is not null,
         _options.PiInstallation?.PiVersion.ToString(),
-        ["project.read", "project.write", "project.remove", "project.defaults", "project.scripts", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "source-control.hosting", "source-control.pull-requests", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.queue", "thread.agents", "thread.draft", "thread.composer", "thread.compaction", "thread.inbox", "thread.titles", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload", "diagnostics.read", "diagnostics.export", "usage.read"]);
+        ["project.read", "project.write", "project.remove", "project.defaults", "project.scripts", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "file.artifacts", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "source-control.hosting", "source-control.text-generation", "source-control.pull-requests", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.queue", "thread.agents", "thread.draft", "thread.composer", "thread.compaction", "thread.inbox", "thread.titles", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload", "diagnostics.read", "diagnostics.export", "usage.read"]);
 
     public Task<IReadOnlyList<ProjectDescriptor>> ListProjectsAsync(CancellationToken cancellationToken = default) =>
         _projects.ListAsync(cancellationToken);
@@ -303,6 +304,9 @@ public sealed partial class EnvironmentService : IAsyncDisposable
     public Task<GeneratedSourceControlText> GenerateSourceControlTextAsync(
         GenerateSourceControlTextRequest request,
         CancellationToken cancellationToken = default) => _sourceControl.GenerateTextAsync(request, cancellationToken);
+
+    public Task<SourceControlWritingSettings> GetSourceControlWritingSettingsAsync(CancellationToken token = default) => _sourceControl.GetWritingSettingsAsync(token);
+    public Task<SourceControlWritingSettings> SaveSourceControlWritingSettingsAsync(SourceControlWritingSettings settings, CancellationToken token = default) => _sourceControl.SaveWritingSettingsAsync(settings, token);
 
     public Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default) =>
         _diagnostics.GetSnapshotAsync(cancellationToken);
@@ -1195,6 +1199,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         _preview.Dispose();
         await _terminals.DisposeAsync().ConfigureAwait(false);
         await _threads.DisposeAsync().ConfigureAwait(false);
+        _sourceControl.Dispose();
     }
 
     private void ValidateRequest(ExecuteThreadCommandRequest request)

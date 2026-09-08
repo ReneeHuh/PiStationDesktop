@@ -432,6 +432,12 @@ internal sealed partial class FakePiServer : IDisposable
 
         switch (_arguments.Scenario)
         {
+            case "source-control-writer":
+                await _writer.WriteAsync(Response(id, "prompt"), cancellationToken: cancellationToken).ConfigureAwait(false);
+                var generated = FakeSessionStore.AssistantMessage("{\"title\":\"Fix the selected behavior\",\"body\":\"Explain the implementation change\"}");
+                await _writer.WriteAsync(new JsonObject { ["type"] = "message_end", ["message"] = generated.DeepClone() }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await WriteSettlementAsync(generated, cancellationToken).ConfigureAwait(false);
+                return;
             case "command-timeout":
                 return;
             case "crash":

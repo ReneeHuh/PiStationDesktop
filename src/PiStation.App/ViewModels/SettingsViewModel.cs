@@ -5,7 +5,7 @@ using PiStation.Protocol.Models;
 
 namespace PiStation.App.ViewModels;
 
-public sealed class SettingsViewModel : ObservableObject
+public sealed partial class SettingsViewModel : ObservableObject
 {
     private bool _manageAutoCompaction;
     private bool _autoCompaction = true;

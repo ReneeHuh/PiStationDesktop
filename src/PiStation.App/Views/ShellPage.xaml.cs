@@ -843,12 +843,37 @@ public sealed partial class ShellPage : Page
 
     private async void OnGeneratePullRequestTextClicked(object sender, RoutedEventArgs e)
     {
+        var originalTitle = PullRequestTitleInput.Text;
+        var originalBody = PullRequestBodyInput.Text;
+        var originalBase = ViewModel.Settings.PullRequestBaseBranch;
         var generated = await ViewModel.GenerateSourceControlTextAsync(forPullRequest: true);
         if (generated is not null)
         {
+            if (originalTitle != PullRequestTitleInput.Text || originalBody != PullRequestBodyInput.Text || originalBase != ViewModel.Settings.PullRequestBaseBranch)
+            {
+                ViewModel.Settings.WritingStatus = "The PR draft changed during generation. Your edits were kept.";
+                return;
+            }
             PullRequestTitleInput.Text = generated.Title;
             PullRequestBodyInput.Text = generated.Body;
         }
+    }
+
+    private async void OnSaveWritingSettingsClicked(object sender, RoutedEventArgs e) => await ViewModel.SaveWritingSettingsAsync();
+
+    private void OnWriterModelSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if ((sender as ComboBox)?.SelectedItem is PiModelOptionViewModel model)
+        {
+            ViewModel.Settings.WriterProvider = model.ProviderId;
+            ViewModel.Settings.WriterModel = model.ModelId;
+        }
+    }
+
+    private void OnUseCurrentWriterModelClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.Settings.WriterProvider = ViewModel.PiConfiguration.SelectedModel?.ProviderId ?? "";
+        ViewModel.Settings.WriterModel = ViewModel.PiConfiguration.SelectedModel?.ModelId ?? "";
     }
 
     private async void OnCreatePullRequestClicked(object sender, RoutedEventArgs e) =>

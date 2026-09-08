@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void PiAutomationProtocolVersionIsThirtyFour()
+    public void SourceControlWriterProtocolVersionIsThirtyFive()
     {
-        Assert.Equal(34, ProtocolVersion.Current);
+        Assert.Equal(35, ProtocolVersion.Current);
     }
 }

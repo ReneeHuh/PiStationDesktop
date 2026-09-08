@@ -7,6 +7,9 @@ namespace PiStation.ClientRuntime;
 
 public interface IEnvironmentClient : IAsyncDisposable
 {
+    Task<SourceControlWritingSettings> GetSourceControlWritingSettingsAsync(CancellationToken cancellationToken = default);
+    Task<ReadArtifactFileResult> ReadArtifactFileAsync(ReadArtifactFileRequest request, CancellationToken cancellationToken = default);
+    Task<SourceControlWritingSettings> SaveSourceControlWritingSettingsAsync(SourceControlWritingSettings settings, CancellationToken cancellationToken = default);
     Task<PiAutomationSettings> GetPiAutomationSettingsAsync(CancellationToken cancellationToken = default);
     Task<PiAutomationSettings> SavePiAutomationSettingsAsync(PiAutomationSettings settings, CancellationToken cancellationToken = default);
     Task<PiAutomationStatus> GetPiAutomationStatusAsync(ThreadId threadId, CancellationToken cancellationToken = default);

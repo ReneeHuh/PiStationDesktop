@@ -13,7 +13,9 @@ namespace PiStation.Host.SourceControl;
 public sealed partial class SourceControlHostingService(
     ThreadWorkspaceResolver resolver,
     ProjectService projects,
-    Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? reviewCommandExecutor = null)
+    Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? reviewCommandExecutor = null,
+    ISourceControlTextGenerator? textGenerator = null,
+    SourceControlWritingSettingsStore? writingSettings = null) : IDisposable
 {
     private const int MaximumStandardErrorCharacters = 64 * 1024;
     private const int MaximumStandardOutputCharacters = 2 * 1024 * 1024;
@@ -123,48 +125,6 @@ public sealed partial class SourceControlHostingService(
         EnsureProviderSucceeded(result, repository.Provider);
         return new SourceControlOperationResult(true,
             string.IsNullOrWhiteSpace(result.StandardOutput) ? $"Pull request {request.Mutation} completed." : result.StandardOutput.Trim(), repository);
-    }
-
-    public async Task<GeneratedSourceControlText> GenerateTextAsync(
-        GenerateSourceControlTextRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var workspace = await _resolver.ResolveAsync(
-            request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
-        var status = await RunAsync("git", ["status", "--short"], workspace.WorkspaceRoot, LocalTimeout, cancellationToken)
-            .ConfigureAwait(false);
-        EnsureSucceeded(status, "Git status could not be read.");
-        var log = await RunAsync(
-            "git", ["log", "-5", "--pretty=format:%s"], workspace.WorkspaceRoot, LocalTimeout, cancellationToken)
-            .ConfigureAwait(false);
-        var changed = status.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(static line => line.Length > 3 ? line[3..].Trim() : line.Trim())
-            .Take(12)
-            .ToArray();
-        var title = CreateGeneratedTitle(log.StandardOutput, changed, request.ForPullRequest);
-        var body = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(request.Instructions))
-        {
-            body.AppendLine(request.Instructions.Trim()).AppendLine();
-        }
-        body.AppendLine(request.ForPullRequest ? "## Summary" : "Summary");
-        if (changed.Length == 0)
-        {
-            body.AppendLine("- No uncommitted file changes detected.");
-        }
-        else
-        {
-            foreach (var file in changed)
-            {
-                body.Append("- Update `").Append(file.Replace("`", "\\`", StringComparison.Ordinal)).AppendLine("`");
-            }
-        }
-        if (request.ForPullRequest)
-        {
-            body.AppendLine().AppendLine("## Validation").AppendLine("- Review project checks before merging.");
-        }
-
-        return new GeneratedSourceControlText(title, body.ToString().Trim());
     }
 
     public static async Task<IReadOnlyList<RuntimeDiagnostic>> GetToolDiagnosticsAsync(
@@ -458,21 +418,6 @@ public sealed partial class SourceControlHostingService(
         return result.StandardOutput.Trim();
     }
 
-    private static string CreateGeneratedTitle(string log, string[] changed, bool forPullRequest)
-    {
-        var firstCommit = log.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
-        if (!string.IsNullOrWhiteSpace(firstCommit))
-        {
-            return firstCommit.Length <= 72 ? firstCommit : firstCommit[..69] + "…";
-        }
-        if (changed.Length > 0)
-        {
-            var verb = forPullRequest ? "Update" : "update";
-            return $"{verb} {Path.GetFileName(changed[0])}";
-        }
-        return forPullRequest ? "Project updates" : "Update project";
-    }
-
     private static string StateArgument(PullRequestState? state) => state switch
     {
         PullRequestState.Closed => "closed",
@@ -578,7 +523,8 @@ public sealed partial class SourceControlHostingService(
         TimeSpan timeout,
         CancellationToken cancellationToken,
         bool throwWhenMissing = true,
-        string? standardInput = null)
+        string? standardInput = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -601,6 +547,8 @@ public sealed partial class SourceControlHostingService(
         {
             startInfo.ArgumentList.Add(argument);
         }
+        if (environmentVariables is not null)
+            foreach (var variable in environmentVariables) startInfo.Environment[variable.Key] = variable.Value;
         using var process = new Process { StartInfo = startInfo };
         try
         {

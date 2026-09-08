@@ -590,6 +590,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         });
         try
         {
+            var writing = await RequireClient().GetSourceControlWritingSettingsAsync(cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => Settings.ApplyWritingSettings(writing));
             var settlement = await RequireClient().GetSettlementSettingsAsync(cancellationToken).ConfigureAwait(false);
             var automation = await RequireClient().GetPiAutomationSettingsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.ApplyAutomationSettings(automation));
@@ -665,6 +667,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId),
                     title.Trim(),
                     body.Trim(),
+                    TargetBranch: PullRequestTargetBranch(),
                     IsDraft: isDraft,
                     ThreadId: SelectedThread?.ThreadId),
                 cancellationToken).ConfigureAwait(false);
@@ -739,31 +742,6 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         catch (Exception exception)
         {
             ReportRuntimeError(exception);
-        }
-    }
-
-    public async Task<GeneratedSourceControlText?> GenerateSourceControlTextAsync(
-        bool forPullRequest,
-        CancellationToken cancellationToken = default)
-    {
-        var project = SelectedProject;
-        if (project is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return await RequireClient().GenerateSourceControlTextAsync(
-                new GenerateSourceControlTextRequest(
-                    new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId),
-                    forPullRequest),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            ReportRuntimeError(exception);
-            return null;
         }
     }
 
@@ -1738,29 +1716,24 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 cancellationToken);
     }
 
-    public Task CommitGitChangesAsync(CancellationToken cancellationToken = default) =>
-        ExecuteWorkbenchGitCommandAsync(
-            new GitRunActionCommand(
-                GitActionKind.Commit,
-                WorkbenchChanges.CommitMessage,
-                WorkbenchChanges.Changes.Select(static change => change.RelativePath).ToArray()),
-            "Committing changes…",
-            cancellationToken);
+    public Task CommitGitChangesAsync(CancellationToken cancellationToken = default) => CommitWithMessageAsync(GitActionKind.Commit, cancellationToken);
 
     public Task PushGitBranchAsync(CancellationToken cancellationToken = default) =>
-        ExecuteWorkbenchGitCommandAsync(
-            new GitRunActionCommand(GitActionKind.Push),
-            "Pushing branch…",
-            cancellationToken);
+        ExecuteWorkbenchGitCommandAsync(new GitRunActionCommand(GitActionKind.Push), "Pushing branch…", cancellationToken);
 
-    public Task CommitAndPushGitChangesAsync(CancellationToken cancellationToken = default) =>
-        ExecuteWorkbenchGitCommandAsync(
-            new GitRunActionCommand(
-                GitActionKind.CommitPush,
-                WorkbenchChanges.CommitMessage,
-                WorkbenchChanges.Changes.Select(static change => change.RelativePath).ToArray()),
-            "Committing and pushing changes…",
-            cancellationToken);
+    public Task CommitAndPushGitChangesAsync(CancellationToken cancellationToken = default) => CommitWithMessageAsync(GitActionKind.CommitPush, cancellationToken);
+
+    private async Task CommitWithMessageAsync(GitActionKind action, CancellationToken token)
+    {
+        if (!WorkbenchChanges.CanCommit || Settings.IsGeneratingText) return;
+        if (string.IsNullOrWhiteSpace(WorkbenchChanges.CommitMessage))
+        {
+            if (!await GenerateCommitMessageAsync(token)) return;
+        }
+        await ExecuteWorkbenchGitCommandAsync(new GitRunActionCommand(action, WorkbenchChanges.CommitMessage,
+            WorkbenchChanges.Changes.Select(static change => change.RelativePath).ToArray()),
+            action == GitActionKind.Commit ? "Committing changes…" : "Committing and pushing changes…", token);
+    }
 
     public async Task RemoveSelectedThreadWorktreeAsync(CancellationToken cancellationToken = default)
     {
