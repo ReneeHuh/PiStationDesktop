@@ -9,6 +9,16 @@ namespace PiStation.Host.Tests;
 public sealed class ThreadEventJournalTests
 {
     [Fact]
+    public async Task CurrentCursorReceivesSynchronizationWithoutWaitingForNewActivity()
+    {
+        var projection = ThreadProjectionReducer.Create(EnvironmentId.New(), ThreadId.New(), "session");
+        var journal = new ThreadEventJournal(projection, Options(eventLimit: 4));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var reader = journal.SubscribeAsync(new(projection.ProjectionEpoch, projection.Sequence), timeout.Token).GetAsyncEnumerator(timeout.Token);
+        Assert.True(await reader.MoveNextAsync());
+        Assert.Equal(projection.Sequence, Assert.IsType<ThreadSynchronizedEnvelope>(reader.Current).Sequence);
+    }
+    [Fact]
     public void HydrationReconstructsOrderedTurnAndThinkingItems()
     {
         var projection = ThreadProjectionReducer.Create(

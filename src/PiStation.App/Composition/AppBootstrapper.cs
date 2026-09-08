@@ -20,10 +20,13 @@ internal static class AppBootstrapper
     public static async Task<AppRuntime> StartAsync(
         ShellViewModel viewModel,
         AppLaunchOptions launchOptions,
+        RemoteAccessController? remoteAccess = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         ArgumentNullException.ThrowIfNull(launchOptions);
+        if (await SshEnvironmentHost.TryDiscoverAsync(launchOptions.DataRoot, cancellationToken).ConfigureAwait(false) is { } existing)
+            return await AttachExistingAsync(viewModel, existing, launchOptions, cancellationToken).ConfigureAwait(false);
         launchOptions.Log("Starting embedded environment.");
 
         PiInstallation? piInstallation = null;
@@ -52,7 +55,7 @@ internal static class AppBootstrapper
         var hostOptions = new HostOptions
         {
             ApplicationDataRoot = launchOptions.DataRoot,
-            EnvironmentName = "Local",
+            EnvironmentName = Environment.MachineName,
             PiInstallation = piInstallation,
             LaunchConfiguration = configuration.Launch ?? new(),
             Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
@@ -71,8 +74,19 @@ internal static class AppBootstrapper
             BrowserAutomationRoot = Path.Combine(launchOptions.DataRoot, "browser-automation"),
             JournalEventLimit = launchOptions.UiTestJournalEventLimit ?? 512,
         };
-        var host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        EmbeddedEnvironmentHost host;
+        try { host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, cancellationToken: cancellationToken).ConfigureAwait(false); }
+        catch (IOException)
+        {
+            // A simultaneous SSH/desktop launch may acquire the data lock first.
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                if (await SshEnvironmentHost.TryDiscoverAsync(launchOptions.DataRoot, cancellationToken).ConfigureAwait(false) is { } winner)
+                    return await AttachExistingAsync(viewModel, winner, launchOptions, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+            }
+            throw;
+        }
         launchOptions.Log("Loopback host started; connecting desktop client.");
         EnvironmentClient? client = null;
         try
@@ -85,6 +99,9 @@ internal static class AppBootstrapper
             viewModel.Attach(client);
             await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
             await viewModel.LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
+            if (remoteAccess is not null) await remoteAccess.AttachAsync(host.Environment).ConfigureAwait(false);
+            if (Microsoft.UI.Xaml.Application.Current is App app)
+                host.Environment.Updates.SetOwner(new DesktopUpdateOwner(app.PrepareDesktopUpdateAsync, app.FinishDesktopUpdateAsync));
             launchOptions.Log($"Environment ready at {host.Address}.");
             return new AppRuntime(host, client, viewModel);
         }
@@ -98,6 +115,27 @@ internal static class AppBootstrapper
             await host.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static async Task<AppRuntime> AttachExistingAsync(ShellViewModel viewModel,
+        PiStation.Protocol.Models.SshHostInfo info, AppLaunchOptions launchOptions, CancellationToken cancellationToken)
+    {
+        info.Validate();
+        var client = new EnvironmentClient(new ClientRuntimeOptions
+        {
+            HubAddress = new Uri($"https://127.0.0.1:{info.Port}/environment"),
+            BearerCredential = info.BearerCredential, CertificateFingerprint = info.CertificateFingerprint,
+            ExpectedEnvironmentId = info.EnvironmentId,
+        });
+        try
+        {
+            viewModel.Attach(client);
+            await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await viewModel.LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
+            launchOptions.Log("Attached to the running shared environment; its owner controls its lifetime.");
+            return new AppRuntime(null, client, viewModel);
+        }
+        catch { await client.DisposeAsync().ConfigureAwait(false); throw; }
     }
 
     private static Task<PiInstallation> ResolvePiAsync(

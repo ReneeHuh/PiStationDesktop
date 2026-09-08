@@ -28,7 +28,7 @@ internal static class LoopbackAuthentication
         await next(context).ConfigureAwait(false);
     }
 
-    private static bool FixedTimeEquals(string supplied, string expected)
+    internal static bool FixedTimeEquals(string supplied, string expected)
     {
         var suppliedBytes = Encoding.UTF8.GetBytes(supplied);
         var expectedBytes = Encoding.UTF8.GetBytes(expected);

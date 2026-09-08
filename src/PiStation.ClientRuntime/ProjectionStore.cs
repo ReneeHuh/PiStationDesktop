@@ -21,6 +21,21 @@ public sealed class ProjectionStore(ThreadId threadId)
 {
     private readonly object _gate = new();
     private ThreadProjection? _current;
+    private bool _isSynchronized;
+
+    public bool IsSynchronized { get { lock (_gate) return _isSynchronized; } }
+
+    internal void SetSynchronized(bool value)
+    {
+        lock (_gate)
+        {
+            if (_isSynchronized == value) return;
+            _isSynchronized = value;
+        }
+        SynchronizationChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public event EventHandler? SynchronizationChanged;
 
     public event EventHandler<ProjectionChangedEventArgs>? Changed;
 

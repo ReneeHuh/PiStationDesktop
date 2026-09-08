@@ -16,6 +16,18 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     private string _newBranchName = string.Empty;
     private GitRefDescriptor? _selectedBranch;
     private bool _isBusy;
+    private bool _allowOperations = true;
+
+    public bool AllowOperations
+    {
+        get => _allowOperations;
+        internal set
+        {
+            if (!SetProperty(ref _allowOperations, value)) return;
+            OnPropertyChanged(nameof(CanRunGitCommand));
+            OnPropertyChanged(nameof(CanCommit));
+        }
+    }
     private bool _isRepository;
     private string? _headSha;
     private string _statusToken = string.Empty;
@@ -62,9 +74,9 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         }
     }
 
-    public bool CanRunGitCommand => !IsBusy;
+    public bool CanRunGitCommand => AllowOperations && !IsBusy;
 
-    public bool CanCommit => !IsBusy && _isRepository && Changes.Any(change => change.IsSelectedForCommit);
+    public bool CanCommit => CanRunGitCommand && _isRepository && Changes.Any(change => change.IsSelectedForCommit);
 
     public string[] SelectedCommitPaths => Changes.Where(change => change.IsSelectedForCommit)
         .Select(change => change.RelativePath).Order(StringComparer.Ordinal).ToArray();
@@ -224,6 +236,12 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         ClearDiff();
         OnPropertyChanged(nameof(CanCommit));
     }
+
+    internal bool Matches(GetProjectChangesResult result) =>
+        _isRepository == result.IsRepository && _headSha == result.HeadSha && _statusToken == result.StatusToken &&
+        (!result.IsRepository || BranchName == (string.IsNullOrWhiteSpace(result.BranchName) ? "Detached HEAD" : result.BranchName)) &&
+        (!result.IsRepository || BranchDetail == FormatBranchDetail(result)) &&
+        Changes.Select(change => change.Change).SequenceEqual(result.Changes);
 
     internal void ApplyRefs(ListGitRefsResult result, bool append = false)
     {

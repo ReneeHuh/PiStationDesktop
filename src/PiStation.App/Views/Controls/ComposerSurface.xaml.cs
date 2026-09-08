@@ -31,6 +31,10 @@ public sealed partial class ComposerSurface : UserControl
 
     public void FocusPrompt() => PromptInput.Focus(FocusState.Programmatic);
 
+    private void OnRestoreRecoveredDraft(object sender, RoutedEventArgs e) => ViewModel.Composer.RestoreRecoveredDraft();
+
+    private void OnKeepHostDraft(object sender, RoutedEventArgs e) => ViewModel.Composer.KeepHostDraft();
+
     private async void OnSendPromptClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.SendPromptAsync();
 
@@ -247,7 +251,7 @@ public sealed partial class ComposerSurface : UserControl
 
     private async void OnAttachFilesClicked(object sender, RoutedEventArgs e)
     {
-        var window = (Application.Current as App)?.MainWindow;
+        var window = (Application.Current as App)?.FindWindow(XamlRoot);
         if (window is null)
         {
             return;

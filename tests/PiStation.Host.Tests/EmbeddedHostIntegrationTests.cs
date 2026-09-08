@@ -287,6 +287,11 @@ public sealed class EmbeddedHostIntegrationTests
             var envelopes = new List<ThreadEventEnvelope>();
             while (await stream.MoveNextAsync())
             {
+                if (stream.Current is ThreadSynchronizedEnvelope synchronized)
+                {
+                    Assert.Equal(snapshot.Projection.Sequence, synchronized.Sequence);
+                    continue;
+                }
                 var envelope = Assert.IsType<ThreadEventEnvelope>(stream.Current);
                 envelopes.Add(envelope);
                 if (envelope.Event is TurnSettledEvent)

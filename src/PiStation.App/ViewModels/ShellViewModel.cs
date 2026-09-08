@@ -39,6 +39,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly string _previewCaptureRoot;
     private readonly string _browserAutomationRoot;
     private ThreadRuntimeState? _lastProjectionRuntimeState;
+    private readonly EditingRecoveryStore? _editingRecovery;
 
     public ShellViewModel(
         DispatcherQueue dispatcherQueue,
@@ -63,7 +64,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Connection = new ConnectionViewModel();
         FileMentions = new FileMentionViewModel();
         Settings = new SettingsViewModel();
-        WorkbenchFiles = new WorkbenchFilesViewModel();
+        _editingRecovery = layoutSettingsPath is null ? null : new EditingRecoveryStore(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(layoutSettingsPath))!, "editing-recovery"));
+        WorkbenchFiles = new WorkbenchFilesViewModel(_editingRecovery);
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
         WorkbenchPreview = new WorkbenchPreviewViewModel();
@@ -74,7 +77,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             SaveDraftAsync,
             UploadDraftAttachmentAsync,
             RemoveDraftAttachmentAsync,
-            ClearDraftAsync);
+            ClearDraftAsync,
+            _editingRecovery);
         ComposerPower = new ComposerPowerViewModel(Composer);
         Composer.PropertyChanged += OnComposerPropertyChanged;
         Composer.SaveFailed += OnComposerSaveFailed;
@@ -84,6 +88,23 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public ThreadViewModel Thread { get; } = new();
 
     public PiExtensionUiViewModel ExtensionUi { get; } = new();
+    public bool IsRemote { get; private set; }
+    public string EnvironmentLabel { get; private set; } = "Local";
+    private bool _runtimeStopped;
+    public bool CanOperate => !_runtimeStopped && (!IsRemote || _client?.Descriptor?.Capabilities.Contains("thread.operate") == true);
+    public bool IsReadOnly => !CanOperate;
+
+    private PiStation.ClientRuntime.Ssh.SshConnectionProfile? _remoteEditorProfile;
+
+    public void ConfigureRemote(string name, PiStation.ClientRuntime.Ssh.SshConnectionProfile? editorProfile = null)
+    {
+        IsRemote = true;
+        _remoteEditorProfile = editorProfile;
+        EnvironmentLabel = $"{name} (Remote)";
+        Connection.Status = $"{EnvironmentLabel} • Disconnected";
+        WorkbenchChanges.AllowOperations = false;
+        WorkbenchTerminal.AllowOperations = false;
+    }
 
     public ComposerViewModel Composer { get; }
 
@@ -211,6 +232,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public bool CanManageThreads =>
+        CanOperate &&
         Workspace.SelectedProject is not null &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
@@ -218,10 +240,16 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public bool IsConnected => _client?.ConnectionState == EnvironmentConnectionState.Connected;
 
     public bool CanAddProject =>
+        CanOperate &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
+    public bool IsComposerReadOnly => IsReadOnly || Composer.HasRecoveryConflict || !Composer.HasDraft;
+
     public bool CanSend =>
+        CanOperate &&
+        !Composer.HasRecoveryConflict &&
+        Composer.HasDraft &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running or ThreadRuntimeState.Stopped &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -262,12 +290,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         : "Send prompt";
 
     public bool CanStop =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Running &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
     public bool CanAttachFiles =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState is ThreadRuntimeState.Ready or ThreadRuntimeState.Running or ThreadRuntimeState.Stopped &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -276,6 +306,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Composer.CanAttach;
 
     public bool CanRestartPi =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState is ThreadRuntimeState.Crashed or ThreadRuntimeState.Stopped or ThreadRuntimeState.Ready &&
         !Thread.Projection.Timeline.Any(item => item is ApprovalTimelineItem { State: InteractionState.Pending } or QuestionTimelineItem { State: InteractionState.Pending }) &&
@@ -283,6 +314,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         !_commandPending;
 
     public bool CanConfigurePi =>
+        CanOperate &&
         Workspace.SelectedThread is not null &&
         PiConfiguration.Snapshot?.Configuration.ThreadId == Workspace.SelectedThread.ThreadId &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
@@ -301,6 +333,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         _client = client;
         _client.ConnectionStateChanged += OnConnectionStateChanged;
+        if (_client.Catalog is { } catalog) catalog.Changed += OnCatalogChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;
         _client.ThreadMetadata.Changed += OnThreadMetadataChanged;
     }
@@ -358,7 +391,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    public async Task SelectProjectAsync(
+    private readonly SemaphoreSlim _selectionGate = new(1, 1);
+    private bool _selectionClosed;
+
+    public async Task SelectProjectAsync(ProjectDescriptor? project, CancellationToken cancellationToken = default)
+    {
+        await _selectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { if (!_selectionClosed) await SelectProjectCoreAsync(project, cancellationToken).ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async Task SelectProjectCoreAsync(
         ProjectDescriptor? project,
         CancellationToken cancellationToken = default)
     {
@@ -368,6 +411,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await Composer.SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
+            if (_subscription is { } previous)
+            {
+                _subscription = null;
+                previous.Store.Changed -= OnProjectionChanged;
+                previous.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+                await previous.DisposeAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {
@@ -808,7 +858,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    public async Task SelectThreadAsync(
+    public async Task SelectThreadAsync(ThreadDescriptor? thread, CancellationToken cancellationToken = default)
+    {
+        await _selectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { if (!_selectionClosed) await SelectThreadCoreAsync(thread, cancellationToken).ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async Task SelectThreadCoreAsync(
         ThreadDescriptor? thread,
         CancellationToken cancellationToken = default)
     {
@@ -837,6 +894,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_subscription is not null)
         {
             _subscription.Store.Changed -= OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+            await _subscription.DisposeAsync().ConfigureAwait(false);
             _subscription = null;
         }
 
@@ -859,8 +918,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             _subscription = RequireClient().SubscribeThread(thread.ThreadId);
             _subscription.Store.Changed += OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged += OnThreadSynchronizationChanged;
             var projection = _subscription.Store.Current;
-            RunOnUiThread(() => ApplyThreadProjection(projection));
+            RunOnUiThread(() => { ApplyThreadProjection(projection); UpdateThreadSynchronizationStatus(); });
         }
         catch (Exception exception)
         {
@@ -868,7 +928,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         await LoadPiConfigurationAsync(thread, cancellationToken).ConfigureAwait(false);
-        await RefreshComposerPowerAsync(cancellationToken).ConfigureAwait(false);
+        if (CanOperate) await RefreshComposerPowerAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RefreshComposerPowerAsync(CancellationToken cancellationToken = default)
@@ -1029,6 +1089,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task RefreshWorkbenchPreviewServersAsync(CancellationToken cancellationToken = default)
     {
+        if (IsRemote && !CanOperate)
+        {
+            RunOnUiThread(() => WorkbenchPreview.FailDiscovery("Opening host-local previews requires operate access. You can enter a URL reachable from this computer."));
+            return;
+        }
         var project = SelectedProject;
         if (project is null)
         {
@@ -1087,6 +1152,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         PersistWorkbenchPreview();
         return uri;
+    }
+
+    internal async Task<RemotePreviewProxy?> OpenPreviewRouteAsync(Uri address)
+    {
+        if (!IsRemote || !address.IsLoopback) return null;
+        if (!CanOperate || SelectedProject is not { } project || _client is not EnvironmentClient client)
+            throw new InvalidOperationException("Host-local previews require a connected environment with operate access.");
+        return await client.OpenRemotePreviewAsync(new(project.ProjectId, address)).ConfigureAwait(false);
     }
 
     public WorkbenchPreviewTabViewModel AddWorkbenchPreviewTab()
@@ -1509,6 +1582,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         string data,
         CancellationToken cancellationToken = default)
     {
+        if (!CanOperate) return;
         var session = WorkbenchTerminal.SelectedSession?.Descriptor;
         if (session is null || session.State != TerminalSessionState.Running || string.IsNullOrEmpty(data))
         {
@@ -1643,6 +1717,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public void ResizeWorkbenchTerminalGrid(int paneIndex, int columns, int rows)
     {
+        if (!CanOperate) return;
         if (Layout.SelectedPanel != WorkbenchPanelKind.Terminal ||
             WorkbenchTerminal.GetPaneSession(paneIndex) is not { State: TerminalSessionState.Running } session)
         {
@@ -2078,7 +2153,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         WorkbenchFileDocumentViewModel document = null!;
-        await RunOnUiThreadAsync(() => document = WorkbenchFiles.OpenDocument(relativePath, revealLine))
+        await RunOnUiThreadAsync(() =>
+        {
+            document = WorkbenchFiles.OpenDocument(relativePath, revealLine);
+            document.HasWriteAccess = CanOperate;
+        })
             .ConfigureAwait(false);
         if (!forceReload && !document.IsLoading && document.Revision.Length != 0)
         {
@@ -2086,6 +2165,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         var readCancellation = new CancellationTokenSource();
+        var editVersion = document.EditVersion;
         Interlocked.Exchange(ref _workbenchFileReadCancellation, readCancellation)?.Cancel();
         try
         {
@@ -2119,7 +2199,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     if (SelectedProject?.ProjectId == project.ProjectId &&
                         WorkbenchFiles.OpenDocuments.Contains(document))
                     {
-                        document.ApplyText(result);
+                        document.ApplyTextIfUnchanged(result, editVersion);
                     }
                 }).ConfigureAwait(false);
             }
@@ -2167,7 +2247,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     content,
                     revision,
                     SelectedThread?.ThreadId)).ConfigureAwait(false);
-            await RunOnUiThreadAsync(() => document.ApplySaved(result)).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() => document.ApplySaved(result, content)).ConfigureAwait(false);
             _ = QueueWorkbenchFileSearchAsync(debounce: false);
         }
         catch (Exception exception)
@@ -2200,6 +2280,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         document.Status = "Opening external editor…";
         try
         {
+            if (IsRemote)
+            {
+                if (_remoteEditorProfile is null)
+                    throw new InvalidOperationException("Open this environment through a saved SSH connection to launch VS Code on this device.");
+                var workspace = await RequireClient().GetProjectChangesAsync(new(project.ProjectId, ThreadId: SelectedThread?.ThreadId));
+                var link = PiStation.ClientRuntime.Ssh.RemoteEditorLink.Create(_remoteEditorProfile, workspace.WorkspacePath, document.RelativePath);
+                var opened = await Windows.System.Launcher.LaunchUriAsync(link);
+                document.Status = opened ? "Opened in local VS Code over SSH • PiStation's unsaved edits stay here"
+                    : "Install VS Code with Remote SSH to open this workspace externally.";
+                return;
+            }
             var result = await RequireClient().OpenProjectFileInEditorAsync(
                 new OpenProjectFileInEditorRequest(
                     project.ProjectId,
@@ -3314,12 +3405,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await RequireClient().ConnectAsync(cancellationToken).ConfigureAwait(false);
-            await LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(ClearTransportError);
         }
         catch (Exception exception)
         {
-            ReportRuntimeError(exception);
+            ShowTransportError(exception.Message);
         }
     }
 
@@ -3376,8 +3466,38 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public Task FlushDraftAsync(CancellationToken cancellationToken = default) =>
         Composer.FlushAsync(cancellationToken);
 
+    internal bool HasUnsavedChanges => WorkbenchFiles.HasUnsavedChanges || Composer.HasUnsavedChanges || Plan.UnsavedPlanCount > 0;
+
+    internal async Task PreserveEditsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_pullRequestReview is not null) await _pullRequestReview.SaveNowAsync(cancellationToken);
+        if (_editingRecovery is not null) await _editingRecovery.FlushAsync(cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        await RunOnUiThreadAsync(() =>
+        {
+            _runtimeStopped = true;
+            SetWindowActive(false);
+            WorkbenchFiles.SetWriteAccess(false);
+            OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
+            RaiseCommandStateChanged();
+        }).ConfigureAwait(false);
+        _selectionClosed = true;
+        Composer.CancelPendingOperations();
+        CancelPiConfigurationLoad();
+        await _selectionGate.WaitAsync().ConfigureAwait(false);
+        try { await DisposeCoreAsync().ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async ValueTask DisposeCoreAsync()
+    {
+        // Cancel debounced and in-flight draft work before asynchronous subscription cleanup.
+        Composer.CancelPendingOperations();
         _renderShutdown.Cancel();
         if (_pullRequestReview is not null)
         {
@@ -3396,6 +3516,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_subscription is not null)
         {
             _subscription.Store.Changed -= OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+            await _subscription.DisposeAsync().ConfigureAwait(false);
             _subscription = null;
         }
 
@@ -3404,6 +3526,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_client is not null)
         {
             _client.ConnectionStateChanged -= OnConnectionStateChanged;
+            if (_client.Catalog is { } catalog) catalog.Changed -= OnCatalogChanged;
             _client.PiConfigurations.Changed -= OnPiConfigurationChanged;
             _client.ThreadMetadata.Changed -= OnThreadMetadataChanged;
         }
@@ -3415,43 +3538,126 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public void ReportRuntimeError(Exception exception) => ReportRuntimeError(exception.Message);
+    public void ReportConnectionError(Exception exception) => ShowTransportError(exception.Message);
 
     public void ReportRuntimeError(string message) => RunOnUiThread(() =>
     {
         if (_client is null)
         {
-            Connection.Status = "Local • Unavailable";
+            Connection.Status = $"{EnvironmentLabel} • Unavailable";
         }
 
         Connection.ShowRuntimeError(message);
     });
 
+    public bool IsRefreshingCatalog { get; private set; }
+
+    private void OnCatalogChanged(object? sender, EventArgs args) => RunOnUiThread(() =>
+    {
+        IsRefreshingCatalog = true;
+        try { ApplyCatalog(); }
+        finally { IsRefreshingCatalog = false; }
+    });
+
+    private void ApplyCatalog()
+    {
+        if (_client?.Catalog is not { } catalog) return;
+        UpdateCatalogCollection(Projects, catalog.Projects, project => project.ProjectId);
+        ApplyProjectGroups(catalog.Projects, catalog.Projects.SelectMany(project => _client.ThreadMetadata.GetProjectThreads(project.ProjectId, includeArchived: true)).ToArray());
+        if (SelectedProject is not { } selected) return;
+        var project = Projects.FirstOrDefault(p => p.ProjectId == selected.ProjectId);
+        if (project is null)
+        {
+            _ = SelectProjectAsync(null);
+            return;
+        }
+        SelectedProject = project;
+        var threads = _client.ThreadMetadata.GetProjectThreads(project.ProjectId, IsShowingArchivedThreads);
+        var matching = threads.Where(t => t.IsArchived == IsShowingArchivedThreads &&
+            (string.IsNullOrWhiteSpace(ThreadSearchQuery) || t.Title.Contains(ThreadSearchQuery.Trim(), StringComparison.OrdinalIgnoreCase))).ToArray();
+        UpdateCatalogCollection(Threads, SortSidebarThreads(ThreadInbox.Select(matching,
+            IsShowingArchivedThreads ? ThreadInboxShelf.Archived : InboxShelf, DateTimeOffset.UtcNow)).ToArray(), thread => thread.ThreadId);
+        // The catalog is complete. Invalidate a pending page response and its stale cursor.
+        Interlocked.Increment(ref _threadSearchVersion);
+        _threadSearchNextOffset = null;
+        OnPropertyChanged(nameof(CanLoadMoreThreads));
+        ThreadListStatus = BuildThreadListStatus(Threads.Count, ThreadSearchQuery, IsShowingArchivedThreads, isTruncated: false);
+        if (SelectedThread is { } current)
+        {
+            var updated = _client.ThreadMetadata.GetCurrent(current.ThreadId);
+            if (updated is null || updated.IsArchived != IsShowingArchivedThreads) _ = SelectThreadAsync(null);
+            else SelectedThread = updated;
+        }
+        RaiseCommandStateChanged();
+    }
+
+    private static void UpdateCatalogCollection<T, TKey>(ObservableCollection<T> target, IReadOnlyList<T> incoming,
+        Func<T, TKey> key) where TKey : notnull
+    {
+        var keys = incoming.Select(key).ToHashSet();
+        for (var index = target.Count - 1; index >= 0; index--)
+            if (!keys.Contains(key(target[index]))) target.RemoveAt(index);
+        for (var index = 0; index < incoming.Count; index++)
+        {
+            var wanted = key(incoming[index]);
+            if (index >= target.Count || !EqualityComparer<TKey>.Default.Equals(key(target[index]), wanted))
+            {
+                var existing = -1;
+                for (var search = index + 1; search < target.Count; search++)
+                    if (EqualityComparer<TKey>.Default.Equals(key(target[search]), wanted)) { existing = search; break; }
+                if (existing >= 0) target.Move(existing, index);
+                else target.Insert(index, incoming[index]);
+            }
+            if (!EqualityComparer<T>.Default.Equals(target[index], incoming[index])) target[index] = incoming[index];
+        }
+    }
+
     private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs args) =>
         RunOnUiThread(() =>
         {
-            Connection.Status = args.State switch
+            var state = args.State switch
             {
-                EnvironmentConnectionState.Connected => "Local • Ready",
-                EnvironmentConnectionState.Connecting => "Local • Connecting",
-                EnvironmentConnectionState.Authenticating => "Local • Authenticating",
-                EnvironmentConnectionState.Synchronizing => "Local • Synchronizing",
-                EnvironmentConnectionState.Retrying => "Local • Reconnecting",
-                EnvironmentConnectionState.AuthenticationRequired => "Local • Authentication required",
-                EnvironmentConnectionState.Incompatible => "Local • Protocol incompatible",
-                _ => "Local • Disconnected",
+                EnvironmentConnectionState.Connected => CanOperate ? "Ready" : "Read only",
+                EnvironmentConnectionState.Connecting => "Connecting",
+                EnvironmentConnectionState.Authenticating => "Authenticating",
+                EnvironmentConnectionState.Synchronizing => "Synchronizing",
+                EnvironmentConnectionState.Retrying => "Reconnecting",
+                EnvironmentConnectionState.AuthenticationRequired => "Authentication required",
+                EnvironmentConnectionState.Incompatible => "Protocol incompatible",
+                EnvironmentConnectionState.TrustRequired => "Verify host identity",
+                _ => "Disconnected",
             };
+            Connection.Status = $"{EnvironmentLabel} • {state}";
+            if (args.Diagnostics is { State: EnvironmentConnectionState.Retrying } diagnostics)
+                Connection.Status += $" · attempt {diagnostics.Attempt} · {diagnostics.Failure}";
+            OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
+            WorkbenchChanges.AllowOperations = CanOperate;
+            WorkbenchTerminal.AllowOperations = CanOperate;
+            WorkbenchFiles.SetWriteAccess(CanOperate);
             if (args.State == EnvironmentConnectionState.Connected)
             {
                 ClearTransportError();
+                UpdateThreadSynchronizationStatus();
+                _ = RefreshRemoteWorkspaceAsync();
+            }
+            else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired && args.Error is PiStation.ClientRuntime.ConnectionValidationException)
+            {
+                ShowTransportError(args.Error.Message);
+            }
+            else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired)
+            {
+                ShowTransportError("Remote access was rejected. It may have expired or been revoked. In Settings → Connections, pair again using a fresh host link, then select Open; you do not need to forget the saved environment.");
             }
             else if (args.State is EnvironmentConnectionState.Retrying or EnvironmentConnectionState.Disconnected)
             {
                 ShowTransportError(args.Error?.Message ??
-                    "The desktop lost its connection to the local environment. Work already accepted by the host may still be running.");
+                    "The desktop lost its connection to the environment. Work already accepted by the host may still be running.");
             }
             else if (args.Error is not null)
             {
-                ReportRuntimeError(args.Error);
+                ShowTransportError(args.Error.Message);
             }
 
             RaiseCommandStateChanged();
@@ -3462,6 +3668,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (!ReferenceEquals(sender, _subscription?.Store)) return;
         if (args.Projection is { } projection) ScheduleProjection(projection);
         else RunOnUiThread(() => { if (!ReferenceEquals(sender, _subscription?.Store)) return; Interlocked.Exchange(ref _pendingProjection, null); ApplyThreadProjection(null); });
+    }
+
+    private void OnThreadSynchronizationChanged(object? sender, EventArgs args) => RunOnUiThread(UpdateThreadSynchronizationStatus);
+
+    private void UpdateThreadSynchronizationStatus()
+    {
+        if (!IsRemote || _client?.ConnectionState != EnvironmentConnectionState.Connected) return;
+        var stage = _subscription?.Store.IsSynchronized == false ? "Synchronizing thread" : CanOperate ? "Ready" : "Read only";
+        Connection.Status = $"{EnvironmentLabel} • {stage}";
     }
 
     private void OnTerminalChanged(object? sender, TerminalChangedEventArgs args)
@@ -3567,10 +3782,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             OnPropertyChanged(nameof(CanSend));
             OnPropertyChanged(nameof(CanQueueFollowUp));
         }
-        else if (args.PropertyName == nameof(ComposerViewModel.HasAttachments))
+        else if (args.PropertyName is nameof(ComposerViewModel.HasAttachments) or nameof(ComposerViewModel.HasRecoveryConflict) or nameof(ComposerViewModel.HasDraft))
         {
             OnPropertyChanged(nameof(CanSend));
             OnPropertyChanged(nameof(CanQueueFollowUp));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
         }
         else if (args.PropertyName == nameof(ComposerViewModel.CanAttach))
         {
@@ -3614,8 +3830,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void RaiseCommandStateChanged()
     {
         OnPropertyChanged(nameof(CanStartBackgroundTask));
-        Plan.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
-        Agents.SetCommandsAvailable(_client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
+        Plan.SetCommandsAvailable(CanOperate && _client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
+        Agents.SetCommandsAvailable(CanOperate && _client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(CanSend));
         OnPropertyChanged(nameof(CanStashPrompt));
         OnPropertyChanged(nameof(CanQueueFollowUp));

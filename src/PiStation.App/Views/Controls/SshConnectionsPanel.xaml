@@ -1,0 +1,56 @@
+<UserControl
+    x:Class="PiStation.App.Views.Controls.SshConnectionsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:automation="using:Microsoft.UI.Xaml.Automation">
+    <StackPanel Spacing="8" automation:AutomationProperties.AutomationId="SshConnectionsPanel"
+        automation:AutomationProperties.Name="SSH connections">
+        <TextBlock Text="SSH · Running Windows host" FontWeight="SemiBold" />
+        <TextBlock Text="Start PiStation on the remote computer first, then connect here. Disconnecting leaves that PiStation host running."
+            TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+        <TextBlock Text="Requires Windows OpenSSH Server and a verified SSH host key. PiStation must be running under the same Windows account used for SSH. Keys/agent are tried first, then a password prompt."
+            TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+        <ComboBox x:Name="DiscoveredHosts" Header="Discovered SSH targets" HorizontalAlignment="Stretch"
+            SelectionChanged="OnDiscoveredHostSelected" automation:AutomationProperties.AutomationId="DiscoveredSshHosts" />
+        <Button x:Name="DiscoverHosts" Content="Refresh SSH targets" Click="OnDiscoverHosts" Style="{StaticResource PiSecondaryButtonStyle}"
+            automation:AutomationProperties.AutomationId="DiscoverSshHostsButton" />
+        <TextBox x:Name="ConnectionName" Header="Connection name" MaxLength="80"
+            automation:AutomationProperties.AutomationId="SshConnectionName" />
+        <TextBox x:Name="Target" Header="SSH config alias or user@host" MaxLength="255"
+            automation:AutomationProperties.AutomationId="SshTarget" />
+        <NumberBox x:Name="SshPort" Header="SSH port (optional; uses SSH config by default)" Minimum="1" Maximum="65535"
+            automation:AutomationProperties.AutomationId="SshPort" />
+        <TextBox x:Name="ServerPath" Header="Remote server path (automatic setup deferred)" Visibility="Collapsed"
+            automation:AutomationProperties.AutomationId="SshServerPath" />
+        <TextBox x:Name="DataRoot" Header="Host data directory (optional; defaults to the remote desktop's data)"
+            automation:AutomationProperties.AutomationId="SshDataRoot" />
+        <TextBox x:Name="PiExecutable" Header="Pi executable path on the host (automatic setup deferred)" Visibility="Collapsed"
+            automation:AutomationProperties.AutomationId="SshPiExecutable" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="AddConnection" Content="Connect and save" Click="OnAddConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+                automation:AutomationProperties.AutomationId="AddSshConnectionButton" />
+            <Button x:Name="CancelConnection" Content="Cancel" Click="OnCancelConnection" IsEnabled="False" Style="{StaticResource PiSecondaryButtonStyle}"
+                automation:AutomationProperties.AutomationId="CancelSshConnectionButton" />
+        </StackPanel>
+        <TextBlock Text="Saved SSH environments" FontWeight="SemiBold" />
+        <ListView x:Name="SavedConnections" DisplayMemberPath="Name" MaxHeight="180" SelectionMode="Single"
+            SelectionChanged="OnSelectionChanged" automation:AutomationProperties.AutomationId="SavedSshEnvironments" />
+        <TextBlock x:Name="Details" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="OpenConnection" Content="Open / retry" Click="OnOpenConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+                automation:AutomationProperties.AutomationId="OpenSshConnectionButton" />
+            <Button x:Name="DisconnectConnection" Content="Disconnect" Click="OnDisconnectConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+                automation:AutomationProperties.AutomationId="DisconnectSshConnectionButton" />
+            <Button x:Name="ForgetConnection" Content="Forget" Click="OnForgetConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+                automation:AutomationProperties.AutomationId="ForgetSshConnectionButton" />
+        </StackPanel>
+        <Button x:Name="UpdateConnection" Content="Update / reconnect with bundled host" Visibility="Collapsed" Click="OnUpdateConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+            automation:AutomationProperties.AutomationId="UpdateSshConnectionButton" />
+        <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
+            automation:AutomationProperties.AutomationId="SshConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Install owner-managed update" Click="OnInstallOwnerUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
+            <Button Content="Check update status" Click="OnCheckOwnerUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

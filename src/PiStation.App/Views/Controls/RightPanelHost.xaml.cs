@@ -193,6 +193,7 @@ public sealed partial class RightPanelHost : UserControl
             ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated,
             tab.ZoomFactor,
             tab.ColorScheme);
+        surface.RemoteRouteFactory = ViewModel.OpenPreviewRouteAsync;
         _previewSurfaces[tab.TabId] = surface;
         surface.NavigationStarted -= OnPreviewNavigationStarted;
         surface.NavigationFinished -= OnPreviewNavigationFinished;
@@ -375,6 +376,11 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnPreviewOpenExternalClicked(object sender, RoutedEventArgs e)
     {
+        if (ViewModel.IsRemote && Uri.TryCreate(ViewModel.WorkbenchPreview.CurrentUrl, UriKind.Absolute, out var hostUrl) && hostUrl.IsLoopback)
+        {
+            ViewModel.ReportRuntimeError("This host-local preview is scoped to the embedded browser. Open a separately reachable URL to use an external browser.");
+            return;
+        }
         if (WorkbenchPreviewViewModel.TryNormalizeAddress(
                 ViewModel.WorkbenchPreview.CurrentUrl,
                 out var uri,

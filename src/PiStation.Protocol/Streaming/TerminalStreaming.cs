@@ -11,6 +11,7 @@ public sealed record TerminalCursor(Sequence Sequence);
 [JsonDerivedType(typeof(TerminalOutputEnvelope), "output")]
 [JsonDerivedType(typeof(TerminalStateEnvelope), "state")]
 [JsonDerivedType(typeof(TerminalResyncRequiredEnvelope), "resyncRequired")]
+[JsonDerivedType(typeof(TerminalSynchronizedEnvelope), "synchronized")]
 public abstract record TerminalEnvelope(TerminalSessionId TerminalSessionId, Sequence Sequence);
 
 public sealed record TerminalSnapshotEnvelope(
@@ -29,3 +30,5 @@ public sealed record TerminalResyncRequiredEnvelope(
     TerminalSessionId TerminalSessionId,
     Sequence Sequence,
     string Reason) : TerminalEnvelope(TerminalSessionId, Sequence);
+
+public sealed record TerminalSynchronizedEnvelope(TerminalSessionId TerminalSessionId, Sequence Sequence) : TerminalEnvelope(TerminalSessionId, Sequence);

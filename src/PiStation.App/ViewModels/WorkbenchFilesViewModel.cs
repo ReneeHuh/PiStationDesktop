@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
+using PiStation.ClientRuntime;
 using PiStation.Protocol.Models;
 
 namespace PiStation.App.ViewModels;
@@ -25,12 +26,27 @@ public enum WorkbenchFilePreviewKind
 
 public sealed class WorkbenchFilesViewModel : ObservableObject
 {
+    private readonly EditingRecoveryStore? _recovery;
+    private string? _contextKey;
+    private bool _hasWriteAccess = true;
+
+    public WorkbenchFilesViewModel(EditingRecoveryStore? recovery = null) => _recovery = recovery;
+
+    internal bool HasUnsavedChanges => _sessions.Values.SelectMany(session => session.OpenDocuments)
+        .Any(document => document.IsDirty || document.IsSaving);
+
+    internal void SetWriteAccess(bool allowed)
+    {
+        _hasWriteAccess = allowed;
+        foreach (var document in _sessions.Values.SelectMany(session => session.OpenDocuments)) document.HasWriteAccess = allowed;
+    }
     private readonly Dictionary<string, WorkspaceFileSession> _sessions = new(StringComparer.Ordinal);
     public IReadOnlyList<string> UnsavedDocumentNames => _sessions.Values.SelectMany(session => session.OpenDocuments)
         .Where(document => document.IsDirty).Select(document => document.RelativePath).ToArray();
     private WorkspaceFileSession _session = new();
     public int? NextOffset { get => _session.NextOffset; internal set { _session.NextOffset = value; OnPropertyChanged(nameof(CanLoadMore)); } }
     public bool CanLoadMore => NextOffset is not null;
+    internal int LoadedEntryCount => _session.Entries.Length;
     internal int NextScanOffset { get => _session.NextScanOffset; set => _session.NextScanOffset = value; }
     internal void AppendEntries(IReadOnlyList<ProjectWorkspaceEntry> entries) => ApplyEntries(_session.Entries.Concat(entries).DistinctBy(entry => entry.RelativePath).ToArray());
     private int _searchModeIndex;
@@ -211,6 +227,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
 
     internal void SwitchContext(string? contextKey, bool hasProject)
     {
+        _contextKey = contextKey;
         _session = contextKey is null
             ? new WorkspaceFileSession()
             : _sessions.GetValueOrDefault(contextKey) ?? AddSession(contextKey);
@@ -221,7 +238,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
 
     internal void ApplyEntries(IReadOnlyList<ProjectWorkspaceEntry> entries)
     {
-        _session.Entries = entries;
+        _session.Entries = entries.ToArray();
         TreeRoots.Clear();
         var byPath = new Dictionary<string, WorkspaceTreeItemViewModel>(StringComparer.OrdinalIgnoreCase);
 
@@ -275,6 +292,11 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
         SortTree(TreeRoots);
     }
 
+    internal void ApplyEntriesIfChanged(IReadOnlyList<ProjectWorkspaceEntry> entries)
+    {
+        if (!_session.Entries.SequenceEqual(entries)) ApplyEntries(entries);
+    }
+
     internal WorkbenchFileDocumentViewModel OpenDocument(string relativePath, int? revealLine = null)
     {
         var document = OpenDocuments.FirstOrDefault(candidate =>
@@ -282,6 +304,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
         if (document is null)
         {
             document = new WorkbenchFileDocumentViewModel(relativePath);
+            TrackRecovery(document, _contextKey);
             OpenDocuments.Add(document);
         }
 
@@ -316,6 +339,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
         }
 
         OpenDocuments.RemoveAt(index);
+        if (_contextKey is { } context) _recovery?.RemoveFile(context, document.RelativePath);
         if (ReferenceEquals(ActiveDocument, document))
         {
             ActiveDocument = OpenDocuments.Count == 0
@@ -344,8 +368,29 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
     private WorkspaceFileSession AddSession(string contextKey)
     {
         var session = new WorkspaceFileSession();
+        foreach (var recovered in _recovery?.LoadFiles(contextKey) ?? [])
+        {
+            var document = new WorkbenchFileDocumentViewModel(recovered.RelativePath) { HasWriteAccess = _hasWriteAccess };
+            document.Restore(recovered);
+            TrackRecovery(document, contextKey);
+            session.OpenDocuments.Add(document);
+        }
+        session.ActiveDocument = session.OpenDocuments.FirstOrDefault();
         _sessions.Add(contextKey, session);
         return session;
+    }
+
+    private void TrackRecovery(WorkbenchFileDocumentViewModel document, string? context)
+    {
+        if (_recovery is null || context is null) return;
+        document.PropertyChanged += (_, args) =>
+        {
+            if (!_sessions.TryGetValue(context, out var session) || !session.OpenDocuments.Contains(document)) return;
+            if (args.PropertyName is not (nameof(document.Content) or nameof(document.Revision) or nameof(document.IsDirty) or nameof(document.IsLoading)) || document.IsLoading) return;
+            if (document.IsDirty && document.Revision.Length > 0)
+                _recovery.SaveFile(new(context, document.RelativePath, document.Content, document.Revision));
+            else if (args.PropertyName is nameof(document.IsDirty) or nameof(document.IsLoading)) _recovery.RemoveFile(context, document.RelativePath);
+        };
     }
 
     private void RaiseSessionProperties()
@@ -389,7 +434,7 @@ public sealed class WorkbenchFilesViewModel : ObservableObject
     {
         public int? NextOffset { get; set; }
         public int NextScanOffset { get; set; }
-        public IReadOnlyList<ProjectWorkspaceEntry> Entries { get; set; } = [];
+        public ProjectWorkspaceEntry[] Entries { get; set; } = [];
         public ObservableCollection<WorkspaceTreeItemViewModel> TreeRoots { get; } = [];
         public ObservableCollection<ProjectFileMatch> Files { get; } = [];
         public ObservableCollection<ProjectContentMatch> ContentMatches { get; } = [];
@@ -434,6 +479,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     private bool _showRenderedContent;
     private string? _localPreviewPath;
     private string _status = "Loading…";
+    internal long EditVersion { get; private set; }
 
     public WorkbenchFileDocumentViewModel(string relativePath, bool isExternal = false)
     {
@@ -486,6 +532,17 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     }
 
     public string RelativePath { get; }
+    private bool _hasWriteAccess = true;
+    public bool HasWriteAccess
+    {
+        get => _hasWriteAccess;
+        internal set
+        {
+            if (!SetProperty(ref _hasWriteAccess, value)) return;
+            OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(CanSave));
+        }
+    }
     public string FileName { get; }
     public bool IsMarkdown { get; }
     public bool IsImage { get; }
@@ -506,6 +563,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         {
             if (SetProperty(ref _content, value))
             {
+                if (!_isLoading) EditVersion++;
                 IsDirty = !_isLoading && !IsExternal && !UsesAssetContent;
                 OnPropertyChanged(nameof(CanSave));
             }
@@ -551,6 +609,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
             if (SetProperty(ref _isLoading, value))
             {
                 OnPropertyChanged(nameof(CanSave));
+                OnPropertyChanged(nameof(IsReadOnly));
             }
         }
     }
@@ -587,7 +646,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
     }
 
     public string DisplayTitle => IsDirty ? $"{FileName} ●" : FileName;
-    public bool CanSave => IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsExternal && !UsesAssetContent && !IsBinary;
+    public bool CanSave => HasWriteAccess && IsDirty && !IsLoading && !IsSaving && !IsTruncated && !IsExternal && !UsesAssetContent && !IsBinary;
     public bool CanReloadFromWorkspace => !IsExternal;
     internal long ExternalReadVersion { get; private set; }
     internal long BeginExternalRead()
@@ -597,7 +656,7 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         return ++ExternalReadVersion;
     }
     public bool CanOpenInEditor => !IsExternal;
-    public bool IsReadOnly => IsExternal || IsTruncated || UsesAssetContent || IsBinary;
+    public bool IsReadOnly => !HasWriteAccess || IsLoading || IsExternal || IsTruncated || UsesAssetContent || IsBinary;
 
     public bool ShowRenderedContent
     {
@@ -679,6 +738,16 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         RaisePreviewVisibility();
     }
 
+    internal void ApplyTextIfUnchanged(ReadProjectFileResult result, long editVersion)
+    {
+        if (EditVersion != editVersion)
+        {
+            Status = "Reload skipped • newer local edits were kept";
+            return;
+        }
+        ApplyText(result);
+    }
+
     internal void ApplyAsset(ReadProjectFileAssetResult result)
     {
         _isBinary = true;
@@ -739,12 +808,21 @@ public sealed class WorkbenchFileDocumentViewModel : ObservableObject
         RaisePreviewVisibility();
     }
 
-    internal void ApplySaved(SaveProjectFileResult result)
+    internal void ApplySaved(SaveProjectFileResult result, string savedContent)
     {
         Revision = result.Revision;
-        IsDirty = false;
+        IsDirty = !string.Equals(Content, savedContent, StringComparison.Ordinal);
         IsSaving = false;
-        Status = $"Saved • {result.ByteLength:N0} bytes";
+        Status = IsDirty ? "Earlier edits saved • newer edits are unsaved" : $"Saved • {result.ByteLength:N0} bytes";
+    }
+
+    internal void Restore(RecoveredFile recovered)
+    {
+        _isLoading = false;
+        Revision = recovered.Revision;
+        Content = recovered.Content;
+        IsDirty = true;
+        Status = "Recovered local edits • save to update the host, or reload to discard";
     }
 
     internal void ApplyLoadFailure(string message)

@@ -30,7 +30,7 @@ using System.Runtime.InteropServices;
 public static class PiStationCompatibilityWindow
 {
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool SetWindowPos(
+    private static extern bool SetWindowPos(
         IntPtr hWnd,
         IntPtr hWndInsertAfter,
         int x,
@@ -41,6 +41,22 @@ public static class PiStationCompatibilityWindow
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    public static bool ResizeLogicalPixels(IntPtr window, int width, int height)
+    {
+        var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        if (previous == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try
+        {
+            var scale = GetDpiForWindow(window) / 96.0;
+            return SetWindowPos(window, IntPtr.Zero, 0, 0,
+                (int)Math.Round(width * scale), (int)Math.Round(height * scale), 0x0042);
+        }
+        finally { SetThreadDpiAwarenessContext(previous); }
+    }
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int command);
@@ -194,12 +210,10 @@ function Set-TestWindowSize {
     )
 
     $process = Get-Process -Id $script:launchedProcessId -ErrorAction Stop
-    $physicalWidth = [int][Math]::Round($Width * $script:displayScale)
-    $physicalHeight = [int][Math]::Round($Height * $script:displayScale)
-    if (-not [PiStationCompatibilityWindow]::ResizePhysical(
+    if (-not [PiStationCompatibilityWindow]::ResizeLogicalPixels(
         $process.MainWindowHandle,
-        $physicalWidth,
-        $physicalHeight)) {
+        $Width,
+        $Height)) {
         throw "Could not resize the packaged app window to ${Width}x${Height} logical pixels."
     }
 }

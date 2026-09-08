@@ -299,7 +299,7 @@
                     <TextBlock
                         Tag="Appearance"
                         Foreground="{ThemeResource PiTextSecondaryBrush}"
-                        Text="Configure this local Pi Station workspace."
+                        Text="Configure Pi Station appearance, workspace, and connections."
                         TextWrapping="Wrap" />
 
                     <Border Tag="General" Style="{StaticResource PiElevatedSurfaceStyle}" Visibility="Collapsed">
@@ -558,7 +558,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Local environment" />
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="{x:Bind ViewModel.EnvironmentLabel}" />
                             <TextBlock
                                 x:Name="SettingsConnectionStatusText"
                                 Grid.Row="1"
@@ -577,6 +577,8 @@
                                 ToolTipService.ToolTip="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}" />
                         </Grid>
                     </Border>
+
+                    <ContentControl x:Name="RemoteConnectionsHost" HorizontalContentAlignment="Stretch" />
 
                     <Border
                         x:Name="ProjectsSettingsSection"

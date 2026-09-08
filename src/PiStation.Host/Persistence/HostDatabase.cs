@@ -28,7 +28,7 @@ public sealed partial class HostDatabase
         {
             DataSource = options.DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            Cache = SqliteCacheMode.Private,
             ForeignKeys = true,
             Pooling = false,
         }.ToString();
@@ -308,6 +308,7 @@ public sealed partial class HostDatabase
                 """;
             await seedInbox.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+        await InitializeCatalogAsync(connection, cancellationToken).ConfigureAwait(false);
         await using (var lifecycleIndex = connection.CreateCommand())
         {
             lifecycleIndex.CommandText = """
@@ -878,7 +879,14 @@ public sealed partial class HostDatabase
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await EnrichThreadDescriptorAsync(connection, null, thread, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ThreadDescriptor> EnrichThreadDescriptorAsync(SqliteConnection connection,
+        SqliteTransaction? transaction, HostThreadRecord thread, CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT IsSettled, SnoozedUntilUtc, PinnedOrder, TitleKind, PullRequestJson,
                    EXISTS(
@@ -1457,6 +1465,15 @@ public sealed partial class HostDatabase
             ?? throw new KeyNotFoundException($"Thread '{threadId}' was not found.");
     }
 
+    /// <summary>Reads the saved configuration without creating a row for the thread.</summary>
+    public async Task<ThreadPiConfiguration?> GetThreadPiConfigurationAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadThreadPiConfigurationAsync(connection, threadId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PiConfigurationUpdateResult> UpdateThreadPiConfigurationAsync(
         ThreadId threadId,
         long expectedRevision,
@@ -1517,6 +1534,14 @@ public sealed partial class HostDatabase
         ThreadId threadId, DraftId draftId, long expectedRevision, string text,
         CancellationToken cancellationToken = default) =>
         UpdateThreadDraftAsync(threadId, draftId, expectedRevision, text, null, cancellationToken);
+    /// <summary>Reads a draft without initializing one as a side effect.</summary>
+    public async Task<ThreadDraft?> GetThreadDraftAsync(
+        ThreadId threadId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadThreadDraftAsync(connection, threadId, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<DraftUpdateResult> UpdateThreadDraftAsync(
         ThreadId threadId,
@@ -1987,11 +2012,19 @@ public sealed partial class HostDatabase
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static async Task<HostEnvironmentRecord?> ReadEnvironmentAsync(

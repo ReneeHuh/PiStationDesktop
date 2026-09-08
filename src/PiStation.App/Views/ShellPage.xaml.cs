@@ -35,7 +35,10 @@ public sealed partial class ShellPage : Page
     private readonly HashSet<string> _paletteSearchNotices = new(StringComparer.Ordinal);
     private bool _paletteOpen;
     private bool _settingsOpen;
+    private bool _settingsSuspended;
+    private Task<ContentDialogResult>? _settingsShowTask;
     private bool _disposed;
+    private RemoteConnectionsPanel? _remoteConnectionsPanel;
 
     public ShellPage()
         : this(AppBootstrapper.CreateShellViewModel(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()))
@@ -46,6 +49,8 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        _remoteConnectionsPanel = new RemoteConnectionsPanel(ViewModel.IsRemote);
+        RemoteConnectionsHost.Content = _remoteConnectionsPanel;
         _sidebar = new AppSidebar(ViewModel);
         _sidebar.AddProjectRequested += OnAddProjectRequested;
         _sidebar.SettingsRequested += OnSettingsRequested;
@@ -102,6 +107,7 @@ public sealed partial class ShellPage : Page
         }
 
         _disposed = true;
+        _remoteConnectionsPanel?.Deactivate();
         _paletteSearchCancellation?.Cancel();
         _paletteSearchCancellation?.Dispose();
         _paletteSearchCancellation = null;
@@ -739,6 +745,7 @@ public sealed partial class ShellPage : Page
 
     private async Task OpenSettingsAsync()
     {
+        if (_settingsOpen || _settingsSuspended || _disposed) return;
         SynchronizeThemeSelection();
         SynchronizeTerminalAppearanceSelection();
         RefreshKeybindingRows();
@@ -758,7 +765,43 @@ public sealed partial class ShellPage : Page
 
         _settingsOpen = true;
         _ = ViewModel.RefreshSettingsAsync();
-        await SettingsDialog.ShowAsync();
+        _remoteConnectionsPanel?.Activate();
+        try
+        {
+            _settingsShowTask = SettingsDialog.ShowAsync().AsTask();
+            await _settingsShowTask;
+        }
+        catch { _settingsOpen = false; throw; }
+    }
+
+    internal async Task<ContentDialogResult> ShowConnectionDialogAsync(ContentDialog dialog, CancellationToken cancellationToken)
+    {
+        var restore = _settingsOpen;
+        if (restore)
+        {
+            _settingsSuspended = true;
+            SettingsDialog.Hide();
+            if (_settingsShowTask is { } settings) await settings;
+        }
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            if (restore)
+            {
+                _settingsSuspended = false;
+                if (!_disposed) _ = RestoreSettingsAsync();
+            }
+        }
+    }
+
+    private async Task RestoreSettingsAsync()
+    {
+        try { await OpenSettingsAsync(); }
+        catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
     }
 
     private void OnSettingsNavigationSelectionChanged(
@@ -1111,6 +1154,8 @@ public sealed partial class ShellPage : Page
     private void OnSettingsDialogClosed(ContentDialog sender, ContentDialogClosedEventArgs args)
     {
         _settingsOpen = false;
+        if (_settingsSuspended) return;
+        _remoteConnectionsPanel?.Deactivate();
         _sidebar.FocusSettingsButton();
     }
 

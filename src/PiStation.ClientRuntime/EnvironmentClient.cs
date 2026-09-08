@@ -15,7 +15,7 @@ using PiStation.Protocol.Serialization;
 
 namespace PiStation.ClientRuntime;
 
-public sealed class EnvironmentClient : IEnvironmentClient
+public sealed partial class EnvironmentClient : IEnvironmentClient
 {
     public Task<SourceControlWritingSettings> GetSourceControlWritingSettingsAsync(CancellationToken cancellationToken = default) => InvokeAsync<SourceControlWritingSettings>("GetSourceControlWritingSettings", cancellationToken);
     public Task<ReadArtifactFileResult> ReadArtifactFileAsync(ReadArtifactFileRequest request, CancellationToken cancellationToken = default) => InvokeAsync<ReadArtifactFileResult>("ReadArtifactFile", request, cancellationToken);
@@ -39,12 +39,15 @@ public sealed class EnvironmentClient : IEnvironmentClient
         return result;
     }
 
-    private readonly ConcurrentDictionary<ThreadId, ThreadSubscription> _subscriptions = new();
-    private readonly ConcurrentDictionary<TerminalSessionId, TerminalSubscription> _terminalSubscriptions = new();
-    private readonly ClientRuntimeOptions _options;
-    private readonly HttpClient _httpClient;
+    private readonly SubscriptionPool<ThreadId, ThreadSubscription> _subscriptions;
+    private readonly SubscriptionPool<TerminalSessionId, TerminalSubscription> _terminalSubscriptions;
+    private ClientRuntimeOptions _options;
+    private HttpClient _httpClient;
+    private readonly SemaphoreSlim _endpointGate = new(1, 1);
     private readonly ConnectionSupervisor _supervisor;
     private readonly SemaphoreSlim _synchronizationGate = new(1, 1);
+    private readonly CancellationTokenSource _stopping = new();
+    private readonly Task _catalogTask;
     private bool _disposed;
 
     public EnvironmentClient(ClientRuntimeOptions options)
@@ -57,17 +60,40 @@ public sealed class EnvironmentClient : IEnvironmentClient
             Query = string.Empty,
             Fragment = string.Empty,
         }.Uri;
-        _httpClient = new HttpClient { BaseAddress = baseAddress };
+        _httpClient = new HttpClient(RemoteTransport.CreateHandler(options.CertificateFingerprint)) { BaseAddress = baseAddress };
         _httpClient.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _options.BearerCredential);
-        _supervisor = new ConnectionSupervisor(options);
+        _supervisor = new ConnectionSupervisor(options, SynchronizeAsync);
+        var snapshotCache = new ThreadSnapshotCache(options.TimeProvider);
+        _subscriptions = new(id => new(_supervisor, id, snapshotCache.Take(id)),
+            (shared, release) => new(shared, release), (id, stream) => snapshotCache.Put(id, stream.Store.Current));
+        _terminalSubscriptions = new(id => new(_supervisor, id), (shared, release) => new(shared, release));
         _supervisor.StateChanged += OnStateChanged;
-        _supervisor.Reconnected += OnReconnected;
+        _catalogTask = Task.Run(() => RunCatalogAsync(_stopping.Token));
     }
 
     public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
 
     public EnvironmentConnectionState ConnectionState => _supervisor.State;
+
+    public ConnectionDiagnostics Diagnostics => _supervisor.Diagnostics;
+
+    public int ActiveThreadStreamCount => _subscriptions.Count;
+    public int ActiveTerminalStreamCount => _terminalSubscriptions.Count;
+
+    public void NotifyNetworkRestored() => _supervisor.NotifyNetworkRestored();
+
+    public string ExportDiagnostics()
+    {
+        var state = Diagnostics;
+        var route = _options.EnsureTransportAsync is null ? (_options.CertificateFingerprint is null ? "Local" : "Direct HTTPS") : "SSH";
+        return $"PiStation connection diagnostics\nRoute: {route}\nProtocol: {ProtocolVersion.Current}\n" +
+            $"State: {state.State}\nFailure: {state.Failure}\nAttempt: {state.Attempt}\n" +
+            $"Next retry: {state.NextRetry:O}\nLast connected: {state.LastConnected:O}\n" +
+            $"Thread streams: {ActiveThreadStreamCount}\nTerminal streams: {ActiveTerminalStreamCount}\n" +
+            $"Catalog synchronized: {Catalog.IsSynchronized}\n" +
+            $"Client version: {ProductVersion.Current}\nHost version: {Descriptor?.ServerVersion ?? "unknown"}\n";
+    }
 
     public EnvironmentDescriptor? Descriptor { get; private set; }
 
@@ -75,17 +101,94 @@ public sealed class EnvironmentClient : IEnvironmentClient
 
     public ThreadMetadataStore ThreadMetadata { get; } = new();
 
+    public CatalogStore Catalog { get; } = new();
+
+    private async Task RunCatalogAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await _supervisor.WaitUntilConnectedAsync(cancellationToken).ConfigureAwait(false);
+                var connection = _supervisor.Connection;
+                await _synchronizationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (!ReferenceEquals(connection, _supervisor.Connection) || ConnectionState != EnvironmentConnectionState.Connected) continue;
+                    Catalog.AbandonTransfer();
+                }
+                finally { _synchronizationGate.Release(); }
+                await foreach (var batch in connection.StreamAsync<PiStation.Protocol.Streaming.CatalogBatch>(
+                    "SubscribeCatalog", Catalog.Cursor, cancellationToken).ConfigureAwait(false))
+                {
+                    await _synchronizationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        if (!ReferenceEquals(connection, _supervisor.Connection) || ConnectionState != EnvironmentConnectionState.Connected) break;
+                        Catalog.Apply(batch, Descriptor!.EnvironmentId, ThreadMetadata);
+                    }
+                    finally { _synchronizationGate.Release(); }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+            catch (Exception) { await Task.Delay(250, cancellationToken).ConfigureAwait(false); }
+        }
+    }
+
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _supervisor.ConnectAsync(cancellationToken).ConfigureAwait(false);
-        await SynchronizeAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _supervisor.DisconnectAsync(cancellationToken);
+    }
+
+    public async Task ReplaceEndpointAsync(ClientRuntimeOptions candidate, Action commit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(commit);
+        if (candidate.ExpectedEnvironmentId is null ||
+            candidate.ExpectedEnvironmentId != (Descriptor?.EnvironmentId ?? _options.ExpectedEnvironmentId) ||
+            candidate.ClientId != _options.ClientId)
+            throw new ArgumentException("An endpoint change must preserve environment and client identity.", nameof(candidate));
+        await _endpointGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            await using (var probe = new EnvironmentClient(candidate)) await probe.ConnectAsync(timeout.Token).ConfigureAwait(false);
+            var previous = _options;
+            try
+            {
+                await _supervisor.ReconfigureAsync(candidate, timeout.Token).ConfigureAwait(false);
+                _options = candidate;
+                await _supervisor.ConnectAsync(timeout.Token).ConfigureAwait(false);
+                timeout.Token.ThrowIfCancellationRequested();
+                commit();
+                var http = new HttpClient(RemoteTransport.CreateHandler(candidate.CertificateFingerprint))
+                    { BaseAddress = new Uri(candidate.HubAddress, "/") };
+                http.DefaultRequestHeaders.Authorization = new("Bearer", candidate.BearerCredential);
+                var oldHttp = _httpClient;
+                _httpClient = http;
+                oldHttp.Dispose();
+            }
+            catch
+            {
+                _options = previous;
+                await _supervisor.ReconfigureAsync(previous, CancellationToken.None).ConfigureAwait(false);
+                using var rollback = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                try { await _supervisor.ConnectAsync(rollback.Token).ConfigureAwait(false); }
+                catch (Exception) { /* The previous route retains its normal recovery policy. */ }
+                throw;
+            }
+        }
+        finally { _endpointGate.Release(); }
     }
 
     public async Task<IReadOnlyList<ProjectDescriptor>> ListProjectsAsync(
@@ -314,6 +417,10 @@ public sealed class EnvironmentClient : IEnvironmentClient
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (System.Text.Encoding.UTF8.GetByteCount(request.Content ?? string.Empty) > FileReadDefaults.MaximumWriteBytes ||
+            string.IsNullOrWhiteSpace(request.ExpectedRevision) || request.ExpectedRevision.Length > 256 ||
+            request.RelativePath.Length > FileReadDefaults.MaximumRelativePathLength)
+            throw new ArgumentException($"Editable files require a revision and may contain at most {FileReadDefaults.MaximumWriteBytes:N0} UTF-8 bytes.", nameof(request));
         return InvokeAsync<SaveProjectFileResult>("SaveProjectFile", request, cancellationToken);
     }
 
@@ -1201,22 +1308,24 @@ public sealed class EnvironmentClient : IEnvironmentClient
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureConnected();
-        return _subscriptions.GetOrAdd(threadId, id => new ThreadSubscription(_supervisor, id));
+        return _subscriptions.Acquire(threadId);
     }
 
     public TerminalSubscription SubscribeTerminal(TerminalSessionId terminalSessionId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureConnected();
-        return _terminalSubscriptions.GetOrAdd(
-            terminalSessionId,
-            id => new TerminalSubscription(
-                _supervisor,
-                id,
-                subscription => RemoveTerminalSubscription(id, subscription)));
+        return _terminalSubscriptions.Acquire(terminalSessionId);
     }
 
     public async ValueTask DisposeAsync()
+    {
+        await _endpointGate.WaitAsync().ConfigureAwait(false);
+        try { await DisposeCoreAsync().ConfigureAwait(false); }
+        finally { _endpointGate.Release(); }
+    }
+
+    private async ValueTask DisposeCoreAsync()
     {
         if (_disposed)
         {
@@ -1224,20 +1333,15 @@ public sealed class EnvironmentClient : IEnvironmentClient
         }
 
         _disposed = true;
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        try { await _catalogTask.ConfigureAwait(false); }
+        catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { }
+        _stopping.Dispose();
         _supervisor.StateChanged -= OnStateChanged;
-        _supervisor.Reconnected -= OnReconnected;
-        foreach (var subscription in _subscriptions.Values)
-        {
-            await subscription.DisposeAsync().ConfigureAwait(false);
-        }
-
-        _subscriptions.Clear();
-        foreach (var subscription in _terminalSubscriptions.Values)
-        {
-            await subscription.DisposeAsync().ConfigureAwait(false);
-        }
-
-        _terminalSubscriptions.Clear();
+        foreach (var preview in _previews.Values) await preview.DisposeAsync().ConfigureAwait(false);
+        _previews.Clear();
+        await _subscriptions.DisposeAsync().ConfigureAwait(false);
+        await _terminalSubscriptions.DisposeAsync().ConfigureAwait(false);
         _httpClient.Dispose();
         await _supervisor.DisposeAsync().ConfigureAwait(false);
         _synchronizationGate.Dispose();
@@ -1347,17 +1451,20 @@ public sealed class EnvironmentClient : IEnvironmentClient
         await _synchronizationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _supervisor.MarkSynchronizing();
             var descriptor = await _supervisor.Connection.InvokeAsync<EnvironmentDescriptor>(
                 "GetEnvironmentDescriptor",
                 cancellationToken).ConfigureAwait(false);
+            if (_options.ExpectedEnvironmentId is { } expected && descriptor.EnvironmentId != expected)
+            {
+                throw new ConnectionValidationException(ConnectionFailure.Identity,
+                    "This endpoint belongs to a different environment. Verify the saved address before connecting.");
+            }
             if (ProtocolVersion.Current < descriptor.MinimumProtocolVersion ||
                 ProtocolVersion.Current > descriptor.MaximumProtocolVersion)
             {
-                var exception = new InvalidOperationException(
+                var exception = new ConnectionValidationException(ConnectionFailure.Protocol,
                     $"Protocol {ProtocolVersion.Current} is outside the environment range " +
                     $"{descriptor.MinimumProtocolVersion}-{descriptor.MaximumProtocolVersion}.");
-                _supervisor.MarkIncompatible(exception);
                 throw exception;
             }
 
@@ -1368,6 +1475,14 @@ public sealed class EnvironmentClient : IEnvironmentClient
             }
 
             Descriptor = descriptor;
+            Catalog.AbandonTransfer();
+            await foreach (var batch in _supervisor.Connection.StreamAsync<PiStation.Protocol.Streaming.CatalogBatch>(
+                "SubscribeCatalog", Catalog.Cursor, cancellationToken).ConfigureAwait(false))
+            {
+                Catalog.Apply(batch, descriptor.EnvironmentId, ThreadMetadata);
+                if (batch.Complete) break;
+            }
+            if (!Catalog.IsSynchronized) throw new IOException("The host closed the catalog stream before synchronization completed.");
             foreach (var projectId in ThreadMetadata.TrackedProjectIds)
             {
                 try
@@ -1424,7 +1539,6 @@ public sealed class EnvironmentClient : IEnvironmentClient
                 }
             }
 
-            _supervisor.MarkConnected();
         }
         finally
         {
@@ -1466,10 +1580,13 @@ public sealed class EnvironmentClient : IEnvironmentClient
             cancellationToken);
     }
 
-    private void OnStateChanged(object? sender, ConnectionStateChangedEventArgs args) =>
+    private void OnStateChanged(object? sender, ConnectionStateChangedEventArgs args)
+    {
+        if (args.State != EnvironmentConnectionState.Connected) Catalog.SetDisconnected();
         ConnectionStateChanged?.Invoke(this, args);
-
-    private void OnReconnected(object? sender, EventArgs args) => _ = ResynchronizeAfterReconnectAsync();
+        if (args.State == EnvironmentConnectionState.Connected)
+            foreach (var preview in _previews.Values) preview.NotifyReconnected();
+    }
 
     private void ApplyPiConfigurationSnapshot(
         EnvironmentDescriptor descriptor,
@@ -1655,29 +1772,6 @@ public sealed class EnvironmentClient : IEnvironmentClient
     {
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         return await JsonSerializer.DeserializeAsync(stream, typeInfo, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ResynchronizeAfterReconnectAsync()
-    {
-        try
-        {
-            await SynchronizeAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch
-        {
-            // The supervisor publishes the terminal state. Callers can explicitly reconnect.
-        }
-    }
-
-    private void RemoveTerminalSubscription(
-        TerminalSessionId terminalSessionId,
-        TerminalSubscription subscription)
-    {
-        if (_terminalSubscriptions.TryGetValue(terminalSessionId, out var current) &&
-            ReferenceEquals(current, subscription))
-        {
-            _terminalSubscriptions.TryRemove(terminalSessionId, out _);
-        }
     }
 
     private sealed class LeaveOpenStream(Stream inner) : Stream

@@ -22,6 +22,8 @@ public sealed partial class MainWindow : Window
     private readonly ChatHeader _chatHeader;
     private bool _discardEditsOnClose;
     private bool _closeDialogOpen;
+    private bool _allowClose;
+    private Task? _closeTask;
 
     public MainWindow(ShellViewModel viewModel, int textScalePercent = 100)
     {
@@ -34,6 +36,8 @@ public sealed partial class MainWindow : Window
         _viewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
         Closed += OnMainWindowClosed;
         Activated += OnReadWindowActivated;
+        Activated += OnWindowActivated;
+        AppWindow.Closing += OnAppWindowClosing;
         RootGrid.Loaded += OnRootGridLoaded;
 
         ExtendsContentIntoTitleBar = true;
@@ -41,7 +45,6 @@ public sealed partial class MainWindow : Window
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.Resize(new SizeInt32(1200, 800));
-        AppWindow.Closing += OnWindowClosing;
 
         _shellPage = new ShellPage(viewModel);
         _shellPage.SidebarCollapsedChanged += OnSidebarCollapsedChanged;
@@ -50,6 +53,54 @@ public sealed partial class MainWindow : Window
         TitleBarChatHeaderHost.Content = _chatHeader;
         RootContent.Content = _shellPage;
         ApplySidebarState(_shellPage);
+    }
+
+    internal async Task PrepareForTransitionAsync()
+    {
+        if (!_discardEditsOnClose && _viewModel.Plan.UnsavedPlanCount > 0)
+            throw new InvalidOperationException("Save or discard plan edits before switching environments or closing this window.");
+        _shellPage.IsEnabled = _chatHeader.IsEnabled = false;
+        try { await _viewModel.PreserveEditsAsync(); }
+        catch { ResumeEditing(); throw; }
+    }
+
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) =>
+        _viewModel.SetWindowActive(args.WindowActivationState != WindowActivationState.Deactivated);
+
+    internal void ResumeEditing() => _shellPage.IsEnabled = _chatHeader.IsEnabled = true;
+
+    internal Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowConnectionDialogAsync(
+        Microsoft.UI.Xaml.Controls.ContentDialog dialog, CancellationToken cancellationToken) =>
+        _shellPage.ShowConnectionDialogAsync(dialog, cancellationToken);
+
+    internal async Task CloseWithRecoveryAsync()
+    {
+        try { await (_closeTask ??= CloseCoreAsync()); }
+        catch
+        {
+            _closeTask = null;
+            _discardEditsOnClose = _allowClose = false;
+            ResumeEditing();
+            throw;
+        }
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        await PrepareForTransitionAsync();
+        // Let a canceled native Closing event return before requesting the actual close.
+        await Task.Yield();
+        _allowClose = true;
+        Close();
+    }
+
+    private async void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender,
+        Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_allowClose) return;
+        args.Cancel = true;
+        try { if (await ConfirmPlanDiscardAsync()) await CloseWithRecoveryAsync(); }
+        catch (Exception exception) { _viewModel.ReportRuntimeError(exception); }
     }
 
     private void OnLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -62,43 +113,37 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
-        AppWindow.Closing -= OnWindowClosing;
         Activated -= OnReadWindowActivated;
         _viewModel.SetReadWindowActive(false);
+        AppWindow.Closing -= OnAppWindowClosing;
+        Activated -= OnWindowActivated;
+        _viewModel.SetWindowActive(false);
         _viewModel.Layout.PropertyChanged -= OnLayoutPropertyChanged;
         _shellPage.SidebarCollapsedChanged -= OnSidebarCollapsedChanged;
         _chatHeader.CommandPaletteRequested -= OnCommandPaletteRequested;
         _shellPage.Release();
     }
 
-    private async void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    private async Task<bool> ConfirmPlanDiscardAsync()
     {
-        if (_discardEditsOnClose) return;
-        var files = _viewModel.WorkbenchFiles.UnsavedDocumentNames;
         var plans = _viewModel.Plan.UnsavedPlanCount;
-        if (files.Count == 0 && plans == 0) return;
-        args.Cancel = true;
-        if (_closeDialogOpen) return;
+        if (_discardEditsOnClose || plans == 0) return true;
+        if (_closeDialogOpen) return false;
         _closeDialogOpen = true;
         try
         {
             var dialog = new ContentDialog
             {
                 XamlRoot = RootGrid.XamlRoot,
-                Title = "Unsaved edits",
-                Content = $"{files.Count} file(s) and {plans} plan(s) have unsaved edits, including other workspaces.\n" +
-                    string.Join('\n', files.Take(12)),
+                Title = "Unsaved plan edits",
+                Content = $"{plans} plan(s) have unsaved edits, including other workspaces. File edits and draft messages will be kept for recovery.",
                 PrimaryButtonText = "Keep editing",
-                SecondaryButtonText = "Discard edits and close",
+                SecondaryButtonText = "Discard plan edits and close",
                 DefaultButton = ContentDialogButton.Primary,
             };
-            if (await dialog.ShowAsync() == ContentDialogResult.Secondary)
-            {
-                _discardEditsOnClose = true;
-                Close();
-            }
+            _discardEditsOnClose = await _shellPage.ShowConnectionDialogAsync(dialog, CancellationToken.None) == ContentDialogResult.Secondary;
+            return _discardEditsOnClose;
         }
-        catch (Exception error) { _viewModel.ReportRuntimeError(error); }
         finally { _closeDialogOpen = false; }
     }
 

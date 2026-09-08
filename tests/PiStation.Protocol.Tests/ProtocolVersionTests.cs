@@ -7,6 +7,6 @@ public sealed class ProtocolVersionTests
     [Fact]
     public void SourceControlWriterProtocolVersionIsThirtyFive()
     {
-        Assert.Equal(37, ProtocolVersion.Current);
+        Assert.Equal(38, ProtocolVersion.Current);
     }
 }

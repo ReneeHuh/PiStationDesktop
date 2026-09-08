@@ -7,35 +7,54 @@ namespace PiStation.ClientRuntime;
 public sealed class TerminalSubscription : IAsyncDisposable
 {
     private readonly ConnectionSupervisor _supervisor;
-    private readonly Action<TerminalSubscription> _disposedCallback;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Task _subscriptionTask;
-    private bool _disposed;
+    private readonly Func<ValueTask>? _release;
+    private int _disposed;
 
     internal TerminalSubscription(
         ConnectionSupervisor supervisor,
-        TerminalSessionId terminalSessionId,
-        Action<TerminalSubscription> disposedCallback)
+        TerminalSessionId terminalSessionId)
     {
         _supervisor = supervisor;
-        _disposedCallback = disposedCallback ?? throw new ArgumentNullException(nameof(disposedCallback));
         Store = new TerminalStore(terminalSessionId);
+        _supervisor.StateChanged += OnStateChanged;
         _subscriptionTask = RunAsync(_stopping.Token);
+    }
+
+    internal TerminalSubscription(TerminalSubscription shared, Func<ValueTask> release)
+    {
+        _supervisor = shared._supervisor;
+        Store = shared.Store;
+        _subscriptionTask = Task.CompletedTask;
+        _release = release;
     }
 
     public TerminalStore Store { get; }
 
     public TerminalSessionId TerminalSessionId => Store.TerminalSessionId;
 
+    private void OnStateChanged(object? sender, ConnectionStateChangedEventArgs args)
+    {
+        if (args.State != EnvironmentConnectionState.Connected) Store.SetSynchronized(false);
+    }
+
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
+        if (_release is not null)
+        {
+            _stopping.Dispose();
+            await _release().ConfigureAwait(false);
+            return;
+        }
         await _stopping.CancelAsync().ConfigureAwait(false);
+        _supervisor.StateChanged -= OnStateChanged;
+        Store.SetSynchronized(false);
         try
         {
             await _subscriptionTask.ConfigureAwait(false);
@@ -45,7 +64,6 @@ public sealed class TerminalSubscription : IAsyncDisposable
         }
 
         _stopping.Dispose();
-        _disposedCallback(this);
     }
 
     private async Task RunAsync(CancellationToken cancellationToken)
@@ -55,14 +73,25 @@ public sealed class TerminalSubscription : IAsyncDisposable
             try
             {
                 await _supervisor.WaitUntilConnectedAsync(cancellationToken).ConfigureAwait(false);
+                var connection = _supervisor.Connection;
                 var cursor = Store.Cursor;
+                Store.SetSynchronized(false);
                 var mustRestart = false;
-                await foreach (var envelope in _supervisor.Connection.StreamAsync<TerminalEnvelope>(
+                await foreach (var envelope in connection.StreamAsync<TerminalEnvelope>(
                                    "SubscribeTerminal",
                                    TerminalSessionId,
                                    cursor,
                                    cancellationToken).ConfigureAwait(false))
                 {
+                    if (!ReferenceEquals(connection, _supervisor.Connection) || _supervisor.State != EnvironmentConnectionState.Connected) break;
+                    if (envelope is TerminalSynchronizedEnvelope synchronized)
+                    {
+                        if (Store.Cursor == new TerminalCursor(synchronized.Sequence))
+                        { Store.SetSynchronized(true); continue; }
+                        Store.Reset();
+                        mustRestart = true;
+                        break;
+                    }
                     if (Store.Apply(envelope) == ProjectionApplyResult.ResyncRequired)
                     {
                         Store.Reset();

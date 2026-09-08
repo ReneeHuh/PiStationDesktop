@@ -60,6 +60,8 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel.IsRefreshingCatalog ||
+            (ProjectSelector.SelectedItem as ProjectGroupViewModel)?.Project.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId) return;
         await ViewModel.SelectProjectAsync((ProjectSelector.SelectedItem as ProjectGroupViewModel)?.Project);
     }
 
@@ -81,8 +83,10 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnThreadSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel.IsRefreshingCatalog) return;
         if (ThreadTabList.SelectedItems.Count == 1 && ThreadTabList.SelectedItem is ThreadDescriptor thread)
         {
+            if (thread.ThreadId == ViewModel.Workspace.SelectedThread?.ThreadId) return;
             await ViewModel.SelectThreadAsync(thread);
         }
         else if (ThreadTabList.SelectedItems.Count == 0 && ViewModel.Workspace.SelectedThread is null)

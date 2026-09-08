@@ -42,8 +42,8 @@ public sealed partial class ShellViewModel
                 return;
             }
 
-            var group = ProjectGroups.FirstOrDefault(item => item.Project.ProjectId == args.ProjectId);
-            group?.Apply(store.GetProjectThreads(args.ProjectId, includeArchived: true), InboxShelf);
+            var group = ProjectGroups.FirstOrDefault(item => item.Members.Any(project => project.ProjectId == args.ProjectId));
+            group?.Apply(group.Members.SelectMany(project => store.GetProjectThreads(project.ProjectId, includeArchived: true)).ToArray(), InboxShelf, Layout.Sidebar);
             if (store.GetCurrent(args.ThreadId) is { } readMetadata) ApplyReadMetadata(readMetadata);
 
             if (store.GetCurrent(args.ThreadId) is { } updated && SelectedThread?.ThreadId == args.ThreadId)
@@ -112,23 +112,7 @@ public sealed partial class ShellViewModel
                     return;
                 }
 
-                var preferences = Layout.Sidebar;
-                var groups = new List<ProjectGroupViewModel>();
-                foreach (var members in projects.GroupBy(project => preferences.GroupByRepository ? project.RepositoryKey ?? project.ProjectId.Value : project.ProjectId.Value, StringComparer.OrdinalIgnoreCase))
-                {
-                    var group = ProjectGroups.FirstOrDefault(item => item.GroupKey == members.Key) ?? new ProjectGroupViewModel(members.First()) { GroupKey = members.Key };
-                    group.SetMembers(members.ToArray());
-                    group.Apply(allThreads.Where(thread => members.Any(project => project.ProjectId == thread.ProjectId)).DistinctBy(thread => thread.ThreadId).ToArray(), InboxShelf, preferences);
-                    groups.Add(group);
-                }
-                IEnumerable<ProjectGroupViewModel> ordered = preferences.ProjectSort switch
-                {
-                    1 => groups.OrderByDescending(group => group.AllThreads.Select(thread => thread.UpdatedUtc).DefaultIfEmpty(group.Project.CreatedUtc).Max()),
-                    2 => groups.OrderByDescending(group => group.Project.CreatedUtc),
-                    3 => groups.OrderBy(group => preferences.ProjectOrder?.ToList().IndexOf(group.Project.ProjectId.Value) is >= 0 and var rank ? rank : int.MaxValue),
-                    _ => groups.OrderBy(group => group.DisplayName, StringComparer.OrdinalIgnoreCase),
-                };
-                Replace(ProjectGroups, ordered.ToArray());
+                ApplyProjectGroups(projects, allThreads);
             }).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -139,6 +123,27 @@ public sealed partial class ShellViewModel
         {
             _projectGroupRefreshGate.Release();
         }
+    }
+
+    private void ApplyProjectGroups(IReadOnlyList<ProjectDescriptor> projects, IReadOnlyList<ThreadDescriptor> allThreads)
+    {
+        var preferences = Layout.Sidebar;
+        var groups = new List<ProjectGroupViewModel>();
+        foreach (var members in projects.GroupBy(project => preferences.GroupByRepository ? project.RepositoryKey ?? project.ProjectId.Value : project.ProjectId.Value, StringComparer.OrdinalIgnoreCase))
+        {
+            var group = ProjectGroups.FirstOrDefault(item => item.GroupKey == members.Key) ?? new ProjectGroupViewModel(members.First()) { GroupKey = members.Key };
+            group.SetMembers(members.ToArray());
+            group.Apply(allThreads.Where(thread => members.Any(project => project.ProjectId == thread.ProjectId)).DistinctBy(thread => thread.ThreadId).ToArray(), InboxShelf, preferences);
+            groups.Add(group);
+        }
+        IEnumerable<ProjectGroupViewModel> ordered = preferences.ProjectSort switch
+        {
+            1 => groups.OrderByDescending(group => group.AllThreads.Select(thread => thread.UpdatedUtc).DefaultIfEmpty(group.Project.CreatedUtc).Max()),
+            2 => groups.OrderByDescending(group => group.Project.CreatedUtc),
+            3 => groups.OrderBy(group => preferences.ProjectOrder?.ToList().IndexOf(group.Project.ProjectId.Value) is >= 0 and var rank ? rank : int.MaxValue),
+            _ => groups.OrderBy(group => group.DisplayName, StringComparer.OrdinalIgnoreCase),
+        };
+        UpdateCatalogCollection(ProjectGroups, ordered.ToArray(), group => group.GroupKey);
     }
 
     public async Task SelectGroupedThreadAsync(ThreadDescriptor thread)

@@ -16,6 +16,19 @@ public sealed class WorkbenchTerminalViewModel : ObservableObject
     private int _activePaneIndex;
     private string _inputText = string.Empty;
     private bool _isBusy;
+    private bool _allowOperations = true;
+
+    public bool AllowOperations
+    {
+        get => _allowOperations;
+        internal set
+        {
+            if (!SetProperty(ref _allowOperations, value)) return;
+            OnPropertyChanged(nameof(CanCreate));
+            RaiseCommandStateChanged();
+            RaisePaneStateChanged();
+        }
+    }
     private double _lastSplitRatio = DefaultSplitRatio;
     private TerminalPaneNode _root = TerminalPaneNode.CreateLeaf();
     private TerminalSessionItemViewModel? _selectedSession;
@@ -113,21 +126,21 @@ public sealed class WorkbenchTerminalViewModel : ObservableObject
 
     public TerminalPaneLayoutNodeSnapshot LayoutRoot => CreateSnapshot(_root, new PaneIndexCounter());
 
-    public bool CanCreate => !IsBusy;
+    public bool CanCreate => AllowOperations && !IsBusy;
 
-    public bool CanSend => !IsBusy &&
+    public bool CanSend => AllowOperations && !IsBusy &&
         SelectedSession?.Descriptor.State == TerminalSessionState.Running &&
         !string.IsNullOrWhiteSpace(InputText);
 
-    public bool CanStop => !IsBusy && SelectedSession?.Descriptor.State == TerminalSessionState.Running;
+    public bool CanStop => AllowOperations && !IsBusy && SelectedSession?.Descriptor.State == TerminalSessionState.Running;
 
-    public bool CanRestart => !IsBusy && SelectedSession is not null;
+    public bool CanRestart => AllowOperations && !IsBusy && SelectedSession is not null;
 
-    public bool CanClose => !IsBusy && SelectedSession is not null;
+    public bool CanClose => AllowOperations && !IsBusy && SelectedSession is not null;
 
-    public bool CanSplit => !IsBusy && PaneCount < MaximumPaneCount && SelectedSession is not null;
+    public bool CanSplit => AllowOperations && !IsBusy && PaneCount < MaximumPaneCount && SelectedSession is not null;
 
-    public bool CanClosePane => !IsBusy && PaneCount > 1;
+    public bool CanClosePane => AllowOperations && !IsBusy && PaneCount > 1;
 
     public string PaneSummary => PaneCount switch
     {

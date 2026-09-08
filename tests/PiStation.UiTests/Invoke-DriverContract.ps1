@@ -154,10 +154,37 @@ try {
         'TerminalFontSizeSelector',
         'ResetTerminalAppearanceButton',
         'SettingsLayoutSummaryText',
-        'ResetLayoutButton'
+        'ResetLayoutButton',
+        'SettingsConnectionStatusText',
+        'SettingsProjectPathText',
+        'RemoteConnectionsPanel',
+        'StartRemoteSharingButton',
+        'RemotePairingLabel',
+        'RemotePairingLifetime',
+        'RemotePairingInvitations',
+        'RevokeRemotePairingLinkButton',
+        'CopyRemotePairingLinkButton',
+        'RemoteVerificationConfirmed',
+        'ApproveRemoteDeviceButton',
+        'RemoteIncomingLink',
+        'SavedRemoteEnvironments',
+        'RemoteConnectionStatus',
+        'SshConnectionsPanel',
+        'SshTarget',
+        'SshDataRoot',
+        'SavedSshEnvironments',
+        'AddSshConnectionButton',
+        'CancelSshConnectionButton',
+        'SshConnectionStatus'
     )) {
         Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
             'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
+            '--timeout', '5000', '--json'
+        ) | Out-Null
+    }
+    foreach ($selector in @('SshServerPath', 'SshPiExecutable', 'UpdateSshConnectionButton')) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $selector, '--gone', '--app', "$launchedProcessId",
             '--timeout', '5000', '--json'
         ) | Out-Null
     }
@@ -173,6 +200,32 @@ try {
     Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
         'ui', 'wait-for', 'SimulateTransportDropButton', '--gone', '--app', "$launchedProcessId",
         '--timeout', '5000', '--json'
+    ) | Out-Null
+    foreach ($capture in @(
+        @{ Selector = 'RemoteListenAddress'; FileName = 'remote-sharing-settings.png' },
+        @{ Selector = 'RemoteIncomingLink'; FileName = 'remote-client-settings.png' },
+        @{ Selector = 'SshTarget'; FileName = 'ssh-connections-settings.png' }
+    )) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'focus', $capture.Selector, '--app', "$launchedProcessId", '--json'
+        ) | Out-Null
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $capture.Selector, '--app', "$launchedProcessId",
+            '--property', 'IsOffscreen', '--value', 'False', '--timeout', '5000', '--json'
+        ) | Out-Null
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'screenshot', 'AppMainWindow', '--app', "$launchedProcessId",
+            '--output', (Join-Path $artifactRoot $capture.FileName), '--focus', '--json'
+        ) | Out-Null
+    }
+    foreach ($selector in @('RemoteVerificationConfirmed', 'ApproveRemoteDeviceButton', 'RevokeRemotePairingLinkButton', 'CopyRemotePairingLinkButton', 'RevokeRemoteDeviceButton')) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
+            '--property', 'IsEnabled', '--value', 'False', '--timeout', '5000', '--json'
+        ) | Out-Null
+    }
+    Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+        'ui', 'focus', 'PiThemeSelector', '--app', "$launchedProcessId", '--json'
     ) | Out-Null
     Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
         'ui', 'screenshot', 'AppMainWindow', '--app', "$launchedProcessId",

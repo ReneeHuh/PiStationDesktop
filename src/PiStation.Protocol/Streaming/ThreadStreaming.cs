@@ -97,6 +97,7 @@ public sealed record PiPlanChangedEvent(PiPlanState Plan) : ThreadEvent;
 [JsonDerivedType(typeof(ThreadSnapshotEnvelope), "snapshot")]
 [JsonDerivedType(typeof(ThreadEventEnvelope), "event")]
 [JsonDerivedType(typeof(ThreadResyncRequiredEnvelope), "resyncRequired")]
+[JsonDerivedType(typeof(ThreadSynchronizedEnvelope), "synchronized")]
 public abstract record ThreadEnvelope(
     EnvironmentId EnvironmentId,
     ThreadId ThreadId,
@@ -122,3 +123,6 @@ public sealed record ThreadResyncRequiredEnvelope(
     ProjectionEpoch ProjectionEpoch,
     Sequence Sequence,
     string Reason) : ThreadEnvelope(EnvironmentId, ThreadId, ProjectionEpoch, Sequence);
+
+public sealed record ThreadSynchronizedEnvelope(EnvironmentId EnvironmentId, ThreadId ThreadId,
+    ProjectionEpoch ProjectionEpoch, Sequence Sequence) : ThreadEnvelope(EnvironmentId, ThreadId, ProjectionEpoch, Sequence);

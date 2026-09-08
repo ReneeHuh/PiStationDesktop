@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using PiStation.ClientRuntime;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 
@@ -24,6 +26,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly Func<ThreadDraft, string, CancellationToken, Task<ThreadDraft>> _saveDraft;
     private readonly SemaphoreSlim _switchGate = new(1, 1);
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _pendingSaveDelay;
     private ThreadDraft? _draft;
     private string _status = "No active draft";
@@ -31,6 +34,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     private ThreadId? _threadId;
     private bool _disposed;
     private bool _settingLoadedText;
+    private readonly EditingRecoveryStore? _recovery;
+    private RecoveredDraft? _conflictingRecovery;
 
     public ComposerViewModel(
         DispatcherQueue dispatcherQueue,
@@ -38,7 +43,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         Func<ThreadDraft, string, CancellationToken, Task<ThreadDraft>> saveDraft,
         Func<ThreadDraft, string, string?, Stream, long, CancellationToken, Task<ThreadDraft>> uploadAttachment,
         Func<ThreadDraft, AttachmentId, CancellationToken, Task<ThreadDraft>> removeAttachment,
-        Func<ThreadDraft, CancellationToken, Task<ThreadDraft>> clearDraft)
+        Func<ThreadDraft, CancellationToken, Task<ThreadDraft>> clearDraft,
+        EditingRecoveryStore? recovery = null)
     {
         _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
         _loadDraft = loadDraft ?? throw new ArgumentNullException(nameof(loadDraft));
@@ -47,6 +53,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         _removeAttachment = removeAttachment ?? throw new ArgumentNullException(nameof(removeAttachment));
         _clearDraft = clearDraft ?? throw new ArgumentNullException(nameof(clearDraft));
         ContextChips.CollectionChanged += OnContextChanged;
+        _recovery = recovery;
     }
 
     public event EventHandler<ComposerSaveFailedEventArgs>? SaveFailed;
@@ -69,6 +76,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(ContextChips));
         if (_settingLoadedText || _draft is null) return;
         Status = "Unsaved";
+        PersistRecovery();
         ScheduleSave();
     }
 
@@ -84,12 +92,44 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     }
 
     public bool HasAttachments => Attachments.Count != 0;
+    public bool HasDraft => _draft is not null;
+
+    internal bool HasUnsavedChanges => _draft is not null && (!string.Equals(_text, _draft.Text, StringComparison.Ordinal) ||
+        !GetContext().SequenceEqual(_draft.Context ?? []));
+    public Visibility RecoveryConflictVisibility => _conflictingRecovery is null ? Visibility.Collapsed : Visibility.Visible;
+    public bool HasRecoveryConflict => _conflictingRecovery is not null;
+    public string RecoveredText => _conflictingRecovery?.Text ?? string.Empty;
+
+    public void RestoreRecoveredDraft()
+    {
+        if (_conflictingRecovery is not { } recovered) return;
+        _conflictingRecovery = null;
+        OnPropertyChanged(nameof(RecoveredText));
+        OnPropertyChanged(nameof(RecoveryConflictVisibility));
+        OnPropertyChanged(nameof(HasRecoveryConflict));
+        OnPropertyChanged(nameof(CanAttach));
+        Text = recovered.Text;
+        ReplaceContext(recovered.Context);
+        ScheduleSave();
+        PersistRecovery();
+    }
+
+    public void KeepHostDraft()
+    {
+        _conflictingRecovery = null;
+        OnPropertyChanged(nameof(RecoveredText));
+        OnPropertyChanged(nameof(RecoveryConflictVisibility));
+        OnPropertyChanged(nameof(HasRecoveryConflict));
+        OnPropertyChanged(nameof(CanAttach));
+        PersistRecovery();
+        Status = HasUnsavedChanges ? "Unsaved" : "Saved";
+    }
 
     public double AttachmentRailHeight => HasAttachments ? 36 : 1;
 
     public double AttachmentNoticeHeight => HasAttachments ? double.NaN : 1;
 
-    public bool CanAttach => _draft is not null && Attachments.Count < AttachmentDefaults.MaximumPerDraft;
+    public bool CanAttach => !HasRecoveryConflict && _draft is not null && Attachments.Count < AttachmentDefaults.MaximumPerDraft;
 
     public bool OwnsDraft(ThreadId threadId) => _draft?.ThreadId == threadId && _threadId == threadId;
 
@@ -103,12 +143,14 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         set
         {
             ArgumentNullException.ThrowIfNull(value);
+            if (_disposed || _lifetimeCancellation.IsCancellationRequested) return;
             if (!SetProperty(ref _text, value) || _settingLoadedText || _draft is null)
             {
                 return;
             }
 
             Status = "Unsaved";
+            PersistRecovery();
             ScheduleSave();
         }
     }
@@ -124,7 +166,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        await _switchGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CreateLifetimeCancellation(cancellationToken);
+        await _switchGate.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
         try
         {
             var currentThreadId = await RunOnUiThreadAsync(() => _threadId).ConfigureAwait(false);
@@ -133,12 +176,17 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 return;
             }
 
-            await FlushAsync(cancellationToken).ConfigureAwait(false);
+            await FlushAsync(operationCancellation.Token).ConfigureAwait(false);
             CancelPendingDelay();
             await RunOnUiThreadAsync(() =>
             {
                 _threadId = threadId;
                 _draft = null;
+                OnPropertyChanged(nameof(HasDraft));
+                _conflictingRecovery = null;
+                OnPropertyChanged(nameof(RecoveredText));
+                OnPropertyChanged(nameof(RecoveryConflictVisibility));
+                OnPropertyChanged(nameof(HasRecoveryConflict));
                 SetLoadedText(string.Empty);
                 ReplaceContext([]);
                 ReplaceAttachments([]);
@@ -149,7 +197,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 return;
             }
 
-            var loaded = await _loadDraft(threadId.Value, cancellationToken).ConfigureAwait(false);
+            var loaded = await _loadDraft(threadId.Value, operationCancellation.Token).ConfigureAwait(false);
             await RunOnUiThreadAsync(() =>
             {
                 if (_threadId != threadId)
@@ -158,11 +206,28 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 }
 
                 _draft = loaded;
-                SetLoadedText(loaded.Text);
-                ReplaceContext(loaded.Context);
+                OnPropertyChanged(nameof(HasDraft));
+                var recovered = _recovery?.LoadDraft(loaded.ThreadId.Value);
+                var differs = recovered is not null && (recovered.Text != loaded.Text ||
+                    !(recovered.Context ?? []).SequenceEqual(loaded.Context ?? []));
+                var restore = differs && recovered!.DraftId == loaded.DraftId.Value && recovered.BaseText == loaded.Text &&
+                    (recovered.BaseContext ?? []).SequenceEqual(loaded.Context ?? []);
+                _conflictingRecovery = differs && !restore ? recovered : null;
+                OnPropertyChanged(nameof(RecoveredText));
+                SetLoadedText(restore ? recovered!.Text : loaded.Text);
+                ReplaceContext(restore ? recovered!.Context : loaded.Context);
                 ReplaceAttachments(loaded.Attachments);
-                Status = "Saved";
+                Status = _conflictingRecovery is not null ? "Recovered draft differs from the host. Choose which text and context to keep."
+                    : restore ? "Recovered local draft • ready to edit or send" : "Saved";
+                OnPropertyChanged(nameof(RecoveryConflictVisibility));
+                OnPropertyChanged(nameof(HasRecoveryConflict));
+                OnPropertyChanged(nameof(CanAttach));
+                PersistRecovery();
             }).ConfigureAwait(false);
+        }
+        catch when (_disposed)
+        {
+            throw;
         }
         catch
         {
@@ -201,11 +266,12 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(sentDraft);
-        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CreateLifetimeCancellation(cancellationToken);
+        await _saveGate.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
         try
         {
             await RunOnUiThreadAsync(() => Status = "Clearing sent draft").ConfigureAwait(false);
-            var saved = await _clearDraft(sentDraft, cancellationToken).ConfigureAwait(false);
+            var saved = await _clearDraft(sentDraft, operationCancellation.Token).ConfigureAwait(false);
             await RunOnUiThreadAsync(() => ApplyClearedDraft(sentDraft, saved)).ConfigureAwait(false);
         }
         finally
@@ -233,7 +299,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(content);
         CancelPendingDelay();
         await SaveCurrentAsync(cancellationToken).ConfigureAwait(false);
-        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CreateLifetimeCancellation(cancellationToken);
+        await _saveGate.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
         try
         {
             var draft = await RunOnUiThreadAsync(() => _draft).ConfigureAwait(false);
@@ -249,11 +316,12 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 mediaType,
                 content,
                 byteLength,
-                cancellationToken).ConfigureAwait(false);
+                operationCancellation.Token).ConfigureAwait(false);
             await RunOnUiThreadAsync(() => ApplySavedDraft(saved)).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
+            if (_disposed) return;
             await RunOnUiThreadAsync(() =>
             {
                 Status = "Attachment failed";
@@ -274,7 +342,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(attachment);
         CancelPendingDelay();
         await SaveCurrentAsync(cancellationToken).ConfigureAwait(false);
-        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CreateLifetimeCancellation(cancellationToken);
+        await _saveGate.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
         try
         {
             var draft = await RunOnUiThreadAsync(() => _draft).ConfigureAwait(false);
@@ -284,12 +353,13 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             }
 
             await RunOnUiThreadAsync(() => Status = $"Removing {attachment.FileName}").ConfigureAwait(false);
-            var saved = await _removeAttachment(draft, attachment.AttachmentId, cancellationToken)
+            var saved = await _removeAttachment(draft, attachment.AttachmentId, operationCancellation.Token)
                 .ConfigureAwait(false);
             await RunOnUiThreadAsync(() => ApplySavedDraft(saved)).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
+            if (_disposed) return;
             await RunOnUiThreadAsync(() =>
             {
                 Status = "Attachment removal failed";
@@ -302,6 +372,13 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    internal void CancelPendingOperations()
+    {
+        if (_disposed) return;
+        _lifetimeCancellation.Cancel();
+        CancelPendingDelay();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -309,17 +386,22 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
+        CancelPendingOperations();
         _disposed = true;
         ContextChips.CollectionChanged -= OnContextChanged;
         CancelPendingDelay();
+        await _switchGate.WaitAsync().ConfigureAwait(false);
+        _switchGate.Release();
         await _saveGate.WaitAsync().ConfigureAwait(false);
         _saveGate.Release();
         _saveGate.Dispose();
         _switchGate.Dispose();
+        _lifetimeCancellation.Dispose();
     }
 
     private void ScheduleSave()
     {
+        if (_disposed || _lifetimeCancellation.IsCancellationRequested) return;
         CancelPendingDelay();
         var delay = new CancellationTokenSource();
         _pendingSaveDelay = delay;
@@ -330,14 +412,23 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     {
         try
         {
-            await Task.Delay(SaveDelay, delay.Token).ConfigureAwait(false);
-            await SaveCurrentAsync(CancellationToken.None).ConfigureAwait(false);
+            using var saveDelayCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                delay.Token, _lifetimeCancellation.Token);
+            await Task.Delay(SaveDelay, saveDelayCancellation.Token).ConfigureAwait(false);
+            await SaveCurrentAsync(_lifetimeCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (delay.IsCancellationRequested)
         {
         }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+        }
         catch (Exception exception)
         {
+            if (_disposed)
+            {
+                return;
+            }
             await RunOnUiThreadAsync(() =>
             {
                 Status = "Save failed";
@@ -357,7 +448,10 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
     private async Task SaveCurrentAsync(CancellationToken cancellationToken)
     {
-        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, _lifetimeCancellation.Token);
+        var saveToken = lifetime.Token;
+        await _saveGate.WaitAsync(saveToken).ConfigureAwait(false);
         try
         {
             var snapshot = await RunOnUiThreadAsync(() => new DraftSnapshot(_draft, _text, GetContext()))
@@ -375,7 +469,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             }
 
             await RunOnUiThreadAsync(() => Status = "Saving").ConfigureAwait(false);
-            var saved = await _saveDraft(snapshot.Draft with { Context = snapshot.Context }, snapshot.Text, cancellationToken).ConfigureAwait(false);
+            var saved = await _saveDraft(snapshot.Draft with { Context = snapshot.Context }, snapshot.Text, saveToken).ConfigureAwait(false);
             await RunOnUiThreadAsync(() =>
             {
                 if (_draft?.DraftId != saved.DraftId)
@@ -391,6 +485,9 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             _saveGate.Release();
         }
     }
+
+    private CancellationTokenSource CreateLifetimeCancellation(CancellationToken cancellationToken) =>
+        CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeCancellation.Token);
 
     private void CancelPendingDelay()
     {
@@ -422,6 +519,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         ReplaceAttachments(saved.Attachments);
         Status = string.Equals(_text, saved.Text, StringComparison.Ordinal) &&
             GetContext().SequenceEqual(saved.Context ?? []) ? "Saved" : "Unsaved";
+        PersistRecovery();
     }
 
     private void ApplyClearedDraft(ThreadDraft sentDraft, ThreadDraft cleared)
@@ -443,6 +541,14 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
         Status = string.Equals(_text, cleared.Text, StringComparison.Ordinal) && ContextChips.Count == 0 ? "Saved" : "Unsaved";
         if (Status == "Unsaved") ScheduleSave();
+        PersistRecovery();
+    }
+
+    private void PersistRecovery()
+    {
+        if (_draft is null || _conflictingRecovery is not null) return;
+        if (HasUnsavedChanges) _recovery?.SaveDraft(RecoveredDraft.Capture(_draft.ThreadId.Value, _draft.DraftId.Value, _draft.Text, _text, _draft.Context, GetContext()));
+        else _recovery?.RemoveDraft(_draft.ThreadId.Value);
     }
 
     private void ReplaceAttachments(IReadOnlyList<DraftAttachment> attachments)
