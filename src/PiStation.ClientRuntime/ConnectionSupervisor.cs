@@ -30,7 +30,7 @@ public sealed class ConnectionSupervisor : IAsyncDisposable
         System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += OnNetworkChanged;
     }
 
-    private static HubConnection CreateConnection(ClientRuntimeOptions options, Action? certificateRejected = null) => new HubConnectionBuilder()
+    internal static HubConnection CreateConnection(ClientRuntimeOptions options, Action? certificateRejected = null) => new HubConnectionBuilder()
             .WithUrl(options.HubAddress, connection =>
             {
                 connection.Headers["Authorization"] = $"Bearer {options.BearerCredential}";

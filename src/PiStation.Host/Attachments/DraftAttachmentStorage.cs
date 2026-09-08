@@ -164,36 +164,51 @@ public sealed class DraftAttachmentStorage
         DraftAttachment attachment,
         CancellationToken cancellationToken = default)
     {
+        try
+        {
+            await using var content = await OpenVerifiedReadAsync(attachment, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.AttachmentIntegrityFailed, "The attachment is missing from host-owned storage.");
+        }
+    }
+
+    public async Task<FileStream> OpenVerifiedReadAsync(
+        DraftAttachment attachment,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(attachment);
         var fullPath = Path.GetFullPath(attachment.ServerPath);
         EnsureOwnedPath(fullPath);
-        if (!string.Equals(Path.GetFileName(fullPath), attachment.FileName, StringComparison.Ordinal) ||
-            !File.Exists(fullPath))
-        {
-            throw new HostOperationException(
-                ProtocolErrorCodes.AttachmentIntegrityFailed,
-                $"Attachment '{attachment.FileName}' is missing from host-owned storage.");
-        }
+        // Imported bundles use content-hash filenames while retaining the original
+        // display name. Ownership and recorded bytes, rather than that name, authorize reads.
 
-        var file = new FileInfo(fullPath);
-        if (file.Length != attachment.ByteLength)
+        // Do not follow links out of the attachment store, including imported files.
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_options.AttachmentRoot));
+        for (var path = fullPath; path is not null; path = Path.GetDirectoryName(path))
         {
-            throw new HostOperationException(
-                ProtocolErrorCodes.AttachmentIntegrityFailed,
-                $"Attachment '{attachment.FileName}' no longer has its recorded byte length.");
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new HostOperationException(ProtocolErrorCodes.AttachmentInvalid, "Attachment storage cannot contain symbolic links.");
+            if (string.Equals(path, root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) break;
         }
-
-        string sha256;
-        await using (var content = File.OpenRead(fullPath))
+        var content = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        try
         {
-            sha256 = Convert.ToHexString(await SHA256.HashDataAsync(content, cancellationToken).ConfigureAwait(false));
+            if (attachment.ByteLength < 0 || attachment.ByteLength > Math.Max(_options.MaximumImageAttachmentBytes, _options.MaximumFileAttachmentBytes) ||
+                content.Length != attachment.ByteLength)
+                throw new HostOperationException(ProtocolErrorCodes.AttachmentIntegrityFailed, "The attachment's byte length has changed.");
+            var sha256 = Convert.ToHexString(await SHA256.HashDataAsync(content, cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(sha256, attachment.Sha256, StringComparison.OrdinalIgnoreCase))
+                throw new HostOperationException(ProtocolErrorCodes.AttachmentIntegrityFailed, "The attachment failed its SHA-256 integrity check.");
+            content.Position = 0;
+            return content;
         }
-
-        if (!string.Equals(sha256, attachment.Sha256, StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            throw new HostOperationException(
-                ProtocolErrorCodes.AttachmentIntegrityFailed,
-                $"Attachment '{attachment.FileName}' failed its SHA-256 integrity check.");
+            await content.DisposeAsync().ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -268,7 +283,7 @@ public sealed class DraftAttachmentStorage
 
     private void EnsureOwnedPath(string fullPath)
     {
-        if (!fullPath.StartsWith(_attachmentRootPrefix, StringComparison.OrdinalIgnoreCase))
+        if (!fullPath.StartsWith(_attachmentRootPrefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
         {
             throw new HostOperationException(
                 ProtocolErrorCodes.AttachmentInvalid,

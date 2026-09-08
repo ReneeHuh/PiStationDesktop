@@ -107,6 +107,14 @@ public sealed class RemoteUpdateCoordinator : IDisposable
     }
 
     public RemoteUpdateReceipt? GetReceipt(Guid id) { lock (_gate) return Read(id)?.Receipt; }
+    public RemoteUpdateReceipt? GetReceipt(Guid id, string principal)
+    {
+        lock (_gate)
+        {
+            var update = Read(id);
+            return update?.Principal == principal ? update.Receipt : null;
+        }
+    }
 
     public RemoteUpdateReceipt[] GetHistory(string principal)
     {

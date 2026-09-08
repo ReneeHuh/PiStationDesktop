@@ -26,8 +26,11 @@
                                     <StackPanel Spacing="4" Margin="0,4">
                                         <TextBlock Text="{x:Bind FileName}" TextWrapping="Wrap" FontWeight="SemiBold" />
                                         <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" />
+                                        <Image Width="160" Height="120" HorizontalAlignment="Left" Stretch="Uniform"
+                                            Loaded="OnSentMediaLoaded" Unloaded="OnSentMediaUnloaded" DataContextChanged="OnSentMediaContextChanged"
+                                            Visibility="{x:Bind PreviewVisibility}" automation:AutomationProperties.Name="{x:Bind FileName}" />
                                         <MediaPlayerElement AutoPlay="False" AreTransportControlsEnabled="True" MaxHeight="280"
-                                            Loaded="OnSentVideoLoaded" Unloaded="OnSentVideoUnloaded" DataContextChanged="OnSentVideoContextChanged" Visibility="{x:Bind VideoVisibility}"
+                                            Loaded="OnSentMediaLoaded" Unloaded="OnSentMediaUnloaded" DataContextChanged="OnSentMediaContextChanged" Visibility="{x:Bind VideoVisibility}"
                                             automation:AutomationProperties.Name="{x:Bind FileName}" />
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <Button Content="Preview" Click="OnPreviewSentAttachment" IsEnabled="{x:Bind IsImage}" automation:AutomationProperties.Name="Preview sent image" />
@@ -35,7 +38,7 @@
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <Button Content="Save as" Click="OnSaveSentAttachment" automation:AutomationProperties.Name="Save sent attachment as" />
-                                            <Button Content="Copy path" Click="OnCopySentAttachmentPath" automation:AutomationProperties.Name="Copy sent attachment path" />
+                                            <Button Content="Copy path" Click="OnCopySentAttachmentPath" ToolTipService.ToolTip="Copy local attachment path" automation:AutomationProperties.Name="Copy sent attachment path" />
                                         </StackPanel>
                                     </StackPanel>
                                 </DataTemplate>

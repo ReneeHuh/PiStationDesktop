@@ -107,6 +107,7 @@ public sealed partial class ShellPage : Page
         }
 
         _disposed = true;
+        _rightPanel.StopBrowserAutomation();
         _remoteConnectionsPanel?.Deactivate();
         _paletteSearchCancellation?.Cancel();
         _paletteSearchCancellation?.Dispose();

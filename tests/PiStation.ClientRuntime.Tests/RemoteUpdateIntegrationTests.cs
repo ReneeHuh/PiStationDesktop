@@ -63,33 +63,34 @@ public sealed class RemoteUpdateIntegrationTests
                 ReconnectDelays = [TimeSpan.FromMilliseconds(100)], RetryJitter = 0,
             });
             await client.ConnectAsync(timeout.Token);
+            await using var updates = client.CreateRemoteUpdateClient();
             var project = await client.AddProjectAsync(new(directory.CreateDirectory("project")), timeout.Token);
-            var descriptor = await client.GetRemoteUpdateDescriptorAsync(timeout.Token);
+            var descriptor = await updates.GetDescriptorAsync(timeout.Token);
             Assert.True(descriptor.Supported && descriptor.Enabled);
             Assert.Equal("standalone", descriptor.HostKind);
             var id = Guid.NewGuid();
-            var staged = await client.StageRemoteUpdateAsync(package, id, cancellationToken: timeout.Token);
+            var staged = await updates.StageAsync(package, id, token: timeout.Token);
             Assert.Equal(RemoteUpdateState.Ready, staged.State);
             if (!string.IsNullOrWhiteSpace(versionedFixture)) Assert.NotEqual(descriptor.CurrentVersion, staged.TargetVersion);
-            var committed = await client.CommitRemoteUpdateAsync(new(id), timeout.Token);
+            var committed = await updates.CommitAsync(new(id), timeout.Token);
             Assert.Equal(RemoteUpdateState.WaitingForIdle, committed.State);
-            Assert.Equal(committed, await client.CommitRemoteUpdateAsync(new(id), timeout.Token));
+            Assert.Equal(committed, await updates.CommitAsync(new(id), timeout.Token));
             RemoteUpdateReceipt? receipt = null;
             while (receipt?.State is not (RemoteUpdateState.Succeeded or RemoteUpdateState.Failed))
             {
                 await Task.Delay(200, timeout.Token);
-                if (client.ConnectionState != EnvironmentConnectionState.Connected) continue;
-                try { receipt = await client.GetRemoteUpdateReceiptAsync(id, timeout.Token); }
+                try { receipt = await updates.GetReceiptAsync(id, timeout.Token); }
                 catch (Exception) when (!timeout.IsCancellationRequested) { }
             }
             Assert.Equal(failStartup ? RemoteUpdateState.Failed : RemoteUpdateState.Succeeded, receipt.State);
             Assert.True(PiStation.Host.Updates.HostDatabaseSnapshot.Exists(
                 Path.Combine(options.ApplicationDataRoot, "remote-updates", id.ToString("N"), "database-before-update")));
             if (failStartup) Assert.Contains("restored", receipt.Message!, StringComparison.Ordinal);
+            await client.ConnectAsync(timeout.Token);
             Assert.Equal(info.EnvironmentId, client.Descriptor!.EnvironmentId);
             Assert.Equal(project.ProjectId, Assert.Single(await client.ListProjectsAsync(timeout.Token)).ProjectId);
             Assert.Equal(grant.Device.DeviceId, Assert.Single(access.ListDevices()).DeviceId);
-            Assert.Equal(failStartup ? descriptor.CurrentVersion : staged.TargetVersion, (await client.GetRemoteUpdateDescriptorAsync(timeout.Token)).CurrentVersion);
+            Assert.Equal(failStartup ? descriptor.CurrentVersion : staged.TargetVersion, (await updates.GetDescriptorAsync(timeout.Token)).CurrentVersion);
             await client.DisconnectAsync(timeout.Token);
             Assert.False(process.HasExited);
         }

@@ -1,15 +1,19 @@
 using System.IO.Compression;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using PiStation.Protocol;
 
 namespace PiStation.Host.Updates;
 
 public static class ServerUpdatePackage
 {
-    public static async Task<string> ValidateAsync(string packagePath, string runtimeDirectory, CancellationToken cancellationToken)
+    public static async Task<string> ValidateAsync(string packagePath, string runtimeDirectory, CancellationToken cancellationToken) =>
+        (await ValidateAndReadManifestAsync(packagePath, runtimeDirectory, cancellationToken).ConfigureAwait(false)).Version;
+
+    public static async Task<ServerPackageManifest> ValidateAndReadManifestAsync(string packagePath, string runtimeDirectory, CancellationToken cancellationToken)
     {
         using var archive = ZipFile.OpenRead(packagePath);
         if (archive.Entries.Count is < 2 or > 4096 || archive.Entries.Sum(e => e.Length) > 1024L * 1024 * 1024)
@@ -18,7 +22,7 @@ public static class ServerUpdatePackage
         if (manifestEntry is null || manifestEntry.Length > 4096) throw new InvalidDataException("The host update manifest is missing.");
         await using var manifestStream = manifestEntry.Open();
         var manifest = await JsonSerializer.DeserializeAsync(manifestStream, ServerPackageJsonContext.Default.ServerPackageManifest, cancellationToken).ConfigureAwait(false);
-        if (manifest is null || manifest.Platform != "win-x64" || manifest.ProtocolVersion != ProtocolVersion.Current ||
+        if (manifest is null || manifest.Platform != "win-x64" || manifest.ProtocolVersion <= 0 ||
             manifest.DatabaseCompatibilityVersion != 1 || manifest.StartupWriteGateVersion != 1 || !Version.TryParse(manifest.Version, out var expectedVersion))
             throw new InvalidDataException("The package platform, protocol, database, or startup safety version is incompatible.");
         var root = Path.GetFullPath(runtimeDirectory);
@@ -56,11 +60,36 @@ public static class ServerUpdatePackage
         var assembly = Path.Combine(root, "PiStation.Server.dll");
         if (!File.Exists(executable) || !File.Exists(assembly) || AssemblyName.GetAssemblyName(assembly).Version != expectedVersion)
             throw new InvalidDataException("The staged server version does not match its manifest.");
+        // Workspace protocol changes are the reason an update may be needed. Check
+        // against the package's own metadata without loading or running its code.
+        var protocolAssembly = Path.Combine(root, "PiStation.Protocol.dll");
+        if (!File.Exists(protocolAssembly) || ReadProtocolVersion(protocolAssembly) != manifest.ProtocolVersion)
+            throw new InvalidDataException("The staged protocol version does not match its manifest.");
         using (var executableStream = File.OpenRead(executable))
-        using (var pe = new System.Reflection.PortableExecutable.PEReader(executableStream))
-            if (pe.PEHeaders.CoffHeader.Machine != System.Reflection.PortableExecutable.Machine.Amd64)
+        using (var pe = new PEReader(executableStream))
+            if (pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
                 throw new InvalidDataException("The host executable must target Windows x64.");
-        return manifest.Version;
+        return manifest;
+    }
+
+    internal static int ReadProtocolVersion(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        foreach (var handle in metadata.TypeDefinitions)
+        {
+            var type = metadata.GetTypeDefinition(handle);
+            if (metadata.GetString(type.Namespace) != "PiStation.Protocol" || metadata.GetString(type.Name) != "ProtocolVersion") continue;
+            foreach (var fieldHandle in type.GetFields())
+            {
+                var field = metadata.GetFieldDefinition(fieldHandle);
+                if (metadata.GetString(field.Name) != "Current" || field.GetDefaultValue().IsNil) continue;
+                var constant = metadata.GetConstant(field.GetDefaultValue());
+                if (constant.TypeCode == ConstantTypeCode.Int32) return metadata.GetBlobReader(constant.Value).ReadInt32();
+            }
+        }
+        throw new InvalidDataException("The staged protocol assembly has no version constant.");
     }
 }
 

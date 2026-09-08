@@ -175,6 +175,8 @@ try {
         'SavedSshEnvironments',
         'AddSshConnectionButton',
         'CancelSshConnectionButton',
+        'CheckSshSetupButton',
+        'CheckSavedSshSetupButton',
         'SshConnectionStatus'
     )) {
         Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(

@@ -26,6 +26,8 @@
             automation:AutomationProperties.AutomationId="SshDataRoot" />
         <TextBox x:Name="PiExecutable" Header="Pi executable path on the host (automatic setup deferred)" Visibility="Collapsed"
             automation:AutomationProperties.AutomationId="SshPiExecutable" />
+        <Button x:Name="CheckSetup" Content="Check setup for this target" Click="OnCheckSetup" Style="{StaticResource PiSecondaryButtonStyle}"
+            automation:AutomationProperties.AutomationId="CheckSshSetupButton" />
         <StackPanel Orientation="Horizontal" Spacing="8">
             <Button x:Name="AddConnection" Content="Connect and save" Click="OnAddConnection" Style="{StaticResource PiSecondaryButtonStyle}"
                 automation:AutomationProperties.AutomationId="AddSshConnectionButton" />
@@ -46,6 +48,22 @@
         </StackPanel>
         <Button x:Name="UpdateConnection" Content="Update / reconnect with bundled host" Visibility="Collapsed" Click="OnUpdateConnection" Style="{StaticResource PiSecondaryButtonStyle}"
             automation:AutomationProperties.AutomationId="UpdateSshConnectionButton" />
+        <Button x:Name="CheckSavedSetup" Content="Check saved connection" Click="OnCheckSavedSetup" Style="{StaticResource PiSecondaryButtonStyle}"
+            automation:AutomationProperties.AutomationId="CheckSavedSshSetupButton" />
+        <StackPanel x:Name="SetupResults" Spacing="8" Visibility="Collapsed">
+            <TextBlock x:Name="SetupTarget" TextWrapping="Wrap" FontWeight="SemiBold"
+                automation:AutomationProperties.AutomationId="SshSetupTarget" />
+            <TextBlock Text="Checks use a temporary SSH connection. When they finish, choose Connect and save or Open / retry to open the environment."
+                TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+            <ItemsControl x:Name="SetupChecks" automation:AutomationProperties.AutomationId="SshSetupChecks"
+                automation:AutomationProperties.Name="SSH setup checks" automation:AutomationProperties.LiveSetting="Polite">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,8" IsTextSelectionEnabled="True" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
         <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
             automation:AutomationProperties.AutomationId="SshConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" Spacing="8">

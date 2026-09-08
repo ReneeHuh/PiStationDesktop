@@ -10,8 +10,8 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
-using PiStation.App.Services;
 using PiStation.App.ViewModels;
+using PiStation.ClientRuntime;
 using PiStation.Protocol.Models;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -25,6 +25,8 @@ using Windows.UI.Core;
 
 namespace PiStation.App.Views.Controls;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "WinUI owns control lifetime. Unloaded and ShellPage.Release cancel and dispose browser access; the async-only semaphore never creates a wait handle.")]
 public sealed partial class RightPanelHost : UserControl
 {
     public event EventHandler? HostingReviewRequested;
@@ -50,7 +52,11 @@ public sealed partial class RightPanelHost : UserControl
     private string? _activeMediaPreviewPath;
     private Window? _previewPictureInPictureWindow;
     private PreviewWebViewSurface? _previewPictureInPictureSurface;
-    private readonly BrowserAutomationInbox _browserAutomationInbox;
+    private BrowserAutomationSession? _browserAutomationSession;
+    private CancellationTokenSource? _browserAutomationLifetime;
+    private readonly SemaphoreSlim _browserAutomationGate = new(1, 1);
+    private DateTimeOffset _browserAutomationRetry;
+    private string? _browserAutomationContext;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _browserAutomationTimer;
     private bool _browserAutomationPolling;
 
@@ -59,7 +65,6 @@ public sealed partial class RightPanelHost : UserControl
     public RightPanelHost(ShellViewModel viewModel)
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
-        _browserAutomationInbox = new BrowserAutomationInbox(ViewModel.BrowserAutomationRoot);
         InitializeComponent();
         _browserAutomationTimer = DispatcherQueue.CreateTimer();
         _browserAutomationTimer.Interval = TimeSpan.FromMilliseconds(250);
@@ -69,7 +74,15 @@ public sealed partial class RightPanelHost : UserControl
             _browserAutomationTimer.Start();
             _ = SynchronizeBrowserAutomationPermissionAsync();
         };
-        Unloaded += (_, _) => _browserAutomationTimer.Stop();
+        Unloaded += (_, _) => StopBrowserAutomation();
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ShellViewModel.IsConnected))
+            {
+                _browserAutomationLifetime?.Cancel();
+                _ = SynchronizeBrowserAutomationPermissionAsync();
+            }
+        };
         ActualThemeChanged += (_, _) =>
         {
             if (_previewPictureInPictureSurface is { } pictureInPicture)
@@ -93,6 +106,13 @@ public sealed partial class RightPanelHost : UserControl
     }
 
     public ShellViewModel ViewModel { get; }
+
+    internal void StopBrowserAutomation()
+    {
+        _browserAutomationTimer.Stop();
+        _browserAutomationLifetime?.Cancel();
+        _ = SynchronizeBrowserAutomationPermissionAsync();
+    }
 
     public event EventHandler<TerminalWebShortcutEventArgs>? CommandGestureRequested;
 
@@ -278,7 +298,7 @@ public sealed partial class RightPanelHost : UserControl
         {
             surface.SetNavigationContext(tab.TabId);
             tab.PrepareNavigation(uri);
-            await surface.NavigateAsync(uri);
+            await surface.NavigateAsync(uri, validate);
         }
         catch (Exception exception)
         {
@@ -719,6 +739,11 @@ public sealed partial class RightPanelHost : UserControl
 
     private void OnWorkbenchPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(WorkbenchPreviewViewModel.AutomationPermission))
+        {
+            _browserAutomationLifetime?.Cancel();
+            DispatcherQueue.TryEnqueue(() => _ = SynchronizeBrowserAutomationPermissionAsync());
+        }
         if (ActivePreviewSurface is not { } surface || ViewModel.WorkbenchPreview.ActiveTab is not { } tab)
         {
             return;
@@ -760,30 +785,40 @@ public sealed partial class RightPanelHost : UserControl
 
     private async Task SynchronizeBrowserAutomationPermissionAsync()
     {
-        if (ViewModel.Workspace.SelectedThread is not { } thread)
-        {
-            return;
-        }
-
+        _browserAutomationLifetime?.Cancel();
+        await _browserAutomationGate.WaitAsync();
         try
         {
-            await _browserAutomationInbox.SetPermissionAsync(
-                thread.ThreadId.Value,
-                ViewModel.WorkbenchPreview.AutomationPermission);
+            if (_browserAutomationSession is { } prior) await prior.DisposeAsync();
+            _browserAutomationSession = null;
+            _browserAutomationLifetime?.Dispose();
+            _browserAutomationLifetime = null;
+            _browserAutomationContext = null;
+            if (!_browserAutomationTimer.IsRunning || !ViewModel.IsConnected || !ViewModel.CanOperate ||
+                ViewModel.Workspace.SelectedThread is not { } thread || ViewModel.WorkbenchPreview.AutomationPermission == PreviewAutomationAccess.Off) return;
+            var permission = ViewModel.WorkbenchPreview.AutomationPermission;
+            var lifetime = _browserAutomationLifetime = new CancellationTokenSource();
+            _browserAutomationSession = await ViewModel.OpenBrowserAutomationAsync(
+                new(thread.ThreadId, (BrowserAutomationAccess)permission), lifetime.Token);
+            _browserAutomationContext = thread.ThreadId.Value;
+            _browserAutomationRetry = DateTimeOffset.MinValue;
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception)
         {
+            _browserAutomationRetry = DateTimeOffset.UtcNow.AddSeconds(5);
             ViewModel.SetWorkbenchPreviewCaptureStatus(
                 ViewModel.WorkbenchPreview.ActiveTab?.TabId,
-                $"Browser permission could not be saved: {exception.Message}");
+                $"Browser access could not connect: {exception.Message}");
         }
+        finally { _browserAutomationGate.Release(); }
     }
 
     private async void OnBrowserAutomationTimerTick(
         Microsoft.UI.Dispatching.DispatcherQueueTimer sender,
         object args)
     {
-        if (_browserAutomationPolling || ViewModel.Workspace.SelectedThread is not { } thread)
+        if (_browserAutomationPolling || ViewModel.Workspace.SelectedThread is not { } thread || !ViewModel.IsConnected)
         {
             return;
         }
@@ -791,12 +826,14 @@ public sealed partial class RightPanelHost : UserControl
         _browserAutomationPolling = true;
         try
         {
-            var request = await _browserAutomationInbox.ReadNextAsync(thread.ThreadId.Value);
-            if (request is not null)
+            if (_browserAutomationSession?.IsActive != true && DateTimeOffset.UtcNow >= _browserAutomationRetry)
+                await SynchronizeBrowserAutomationPermissionAsync();
+            if (_browserAutomationContext == thread.ThreadId.Value && _browserAutomationSession is { IsActive: true } session && session.TakeNext() is { } work)
             {
-                await HandleBrowserAutomationRequestAsync(thread.ThreadId.Value, request);
+                await HandleBrowserAutomationRequestAsync(thread.ThreadId.Value, session, work);
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception)
         {
             ViewModel.SetWorkbenchPreviewCaptureStatus(
@@ -811,23 +848,20 @@ public sealed partial class RightPanelHost : UserControl
 
     private async Task HandleBrowserAutomationRequestAsync(
         string threadId,
-        BrowserAutomationRequest request)
+        BrowserAutomationSession session,
+        BrowserAutomationWork work)
     {
-        if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromSeconds(30))
-        {
-            await _browserAutomationInbox.CompleteAsync(
-                threadId,
-                request,
-                success: false,
-                error: "The browser request expired before it reached the preview.");
-            return;
-        }
+        var request = work.Request;
+        work.CancellationToken.ThrowIfCancellationRequested();
+        Task CompleteAsync(bool success, object? data = null, string? error = null) =>
+            session.CompleteAsync(work, data as BrowserAutomationResult ?? new(success,
+                data is null ? null : JsonSerializer.SerializeToElement(data), error is { Length: > 2048 } ? error[..2048] : error));
 
         PiStation.ClientRuntime.BrowserAutomationCommand command;
         try { command = PiStation.ClientRuntime.BrowserAutomationCommand.Parse(request.Operation, request.Input); }
         catch (ArgumentException exception)
         {
-            await _browserAutomationInbox.CompleteAsync(threadId, request, false, error: exception.Message);
+            await CompleteAsync(false, error: exception.Message);
             return;
         }
         var permission = ViewModel.WorkbenchPreview.AutomationPermission;
@@ -835,9 +869,7 @@ public sealed partial class RightPanelHost : UserControl
         if (permission == PreviewAutomationAccess.Off ||
             (mutating && permission != PreviewAutomationAccess.Interact))
         {
-            await _browserAutomationInbox.CompleteAsync(
-                threadId,
-                request,
+            await CompleteAsync(
                 success: false,
                 error: mutating ? "Browser interaction is not permitted." : "Browser automation is off.");
             return;
@@ -849,9 +881,7 @@ public sealed partial class RightPanelHost : UserControl
         var surface = tab is not null && _previewSurfaces.TryGetValue(tab.TabId, out var targetSurface) ? targetSurface : null;
         if (surface is null || tab is null)
         {
-            await _browserAutomationInbox.CompleteAsync(
-                threadId,
-                request,
+            await CompleteAsync(
                 success: false,
                 error: "The requested browser tab is unavailable. Use status to discover current tab IDs; open Preview if no surface is loaded.");
             return;
@@ -861,16 +891,14 @@ public sealed partial class RightPanelHost : UserControl
         {
             void ValidateTarget()
             {
+                work.CancellationToken.ThrowIfCancellationRequested();
                 var access = ViewModel.WorkbenchPreview.AutomationPermission;
-                if (ViewModel.Workspace.SelectedThread?.ThreadId.Value != threadId ||
+                if (!ViewModel.IsConnected || !ReferenceEquals(session, _browserAutomationSession) || ViewModel.Workspace.SelectedThread?.ThreadId.Value != threadId ||
                     !ViewModel.WorkbenchPreview.Tabs.Contains(tab) ||
                     !_previewSurfaces.TryGetValue(tab.TabId, out var currentSurface) || !ReferenceEquals(surface, currentSurface))
                     throw new InvalidOperationException("Browser request cancelled because its thread or tab is no longer available.");
                 if (access == PreviewAutomationAccess.Off || (mutating && access != PreviewAutomationAccess.Interact))
                     throw new InvalidOperationException("Browser permission was revoked.");
-                if (DateTimeOffset.UtcNow - request.CreatedUtc > TimeSpan.FromSeconds(30) ||
-                    request.RequestPath is { } path && !File.Exists(path))
-                    throw new OperationCanceledException("Browser request expired or was cancelled.");
             }
             ValidateTarget();
             if (request.Operation != "status")
@@ -903,14 +931,14 @@ public sealed partial class RightPanelHost : UserControl
                 "snapshot" => new
                 {
                     url = tab.CurrentUrl,
-                    elements = JsonSerializer.Deserialize<JsonElement>(await surface.GetDomSnapshotAsync()),
+                    elements = JsonSerializer.Deserialize<JsonElement>(await surface.GetDomSnapshotAsync(ValidateTarget)),
                 },
-                "screenshot" => await CaptureAutomationScreenshotAsync(surface, tab),
+                "screenshot" => await CaptureAutomationScreenshotAsync(surface, tab, ValidateTarget),
                 "click" => JsonSerializer.Deserialize<JsonElement>(await surface.ClickElementAsync(
-                    RequireAutomationInput(request.Input, "selector", 1024))),
+                    RequireAutomationInput(request.Input, "selector", 1024), ValidateTarget)),
                 "type" => JsonSerializer.Deserialize<JsonElement>(await surface.TypeIntoElementAsync(
                     RequireAutomationInput(request.Input, "selector", 1024),
-                    RequireAutomationInput(request.Input, "value", 8 * 1024, allowEmpty: true))),
+                    RequireAutomationInput(request.Input, "value", 8 * 1024, allowEmpty: true), ValidateTarget)),
                 "navigate" => await NavigateAutomationAsync(
                     command.Url!, surface, tab, ValidateTarget),
                 "press_key" => await surface.PressAutomationKeyAsync(command, ValidateTarget),
@@ -919,13 +947,12 @@ public sealed partial class RightPanelHost : UserControl
                 _ => throw new InvalidOperationException($"Unknown browser operation '{request.Operation}'."),
             };
             ValidateTarget();
-            await _browserAutomationInbox.CompleteAsync(threadId, request, success: true, data);
+            await CompleteAsync(success: true, data);
         }
+        catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            await _browserAutomationInbox.CompleteAsync(
-                threadId,
-                request,
+            await CompleteAsync(
                 success: false,
                 error: exception.Message);
         }
@@ -933,13 +960,16 @@ public sealed partial class RightPanelHost : UserControl
 
     private async Task<object> CaptureAutomationScreenshotAsync(
         PreviewWebViewSurface surface,
-        WorkbenchPreviewTabViewModel tab)
+        WorkbenchPreviewTabViewModel tab, Action validate)
     {
-        var path = await SavePreviewCaptureAsync(
-            await surface.CapturePreviewPngAsync(),
-            ViewModel.PreviewCaptureRoot);
+        var bytes = await surface.CapturePreviewPngAsync(validate);
+        validate();
+        var path = await SavePreviewCaptureAsync(bytes, ViewModel.PreviewCaptureRoot);
         ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Agent screenshot saved • {path}", path);
-        return new { tabId = tab.TabId, url = tab.CurrentUrl, path };
+        if (bytes.Length > BrowserAutomationLimits.MaximumScreenshotBytes)
+            throw new InvalidOperationException("This screenshot exceeds the 4 MiB browser transfer limit. Reduce the preview size and retry.");
+        return new BrowserAutomationResult(true, JsonSerializer.SerializeToElement(new { tabId = tab.TabId, url = tab.CurrentUrl }),
+            ScreenshotPng: bytes);
     }
 
     private static async Task<object> NavigateAutomationAsync(string url, PreviewWebViewSurface surface,
@@ -950,7 +980,7 @@ public sealed partial class RightPanelHost : UserControl
         validate();
         tab.PrepareNavigation(uri);
         surface.SetNavigationContext(tab.TabId);
-        await surface.NavigateAsync(uri);
+        await surface.NavigateAsync(uri, validate);
         validate();
         return new { tabId = tab.TabId, url = tab.CurrentUrl };
     }

@@ -62,7 +62,7 @@ internal static class ServerUpdateLauncher
         try
         {
             child = Start(executable, childArgs);
-            expected = await WaitReadyAsync(child, root, null, null, cancellationToken).ConfigureAwait(false);
+            expected = await WaitReadyAsync(child, root, null, null, null, cancellationToken).ConfigureAwait(false);
             while (!cancellationToken.IsCancellationRequested)
             {
                 await child.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
@@ -73,7 +73,7 @@ internal static class ServerUpdateLauncher
                 var snapshot = Path.Combine(Path.GetDirectoryName(update.ReceiptPath)!, "database-before-update");
                 try
                 {
-                    await ServerUpdatePackage.ValidateAsync(update.PackagePath, update.RuntimeDirectory, cancellationToken).ConfigureAwait(false);
+                    var manifest = await ServerUpdatePackage.ValidateAndReadManifestAsync(update.PackagePath, update.RuntimeDirectory, cancellationToken).ConfigureAwait(false);
                     Directory.CreateDirectory(snapshot);
                     File.WriteAllText(Path.Combine(snapshot, "runtime.txt"), previous);
                     HostDatabaseSnapshot.Create(root, snapshot);
@@ -81,10 +81,11 @@ internal static class ServerUpdateLauncher
                     child.Dispose();
                     child = null;
                     child = Start(executable, childArgs);
-                    await WaitReadyAsync(child, root, expected, update.TargetVersion, cancellationToken).ConfigureAwait(false);
+                    var ready = await WaitReadyAsync(child, root, expected, update.TargetVersion, manifest.ProtocolVersion, cancellationToken).ConfigureAwait(false);
                     SaveActiveRuntime(activePath, executable);
                     RemoteUpdateCoordinator.CompleteActivation(update.ReceiptPath, true, "The owner verified the new runtime with the existing environment identity.");
                     File.Delete(handoffPath);
+                    expected = ready;
                 }
                 catch (Exception) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -99,7 +100,7 @@ internal static class ServerUpdateLauncher
                     executable = previous;
                     SaveActiveRuntime(activePath, previous);
                     child = Start(previous, childArgs);
-                    await WaitReadyAsync(child, root, expected, null, cancellationToken).ConfigureAwait(false);
+                    await WaitReadyAsync(child, root, expected, null, expected.ProtocolVersion, cancellationToken).ConfigureAwait(false);
                     RemoteUpdateCoordinator.CompleteActivation(update.ReceiptPath, false, restoredDatabase
                         ? "Activation failed; the pre-update database and previous compatible runtime were restored."
                         : "Activation failed before replacement startup; the previous runtime was restarted.");
@@ -164,7 +165,7 @@ internal static class ServerUpdateLauncher
             throw new InvalidDataException("The activation request is outside the owner's staging directory.");
     }
 
-    private static async Task<SshHostInfo> WaitReadyAsync(Process child, string root, SshHostInfo? expected, string? version, CancellationToken cancellationToken)
+    private static async Task<SshHostInfo> WaitReadyAsync(Process child, string root, SshHostInfo? expected, string? version, int? protocolVersion, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(60));
@@ -173,6 +174,8 @@ internal static class ServerUpdateLauncher
             var info = await SshEnvironmentHost.TryDiscoverAsync(root, timeout.Token).ConfigureAwait(false);
             if (info is not null)
             {
+                if (info.BootstrapVersion != SshHostInfo.CurrentBootstrapVersion || protocolVersion is { } protocol && info.ProtocolVersion != protocol)
+                    throw new InvalidDataException("The updated runtime reported a different protocol or bootstrap version.");
                 if (expected is not null && (info.EnvironmentId != expected.EnvironmentId || info.CertificateFingerprint != expected.CertificateFingerprint))
                     throw new InvalidDataException("The updated runtime changed its environment identity.");
                 if (version is not null && NormalizeVersion(info.ServerVersion) != NormalizeVersion(version))

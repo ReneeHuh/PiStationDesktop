@@ -97,7 +97,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         return _initializationTask ??= InitializeCoreAsync();
     }
 
-    public async Task NavigateAsync(Uri uri)
+    public async Task NavigateAsync(Uri uri, Action? validate = null)
     {
         ArgumentNullException.ThrowIfNull(uri);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -110,6 +110,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         await _navigationGate.WaitAsync();
         try
         {
+            validate?.Invoke();
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_remoteRoute is not null && normalized.GetLeftPart(UriPartial.Authority) != _remoteRoute.Target.GetLeftPart(UriPartial.Authority))
             {
@@ -128,6 +129,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
                     return;
                 }
             }
+            validate?.Invoke();
             if (_remoteRoute is { } route)
             {
                 var cookie = Browser.CoreWebView2.CookieManager.CreateCookie(route.CookieName, route.CookieValue, route.Address.Host, "/");
@@ -227,14 +229,15 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         return imported;
     }
 
-    public async Task<string> GetDomSnapshotAsync()
+    public async Task<string> GetDomSnapshotAsync(Action? validate = null)
     {
         await InitializeAsync();
+        validate?.Invoke();
         var raw = await Browser.CoreWebView2.ExecuteScriptAsync(DomSnapshotScript);
         return DecodeScriptString(raw, "[]", 32 * 1024);
     }
 
-    public async Task<string> ClickElementAsync(string selector)
+    public async Task<string> ClickElementAsync(string selector, Action? validate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selector);
         if (selector.Length > 1024)
@@ -252,10 +255,11 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
               return JSON.stringify({ ok: true, tag: element.tagName.toLowerCase() });
             })()
             """;
+        validate?.Invoke();
         return DecodeScriptString(await Browser.CoreWebView2.ExecuteScriptAsync(script), "{}", 4 * 1024);
     }
 
-    public async Task<string> TypeIntoElementAsync(string selector, string value)
+    public async Task<string> TypeIntoElementAsync(string selector, string value, Action? validate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selector);
         ArgumentNullException.ThrowIfNull(value);
@@ -279,16 +283,18 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
               return JSON.stringify({ ok: true, tag: element.tagName.toLowerCase() });
             })()
             """;
+        validate?.Invoke();
         return DecodeScriptString(await Browser.CoreWebView2.ExecuteScriptAsync(script), "{}", 4 * 1024);
     }
 
-    public async Task<byte[]> CapturePreviewPngAsync()
+    public async Task<byte[]> CapturePreviewPngAsync(Action? validate = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await InitializeAsync();
         var core = Browser.CoreWebView2 ??
             throw new InvalidOperationException("Web preview is not initialized.");
         using var stream = new InMemoryRandomAccessStream();
+        validate?.Invoke();
         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
         if (stream.Size is 0 or > 20 * 1024 * 1024)
         {

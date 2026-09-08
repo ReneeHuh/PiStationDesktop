@@ -23,6 +23,9 @@ public sealed class PiSessionTreeRow(PiSessionTreeEntry entry)
 public sealed class PiSessionsViewModel : ObservableObject
 {
     private bool _isBusy;
+    private bool _allowOperations;
+    private bool _hasPendingImport;
+    private bool _canCancelTransfer;
     private string _status = "Import a Pi session, or inspect the selected idle thread.";
     private string _directory = string.Empty;
     private string _summary = string.Empty;
@@ -32,16 +35,28 @@ public sealed class PiSessionsViewModel : ObservableObject
     public ObservableCollection<PiSessionTreeRow> Entries { get; } = [];
     public PiSessionSnapshot? Snapshot { get; private set; }
     public int? BrowserNextOffset { get; private set; }
-    public bool HasMoreCandidates => BrowserNextOffset is not null;
-    public bool HasMoreEntries => Snapshot?.NextOffset is not null;
+    public bool HasMoreCandidates => CanAct && BrowserNextOffset is not null;
+    public bool HasMoreEntries => CanAct && Snapshot?.NextOffset is not null;
     public string Directory { get => _directory; set => SetProperty(ref _directory, value); }
     public string Status { get => _status; internal set => SetProperty(ref _status, value); }
     public string Summary { get => _summary; private set => SetProperty(ref _summary, value); }
-    public bool IsBusy { get => _isBusy; internal set { if (SetProperty(ref _isBusy, value)) OnPropertyChanged(nameof(CanAct)); } }
-    public bool CanAct => !IsBusy;
+    public bool IsBusy { get => _isBusy; internal set { if (SetProperty(ref _isBusy, value)) RaiseActionState(); } }
+    public bool AllowOperations { get => _allowOperations; internal set { if (SetProperty(ref _allowOperations, value)) RaiseActionState(); } }
+    public bool HasPendingImport { get => _hasPendingImport; internal set { if (SetProperty(ref _hasPendingImport, value)) OnPropertyChanged(nameof(CanRetryImport)); } }
+    public bool CanCancelTransfer { get => _canCancelTransfer; internal set => SetProperty(ref _canCancelTransfer, value); }
+    public bool CanAct => !IsBusy && AllowOperations;
+    public bool CanRetryImport => CanAct && HasPendingImport;
     public PiSessionCandidateRow? SelectedCandidate { get => _selectedCandidate; set => SetProperty(ref _selectedCandidate, value); }
     public PiSessionTreeRow? SelectedEntry { get => _selectedEntry; set => SetProperty(ref _selectedEntry, value); }
     public string NewTitle { get; set; } = string.Empty;
+
+    private void RaiseActionState()
+    {
+        OnPropertyChanged(nameof(CanAct));
+        OnPropertyChanged(nameof(CanRetryImport));
+        OnPropertyChanged(nameof(HasMoreCandidates));
+        OnPropertyChanged(nameof(HasMoreEntries));
+    }
 
     internal void Apply(PiSessionBrowserResult result, bool append = false)
     {

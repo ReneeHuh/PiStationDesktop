@@ -776,14 +776,19 @@
                         <StackPanel Spacing="10">
                             <TextBlock Text="Pi sessions" Style="{StaticResource PiPanelHeaderTextStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.PiSessions.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiSessionsStatusText" />
-                            <TextBlock Text="Import and fork create independent local threads in the selected project. Originals and unsent drafts are preserved. Workspace files are not copied or rewound." TextWrapping="Wrap" FontSize="12" />
+                            <TextBlock Text="Import and fork create independent threads on the connected host in the selected project. Originals and unsent drafts are preserved. Workspace files are not copied or rewound." TextWrapping="Wrap" FontSize="12" />
+                            <Button Content="Cancel file transfer" Click="OnCancelPiSessionTransferClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanCancelTransfer, Mode=OneWay}" automation:AutomationProperties.AutomationId="CancelPiSessionTransferButton" />
                             <TextBox Header="New thread title (optional)" Text="{x:Bind ViewModel.PiSessions.NewTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="PiSessionTitleInput" />
                             <Expander Header="Import a session" IsExpanded="True" HorizontalAlignment="Stretch">
                                 <StackPanel Spacing="8">
-                                    <TextBox Header="Session folder" PlaceholderText="Empty uses Pi's default session folder" Text="{x:Bind ViewModel.PiSessions.Directory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="PiSessionDirectoryInput" />
+                                    <TextBlock Text="Browse existing sessions on the host, or upload a JSONL file or ZIP bundle from this PC." TextWrapping="Wrap" />
+                                    <TextBox Header="Session folder on the host" PlaceholderText="Empty uses Pi's default session folder on the host" Text="{x:Bind ViewModel.PiSessions.Directory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="PiSessionDirectoryInput" />
                                     <Button Content="Refresh session files" Click="OnBrowsePiSessionsClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="BrowsePiSessionsButton" />
-                                    <Button Content="Choose folder…" Click="OnChoosePiSessionFolderClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
-                                    <Button Content="Import JSONL file…" Click="OnChoosePiSessionFileClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportPiSessionFileButton" />
+                                    <Button Content="Use host's default session folder" Click="OnUseDefaultPiSessionFolderClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
+                                    <Button Content="Choose folder…" Click="OnChoosePiSessionFolderClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}"
+                                        Visibility="{x:Bind ViewModel.LocalSessionFolderPickerVisibility, Mode=OneWay}" />
+                                    <Button Content="Import file from this PC…" Click="OnChoosePiSessionFileClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportPiSessionFileButton" />
+                                    <Button Content="Retry last file import" Click="OnRetryPiSessionImportClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanRetryImport, Mode=OneWay}" automation:AutomationProperties.AutomationId="RetryPiSessionImportButton" />
                                     <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Candidates}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedCandidate, Mode=TwoWay}" MaxHeight="240" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionCandidateList">
                                         <ListView.ItemTemplate>
                                             <DataTemplate x:DataType="viewModels:PiSessionCandidateRow">
@@ -794,7 +799,7 @@
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
                                     </ListView>
-                                    <Button Content="Import selected session" Click="OnImportSelectedPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportSelectedPiSessionButton" />
+                                    <Button Content="Import selected host session" Click="OnImportSelectedPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ImportSelectedPiSessionButton" />
                                 </StackPanel>
                             </Expander>
                             <Expander Header="Selected thread" IsExpanded="True" HorizontalAlignment="Stretch">
@@ -815,6 +820,7 @@
                                     <Button Content="Fork after selected response" Click="OnForkPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ForkPiSessionButton" />
                                     <Button Content="Copy whole session" Click="OnCopyPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="CopyPiSessionButton" />
                                     <TextBlock Text="JSONL retains the full tree and embedded images. HTML is a readable text transcript of the active branch. Linked files remain external." TextWrapping="Wrap" FontSize="12" />
+                                    <TextBlock Text="Exports are downloaded and saved on this PC. Choose a ZIP bundle to include sent attachments and citation comments." TextWrapping="Wrap" FontSize="12" />
                                     <Button Content="Export Pi JSONL…" Tag="jsonl" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionJsonlButton" />
                                     <Button Content="Load more tree entries" Click="OnLoadMoreSessionEntries" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreEntries, Mode=OneWay}" />
                                     <Button Content="Load more session files" Click="OnLoadMoreSessionFiles" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreCandidates, Mode=OneWay}" />

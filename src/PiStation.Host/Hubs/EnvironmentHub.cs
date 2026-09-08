@@ -13,6 +13,19 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     private readonly EnvironmentService _environment = environment ?? throw new ArgumentNullException(nameof(environment));
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
+    private string BrowserPrincipal => PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!);
+    public async Task<BrowserAutomationLease> OpenBrowserAutomation(OpenBrowserAutomationRequest request)
+    {
+        try { return await _environment.OpenBrowserAutomationAsync(request, BrowserPrincipal, Context.ConnectionId, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or UnauthorizedAccessException or HostOperationException)
+        { throw new HubException(error.Message); }
+    }
+    public Task<BrowserAutomationPoll> PollBrowserAutomation(string id) =>
+        _environment.BrowserAutomation.PollAsync(id, BrowserPrincipal, Context.ConnectionId, Context.ConnectionAborted);
+    public Task CompleteBrowserAutomation(string id, string requestId, BrowserAutomationResult result) =>
+        _environment.BrowserAutomation.CompleteAsync(id, requestId, result, BrowserPrincipal, Context.ConnectionId, Context.ConnectionAborted);
+    public Task CloseBrowserAutomation(string id) =>
+        _environment.BrowserAutomation.CloseAsync(id, BrowserPrincipal, Context.ConnectionId);
     public async Task<SourceControlWritingSettings> GetSourceControlWritingSettings()
     {
         try { return await _environment.GetSourceControlWritingSettingsAsync(Context.ConnectionAborted).ConfigureAwait(false); }

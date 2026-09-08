@@ -9,7 +9,7 @@ public sealed partial class ShellViewModel
 
     public async Task BrowsePiSessionsAsync(bool loadMore = false, CancellationToken cancellationToken = default)
     {
-        if (PiSessions.IsBusy) return;
+        if (!PiSessions.CanAct) return;
         PiSessions.IsBusy = true;
         PiSessions.Status = "Reading Pi session files…";
         var directory = PiSessions.Directory;
@@ -26,7 +26,7 @@ public sealed partial class ShellViewModel
     {
         var thread = SelectedThread;
         if (thread is null) { PiSessions.Status = "Select a thread first."; return; }
-        if (PiSessions.IsBusy) return;
+        if (!PiSessions.CanAct) return;
         PiSessions.IsBusy = true;
         PiSessions.Status = "Reading the selected session tree…";
         try
@@ -41,10 +41,11 @@ public sealed partial class ShellViewModel
 
     public async Task CopyPiSessionAsync(string? importPath = null, bool forkAtSelection = false, bool copyCurrent = false, CancellationToken cancellationToken = default)
     {
+        if (importPath is not null) { await ImportLocalPiSessionAsync(importPath, cancellationToken); return; }
         var project = SelectedProject;
         var previousThreadId = SelectedThread?.ThreadId;
         if (project is null) { PiSessions.Status = "Select a project for the new thread."; return; }
-        if (PiSessions.IsBusy) return;
+        if (!PiSessions.CanAct) return;
         var snapshot = PiSessions.Snapshot;
         var sourceThread = copyCurrent || forkAtSelection ? SelectedThread?.ThreadId : null;
         if ((copyCurrent || forkAtSelection) && (snapshot is null || snapshot.ThreadId != sourceThread))
@@ -84,15 +85,24 @@ public sealed partial class ShellViewModel
     public async Task ExportPiSessionAsync(string destinationPath, PiSessionExportFormat format, CancellationToken cancellationToken = default)
     {
         var thread = SelectedThread;
-        if (thread is null || PiSessions.IsBusy) return;
+        if (thread is null || !PiSessions.CanAct) return;
+        using var transfer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _sessionTransferCancellation = transfer;
         PiSessions.IsBusy = true;
-        PiSessions.Status = "Exporting session…";
+        PiSessions.CanCancelTransfer = true;
+        PiSessions.Status = "Preparing session export on the host…";
         try
         {
-            var result = await RequireClient().ExportPiSessionAsync(new(thread.ThreadId, destinationPath, format), cancellationToken).ConfigureAwait(false);
+            var progress = new Progress<long>(bytes =>
+            {
+                if (ReferenceEquals(_sessionTransferCancellation, transfer)) PiSessions.Status = $"Downloading session: {bytes:N0} bytes…";
+            });
+            var result = await RequireClient().DownloadPiSessionAsync(thread.ThreadId, destinationPath, format, progress, transfer.Token);
             RunOnUiThread(() => PiSessions.Status = $"Exported {result.Bytes:N0} bytes to {result.Path}");
         }
+        catch (OperationCanceledException) when (transfer.IsCancellationRequested)
+        { PiSessions.Status = "Export canceled. Any previous destination file was preserved. You can export again."; }
         catch (Exception exception) { RunOnUiThread(() => PiSessions.Status = exception.Message); }
-        finally { RunOnUiThread(() => PiSessions.IsBusy = false); }
+        finally { _sessionTransferCancellation = null; PiSessions.CanCancelTransfer = false; PiSessions.IsBusy = false; }
     }
 }

@@ -254,7 +254,7 @@
                                 <Image
                                     Width="26"
                                     Height="26"
-                                    Source="{x:Bind PreviewUri}"
+                                    Loaded="OnAttachmentImageLoaded" Unloaded="OnAttachmentImageUnloaded" DataContextChanged="OnAttachmentImageContextChanged"
                                     Stretch="UniformToFill"
                                     Visibility="{x:Bind PreviewVisibility}" />
                                 <TextBlock

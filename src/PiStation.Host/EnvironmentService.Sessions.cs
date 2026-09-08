@@ -151,17 +151,23 @@ public sealed partial class EnvironmentService
         if (!string.Equals(Path.GetExtension(destination), expectedExtension, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("The export filename must end in " + expectedExtension + ".");
         if (destination.StartsWith(_options.CanonicalDataRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Choose an export location outside PiStation's application data.");
-        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await WritePiSessionExportAsync(request.ThreadId, destination, request.Format, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PiSessionExportResult> WritePiSessionExportAsync(ThreadId threadId, string destination,
+        PiSessionExportFormat format, CancellationToken cancellationToken)
+    {
+        var controller = await _threads.GetAsync(threadId, cancellationToken).ConfigureAwait(false);
         return await controller.WithSessionAsync(async (document, source) =>
         {
             if (string.Equals(destination, source, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Choose a different file from the active session.");
-            if (request.Format == PiSessionExportFormat.Bundle)
+            if (format == PiSessionExportFormat.Bundle)
             {
-                var messages = await _database.ListSentMessagesAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+                var messages = await _database.ListSentMessagesAsync(threadId, cancellationToken).ConfigureAwait(false);
                 var length = await PiSessionBundle.ExportAsync(destination, source, document, messages.Values.ToArray(), cancellationToken).ConfigureAwait(false);
                 return new PiSessionExportResult(destination, length);
             }
-            var bytes = request.Format == PiSessionExportFormat.Jsonl ? await File.ReadAllBytesAsync(source, cancellationToken).ConfigureAwait(false)
+            var bytes = format == PiSessionExportFormat.Jsonl ? await File.ReadAllBytesAsync(source, cancellationToken).ConfigureAwait(false)
                 : Encoding.UTF8.GetBytes(document.ToHtml(document.Title));
             await WriteSessionFileAsync(destination, bytes, overwrite: true, cancellationToken).ConfigureAwait(false);
             return new PiSessionExportResult(destination, bytes.Length);

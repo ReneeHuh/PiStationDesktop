@@ -63,7 +63,9 @@ public sealed class SshHostIntegrationTests
         var profile = new SshConnectionProfile(Guid.NewGuid(), "Stopped host", "unused", FindServerExecutable(),
             root, null, null, ClientId.New());
         await using var discovery = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1], SshRunningHostDiscovery.EncodedScript(profile));
-        var info = await ManagedSshConnection.ReadHandshakeAsync(discovery.Process.StandardOutput, timeout.Token);
+        var authenticated = false;
+        var info = await ManagedSshConnection.ReadHandshakeAsync(discovery.Process.StandardOutput, timeout.Token, authenticated: () => authenticated = true);
+        Assert.True(authenticated);
         await discovery.Process.WaitForExitAsync(timeout.Token);
         Assert.Null(info);
         Assert.Equal(1, discovery.Process.ExitCode);
@@ -358,8 +360,8 @@ public sealed class SshHostIntegrationTests
         {
             if (HasExited) return;
             HasExited = true;
-            _listener.Stop();
             await _lifetime.CancelAsync();
+            _listener.Stop();
             await _accept;
             await Task.WhenAll(_copies);
             Output.Dispose();
