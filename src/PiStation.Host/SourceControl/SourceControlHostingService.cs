@@ -49,14 +49,27 @@ public sealed partial class SourceControlHostingService(
             request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken)
             .ConfigureAwait(false);
-        var (fileName, arguments) = BuildListCommand(repository.Provider, request.State, request.Offset, request.SourceBranch);
-        var result = await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken)
-            .ConfigureAwait(false);
+        string? viewer = null;
+        if (repository.Provider == SourceControlProvider.GitHub && request.Filters is { } filters &&
+            (filters.Involvement != PullRequestInvolvement.All || filters.Author?.Trim() == "@me"))
+        {
+            using var identity = await ExecuteGraphQlAsync(repository, workspace.WorkspaceRoot, "query { viewer { login } }", new { }, cancellationToken).ConfigureAwait(false);
+            viewer = NestedText(identity.RootElement, "data", "viewer", "login");
+        }
+        var (fileName, arguments) = BuildFilteredListCommand(repository, request, viewer);
+        var result = repository.Provider == SourceControlProvider.GitHub && _reviewCommandExecutor is not null
+            ? await RunReviewCommandAsync(arguments, workspace.WorkspaceRoot, null, cancellationToken).ConfigureAwait(false)
+            : await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken).ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
         var parsed = ParsePullRequests(repository, result.StandardOutput);
         var page = repository.Provider == SourceControlProvider.GitHub ? parsed.Skip(request.Offset).ToArray() : parsed;
-        return new ListPullRequestsResult(repository, page.Take(100).ToArray(),
-            (repository.Provider == SourceControlProvider.GitHub ? page.Length > 100 : page.Length == 100) ? request.Offset + 100 : null);
+        var selected = page.Take(100).ToArray();
+        if (repository.Provider == SourceControlProvider.GitHub && selected.Length > 0)
+            selected = await ReadListCheckStatesAsync(repository, workspace.WorkspaceRoot, selected, cancellationToken).ConfigureAwait(false);
+        return new ListPullRequestsResult(repository, selected,
+            (repository.Provider == SourceControlProvider.GitHub ? page.Length > 100 : page.Length == 100) ? request.Offset + 100 : null,
+            repository.Provider == SourceControlProvider.GitHub && arguments.Contains("--search") && parsed.Length >= 1000
+                ? "GitHub search returns up to 1000 results. Narrow the filters to find additional pull requests." : null);
     }
 
     public async Task<PullRequestDescriptor> GetPullRequestAsync(WorkspaceTarget target, string number, CancellationToken cancellationToken = default)
@@ -72,7 +85,7 @@ public sealed partial class SourceControlHostingService(
             SourceControlProvider.AzureDevOps => ("az", new[] { "repos", "pr", "show", "--id", number, "--output", "json" }),
             _ => throw UnsupportedProvider(repository.Provider),
         };
-        var result = await RunAsync(tool, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken).ConfigureAwait(false);
+        var result = await RunHostingCommandAsync(tool, arguments, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
         using var document = JsonDocument.Parse(result.StandardOutput);
         return ParsePullRequest(repository, document.RootElement);
@@ -112,7 +125,7 @@ public sealed partial class SourceControlHostingService(
         var workspace = await _resolver.ResolveAsync(request.ProjectId, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var (fileName, arguments) = BuildPublishCommand(request, workspace.WorkspaceRoot);
-        var result = await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken)
+        var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
             .ConfigureAwait(false);
         EnsureProviderSucceeded(result, request.Provider);
         return new SourceControlOperationResult(true, "Repository published and origin configured. Refresh hosting to inspect it.");
@@ -128,7 +141,7 @@ public sealed partial class SourceControlHostingService(
             .ConfigureAwait(false);
         if (!repository.CanWrite || !HostingCapabilities.CanCreate(repository.Provider)) throw UnsupportedProvider(repository.Provider);
         var (fileName, arguments) = BuildCreateCommand(repository.Provider, request);
-        var result = await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken)
+        var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
             .ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
         return new SourceControlOperationResult(true,
@@ -145,7 +158,7 @@ public sealed partial class SourceControlHostingService(
             .ConfigureAwait(false);
         if (!repository.CanWrite || !HostingCapabilities.CanMutate(repository.Provider, request.Mutation)) throw UnsupportedMutation(request.Mutation);
         var (fileName, arguments) = BuildMutationCommand(repository.Provider, request);
-        var result = await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken)
+        var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
             .ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
         return new SourceControlOperationResult(true,
@@ -177,7 +190,7 @@ public sealed partial class SourceControlHostingService(
         SourceControlProvider provider,
         PullRequestState? state, int offset = 0, string? sourceBranch = null) => provider switch
     {
-        SourceControlProvider.GitHub => ("gh", Compact(["pr", "list", "--state", StateArgument(state), "--limit", (offset + 101).ToString(System.Globalization.CultureInfo.InvariantCulture), "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,statusCheckRollup,updatedAt,closedAt,mergedAt", sourceBranch is null ? null : "--head", sourceBranch])),
+        SourceControlProvider.GitHub => ("gh", Compact(["pr", "list", "--state", StateArgument(state), "--limit", (offset + 101).ToString(System.Globalization.CultureInfo.InvariantCulture), "--json", "number,title,url,state,author,headRefName,baseRefName,isDraft,labels,reviewRequests,updatedAt,closedAt,mergedAt", sourceBranch is null ? null : "--head", sourceBranch])),
         SourceControlProvider.GitLab => ("glab", Compact(["mr", "list", state switch { PullRequestState.Closed => "--closed", PullRequestState.Merged => "--merged", PullRequestState.Draft => "--draft", null => "--all", _ => null }, "--per-page", "100", "--page", (offset / 100 + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), "--output", "json", sourceBranch is null ? null : "--source-branch", sourceBranch])),
         SourceControlProvider.Bitbucket => throw UnsupportedProvider(provider),
         SourceControlProvider.AzureDevOps => ("az", Compact(["repos", "pr", "list", "--status", AzureStateArgument(state), "--top", "100", "--skip", offset.ToString(System.Globalization.CultureInfo.InvariantCulture), "--output", "json", sourceBranch is null ? null : "--source-branch", sourceBranch])),
@@ -368,7 +381,7 @@ public sealed partial class SourceControlHostingService(
             .Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!).ToList();
     }
 
-    private static async Task<SourceControlRepository> DescribeRemoteAsync(
+    private async Task<SourceControlRepository> DescribeRemoteAsync(
         string workspace,
         string remote,
         CancellationToken cancellationToken)
@@ -388,8 +401,9 @@ public sealed partial class SourceControlHostingService(
             SourceControlProvider.AzureDevOps => ["repos", "show", "--repository", parsed.Name, "--output", "none"],
             _ => [],
         };
-        var available = authArguments.Length != 0 &&
-            (await RunAsync(tool, authArguments, workspace, LocalTimeout, cancellationToken, false).ConfigureAwait(false)).ExitCode == 0;
+        var available = authArguments.Length != 0 && (parsed.Provider == SourceControlProvider.GitHub && _reviewCommandExecutor is not null
+            ? (await RunReviewCommandAsync(authArguments, workspace, null, cancellationToken).ConfigureAwait(false)).ExitCode == 0
+            : (await RunAsync(tool, authArguments, workspace, LocalTimeout, cancellationToken, false).ConfigureAwait(false)).ExitCode == 0);
         return new SourceControlRepository(
             parsed.Provider, parsed.Host, parsed.Owner, parsed.Name,
             parsed.WebUrl, remote, defaultBranch, available);
@@ -445,6 +459,7 @@ public sealed partial class SourceControlHostingService(
 
     private static string StateArgument(PullRequestState? state) => state switch
     {
+        null => "all",
         PullRequestState.Closed => "closed",
         PullRequestState.Merged => "merged",
         _ => "open",
@@ -541,6 +556,13 @@ public sealed partial class SourceControlHostingService(
         ProtocolErrorCodes.SourceControlOperationFailed,
         $"The selected provider does not support '{mutation}' through its CLI.");
 
+    private async Task<ProcessResult> RunHostingCommandAsync(string tool, IReadOnlyList<string> arguments, string workspace, CancellationToken cancellationToken)
+    {
+        if (_reviewCommandExecutor is null) return await RunAsync(tool, arguments, workspace, NetworkTimeout, cancellationToken).ConfigureAwait(false);
+        var result = await _reviewCommandExecutor(tool, arguments, workspace, null, cancellationToken).ConfigureAwait(false);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError);
+    }
+
     private static async Task<ProcessResult> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
@@ -553,7 +575,7 @@ public sealed partial class SourceControlHostingService(
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = fileName,
+            FileName = HostingCliLocator.Resolve(fileName),
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,

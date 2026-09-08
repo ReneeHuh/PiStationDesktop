@@ -256,6 +256,16 @@ public sealed partial class HostDatabase
                     FOREIGN KEY(SourceThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS PullRequestCheckouts (
+                    ProjectId TEXT NOT NULL,
+                    Repository TEXT NOT NULL,
+                    Number TEXT NOT NULL,
+                    HeadCommitId TEXT NOT NULL,
+                    ThreadId TEXT NOT NULL UNIQUE,
+                    Completed INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (ProjectId, Repository, Number, HeadCommitId),
+                    FOREIGN KEY (ProjectId) REFERENCES Projects(ProjectId) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS HostingOperations (OperationId TEXT PRIMARY KEY NOT NULL, RequestHash TEXT NOT NULL, OperationJson TEXT NOT NULL);
 
                 CREATE TABLE IF NOT EXISTS WorkspaceCommandReceipts (

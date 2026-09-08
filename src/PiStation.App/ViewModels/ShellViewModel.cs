@@ -655,25 +655,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             var operations = await RequireClient().ListHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.ApplyHostingOperations(operations));
 
-            var project = SelectedProject;
-            if (project is not null)
-            {
-                try
-                {
-                    var result = await RequireClient().ListPullRequestsAsync(
-                        new ListPullRequestsRequest(new WorkspaceTarget(project.ProjectId, SelectedThread?.ThreadId)),
-                        cancellationToken).ConfigureAwait(false);
-                    RunOnUiThread(() => Settings.ApplyPullRequests(result));
-                }
-                catch (Exception exception)
-                {
-                    RunOnUiThread(() => Settings.ClearSourceControl($"Hosting unavailable: {exception.Message}"));
-                }
-            }
-            else
-            {
-                RunOnUiThread(() => Settings.ClearSourceControl("Select a project to inspect source-control hosting."));
-            }
+            await RefreshPullRequestsAsync(cancellationToken).ConfigureAwait(false);
 
             RunOnUiThread(() => Settings.Status = "Settings refreshed");
         }

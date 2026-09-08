@@ -26,7 +26,11 @@ public sealed partial class EnvironmentService
         {
             do
             {
-                try { await SweepThreadSettlementAsync(DateTimeOffset.UtcNow, _settlementShutdown.Token).ConfigureAwait(false); }
+                try
+                {
+                    await RefreshLinkedPullRequestsAsync(_settlementShutdown.Token).ConfigureAwait(false);
+                    await SweepThreadSettlementAsync(DateTimeOffset.UtcNow, _settlementShutdown.Token).ConfigureAwait(false);
+                }
                 catch (OperationCanceledException) when (_settlementShutdown.IsCancellationRequested) { break; }
                 catch (Exception exception) { _diagnostics.Record($"Thread settlement sweep failed: {exception.Message}"); }
             } while (await timer.WaitForNextTickAsync(_settlementShutdown.Token).ConfigureAwait(false));

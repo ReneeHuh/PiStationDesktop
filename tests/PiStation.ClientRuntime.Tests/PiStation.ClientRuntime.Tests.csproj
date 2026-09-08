@@ -23,10 +23,18 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\PiStation.App\ViewModels\PullRequestReviewViewModel.cs" Link="Presentation\PullRequestReviewViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\PullRequestReviewViewModel.Management.cs" Link="Presentation\PullRequestReviewViewModel.Management.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\PullRequestReviewViewModel.Advanced.cs" Link="Presentation\PullRequestReviewViewModel.Advanced.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\PiStation.App\Composition\AppLaunchOptions.cs" Link="Presentation\AppLaunchOptions.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\UiTestHostingFixture.cs" Link="Presentation\UiTestHostingFixture.cs" />
+    <None Include="..\PiStation.UiTests\fixtures\pull-request-review.json" Link="pull-request-review.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

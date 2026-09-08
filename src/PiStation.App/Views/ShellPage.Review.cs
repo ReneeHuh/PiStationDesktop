@@ -45,7 +45,8 @@ public sealed partial class ShellPage
             };
 
             var content = new StackPanel { Spacing = 10, MinWidth = 480 };
-            content.Children.Add(new TextBlock { Text = ViewModel.Settings.SourceControlSummary, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(BindText(ViewModel.Settings, nameof(ViewModel.Settings.SourceControlSummary)));
+            content.Children.Add(BuildPullRequestFilters());
             content.Children.Add(pullRequests); content.Children.Add(actions);
             content.Children.Add(title); content.Children.Add(body); content.Children.Add(draft); content.Children.Add(workspace); content.Children.Add(status);
             var dialog = new ContentDialog
@@ -56,6 +57,38 @@ public sealed partial class ShellPage
                 PrimaryButtonText = "Create pull request", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Close,
             };
             dialog.SetBinding(ContentDialog.IsPrimaryButtonEnabledProperty, new Binding { Source = ViewModel.Settings, Path = new PropertyPath("CanCreatePullRequest"), Mode = BindingMode.OneWay });
+            using var checkoutCancellation = new CancellationTokenSource();
+            var refreshTimer = DispatcherQueue.CreateTimer();
+            refreshTimer.Interval = TimeSpan.FromSeconds(30);
+            async void OnLiveRefreshTick(Microsoft.UI.Dispatching.DispatcherQueueTimer timer, object args)
+            {
+                if (pullRequests.SelectedItem is PullRequestDescriptor selected && selected.Number == review.Snapshot?.PullRequest.Number &&
+                    review.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId)
+                    await SafeReviewActionAsync(() => review.RefreshLiveAsync(checkoutCancellation.Token));
+            }
+            refreshTimer.Tick += OnLiveRefreshTick;
+            refreshTimer.Start();
+            var checkout = new Button { Content = "Review in Pi", HorizontalAlignment = HorizontalAlignment.Left };
+            AutomationProperties.SetAutomationId(checkout, "PullRequestReviewInPiButton");
+            ToolTipService.SetToolTip(checkout, "Open an isolated worktree and a linked Pi thread with a prepared review prompt.");
+            void UpdateCheckoutState()
+            {
+                checkout.IsEnabled = review.CanCreateReviewThread &&
+                    review.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId &&
+                    pullRequests.SelectedItem is PullRequestDescriptor selected &&
+                    selected.Number == review.Snapshot?.PullRequest.Number &&
+                    selected.Repository == review.Snapshot?.PullRequest.Repository;
+            }
+            System.ComponentModel.PropertyChangedEventHandler checkoutStateChanged = (_, _) => UpdateCheckoutState();
+            SelectionChangedEventHandler checkoutSelectionChanged = (_, _) => UpdateCheckoutState();
+            review.PropertyChanged += checkoutStateChanged;
+            pullRequests.SelectionChanged += checkoutSelectionChanged;
+            UpdateCheckoutState();
+            checkout.Click += async (_, _) => await SafeReviewActionAsync(async () =>
+            {
+                if (checkout.IsEnabled && await ViewModel.CreatePullRequestReviewThreadAsync(checkoutCancellation.Token)) dialog.Hide();
+            });
+            content.Children.Insert(3, checkout);
             dialog.PrimaryButtonClick += async (_, args) =>
             {
                 args.Cancel = true;
@@ -67,10 +100,21 @@ public sealed partial class ShellPage
             };
             dialog.Closing += async (_, _) =>
             {
+                checkoutCancellation.Cancel();
                 try { await review.SaveNowAsync(); }
                 catch (Exception exception) { ViewModel.Settings.Status = $"Review draft could not be saved: {exception.Message}"; }
             };
-            await dialog.ShowAsync();
+            try { await dialog.ShowAsync(); }
+            finally
+            {
+                refreshTimer.Stop();
+                refreshTimer.Tick -= OnLiveRefreshTick;
+                checkoutCancellation.Cancel();
+                review.PropertyChanged -= checkoutStateChanged;
+                pullRequests.SelectionChanged -= checkoutSelectionChanged;
+                try { await review.SaveNowAsync(); }
+                finally { review.Suspend(); }
+            }
         }
         catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
     }
@@ -139,7 +183,11 @@ public sealed partial class ShellPage
         submit.Click += async (_, _) => await RefreshAfterReviewWriteAsync(review, () => review.SubmitAsync());
         submit.SetBinding(Button.IsEnabledProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.CanSubmit)), Mode = BindingMode.OneWay });
         var reload = new Button { Content = "Reload review" }; reload.Click += async (_, _) => await SafeReviewActionAsync(() => review.ReloadAsync());
-        var recover = new Button { Content = "Refresh operation history" }; recover.Click += async (_, _) => await SafeReviewActionAsync(() => review.RecoverPendingAsync());
+        var recover = new Button { Content = "Refresh operation history" }; recover.Click += async (_, _) => await SafeReviewActionAsync(async () =>
+        {
+            await review.RecoverPendingAsync();
+            await review.RefreshLiveAsync();
+        });
         var discard = new Button { Content = "Discard saved draft" }; discard.Click += async (_, _) => await SafeReviewActionAsync(() => review.DiscardDraftAsync());
 
         var loadMore = new Button { Content = "Load more review data" };
@@ -147,6 +195,9 @@ public sealed partial class ShellPage
         loadMore.SetBinding(Button.IsEnabledProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.CanLoadMore)), Mode = BindingMode.OneWay });
         loadMore.Click += async (_, _) => await SafeReviewActionAsync(() => review.LoadMoreAsync());
         var root = new StackPanel { Spacing = 8, MaxWidth = 720 };
+        root.Children.Add(BuildPullRequestManagement(review));
+        root.Children.Add(BuildPullRequestAdvanced(review));
+        root.Children.Add(BindText(review, nameof(review.LiveStatus), "PullRequestLiveStatus"));
         root.Children.Add(BindText(review, nameof(review.PaginationSummary), "PullRequestReviewPagination"));
         root.Children.Add(loadMore);
         root.Children.Add(new Expander { Header = "Review details", IsExpanded = true, Content = new StackPanel { Spacing = 4, Children = { details, head, description, new TextBlock { Text = "Commits", FontWeight = FontWeights.SemiBold }, commitsPanel, new TextBlock { Text = "Checks", FontWeight = FontWeights.SemiBold }, checksPanel } } });
@@ -158,7 +209,7 @@ public sealed partial class ShellPage
         return new Border { Padding = new Thickness(8), Child = root };
     }
 
-    private static TextBlock BindText(PullRequestReviewViewModel review, string property, string? automationId = null)
+    private static TextBlock BindText(object review, string property, string? automationId = null)
     {
         var text = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
         text.SetBinding(TextBlock.TextProperty, new Binding { Source = review, Path = new PropertyPath(property), Mode = BindingMode.OneWay });

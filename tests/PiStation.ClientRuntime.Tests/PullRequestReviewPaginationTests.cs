@@ -115,6 +115,7 @@ public sealed partial class PullRequestReviewIntegrationTests
             string workspace, string? input, CancellationToken cancellationToken)
         {
             Assert.Equal("gh", tool);
+            if (arguments[0] == "auth") return Success(string.Empty);
             if (input is not null)
             {
                 using var payload = JsonDocument.Parse(input);

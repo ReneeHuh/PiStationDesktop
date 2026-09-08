@@ -15,7 +15,7 @@ using PiStation.Protocol.Serialization;
 
 namespace PiStation.Host.Git;
 
-public sealed class WorkspaceGitCommandService
+public sealed partial class WorkspaceGitCommandService
 {
     private const int MaximumOutputCharacters = 2 * 1024 * 1024;
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);

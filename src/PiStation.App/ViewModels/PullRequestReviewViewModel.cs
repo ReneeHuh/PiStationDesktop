@@ -23,10 +23,12 @@ public sealed class PullRequestReviewLineViewModel
     public string DisplayText => $"{Location}  {Kind}: {Text}";
 }
 
-public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDisposable
+public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly Func<IEnvironmentClient> _clientFactory;
     private readonly PullRequestReviewDraftStore _draftStore;
+    private readonly Func<bool> _canOperate;
+    private bool _isCheckingOut;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private CancellationTokenSource? _loadCancellation;
     private CancellationTokenSource? _saveCancellation;
@@ -73,10 +75,11 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
-    public PullRequestReviewViewModel(Func<IEnvironmentClient> clientFactory, PullRequestReviewDraftStore draftStore)
+    public PullRequestReviewViewModel(Func<IEnvironmentClient> clientFactory, PullRequestReviewDraftStore draftStore, Func<bool>? canOperate = null)
     {
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
         _draftStore = draftStore ?? throw new ArgumentNullException(nameof(draftStore));
+        _canOperate = canOperate ?? (() => true);
     }
 
     public ObservableCollection<PullRequestChangedFile> Files { get; } = [];
@@ -85,6 +88,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
     public ObservableCollection<PullRequestInlineComment> InlineComments { get; } = [];
 
     public PullRequestReviewSnapshot? Snapshot { get => _snapshot; private set => SetProperty(ref _snapshot, value); }
+    public ProjectId? ProjectId => _projectId;
     public PullRequestDescriptor? PullRequest { get => _pullRequest; private set => SetProperty(ref _pullRequest, value); }
     public SourceControlRepository? Repository { get => _repository; private set => SetProperty(ref _repository, value); }
     public PullRequestChangedFile? SelectedFile
@@ -114,6 +118,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
         get => _selectedDiscussion;
         set
         {
+            if (_updatingDiscussions) return;
             if (_hasLoaded && (PendingOperationId is not null || IsBusy || _isDiscarding)) return;
             if (_hasLoaded && !string.IsNullOrEmpty(ReplyBody) && value?.Id != ReplyThreadId)
             {
@@ -156,6 +161,42 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
     public string? ReplyThreadId { get => _replyThreadId; private set => SetProperty(ref _replyThreadId, value); }
 
     public bool CanReadReview => PullRequest is { Provider: var provider } && HostingCapabilities.CanReadReview(provider);
+    public bool CanCreateReviewThread => _hasLoaded && Snapshot?.Repository.Provider == SourceControlProvider.GitHub &&
+        _capturedTarget is not null && !IsBusy && !_isCheckingOut && !IsStaleHead && PendingOperationId is null &&
+        !_isDiscarding && !_disposed && _canOperate();
+
+    public async Task<ThreadDescriptor?> CreateReviewThreadAsync(PiModelSelection? model = null,
+        PiThinkingLevel? thinking = null, CancellationToken cancellationToken = default)
+    {
+        if (!CanCreateReviewThread || Snapshot is not { } snapshot || _capturedTarget is not { } workspace) return null;
+        var generation = _loadGeneration;
+        var client = _clientFactory();
+        var request = new CreatePullRequestReviewThreadRequest(new(workspace,
+            PullRequestReviewDefaults.RepositoryKey(snapshot.Repository), snapshot.PullRequest.Number, snapshot.HeadCommitId), model, thinking);
+        _isCheckingOut = true;
+        IsBusy = true;
+        SetStatus("Preparing an isolated PR worktree and Pi review thread…");
+        try
+        {
+            await SaveNowAsync(cancellationToken);
+            var thread = await client.CreatePullRequestReviewThreadAsync(request, cancellationToken);
+            if (_disposed || generation != _loadGeneration) return null;
+            SetStatus($"Ready: {thread.Title}. Send the prepared prompt to start the Pi review.");
+            return thread;
+        }
+        catch (Exception exception)
+        {
+            if (!_disposed && generation == _loadGeneration)
+                SetStatus($"Checkout could not finish: {exception.Message} Retry to recover the same review thread.");
+            return null;
+        }
+        finally
+        {
+            _isCheckingOut = false;
+            if (generation == _loadGeneration) IsBusy = false;
+            RaiseState();
+        }
+    }
     public bool CanWriteReview => CanReadReview && Repository?.CanWrite == true && PullRequest is { Provider: var provider } && HostingCapabilities.CanWriteReview(provider);
     public bool CanSubmit => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null &&
         Snapshot is not null && Enum.IsDefined(ReviewEvent) &&
@@ -235,6 +276,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
         _capturedTarget = target;
         PullRequest = pullRequest;
         Snapshot = null;
+        ResetWorkflows();
         Repository = null;
         Files.Clear();
         Lines.Clear();
@@ -276,6 +318,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             PendingOperationId = null;
             _pendingAction = null;
             _draftHeadCommitId = snapshot.HeadCommitId;
+            _liveRevisionChanged = false;
             IsStaleHead = false;
             if (draft is not null && string.Equals(draft.Repository, repositoryKey, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(draft.Number, pullRequest.Number, StringComparison.Ordinal))
@@ -301,6 +344,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
                 ReplyBody = string.Empty;
             }
             _hasLoaded = true;
+            LoadManagementDraft(snapshot, draft?.Management);
             RaiseState();
             SetStatus(IsStaleHead
                 ? "Saved review draft is for an older head. Review, re-anchor, or discard it before submitting."
@@ -339,6 +383,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
                 throw new InvalidDataException("The review page belongs to another pull request.");
             if (page.HeadCommitId != original.HeadCommitId || page.BaseCommitId != original.BaseCommitId)
             {
+                _liveRevisionChanged = true;
                 IsStaleHead = true;
                 throw new InvalidDataException("The pull request head or base changed. Reload the review.");
             }
@@ -412,6 +457,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             OnPropertyChanged(nameof(DiscussionSummary));
             RaiseState();
             SetStatus(notice.Length > 0 ? notice : next.Length > 0 ? "More review data loaded." : "All available review data loaded.");
+            RefreshManagementComments();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception exception)
@@ -623,10 +669,13 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             ReplyBody = string.Empty;
             InlineComments.Clear();
             _pendingAction = null;
-            IsStaleHead = false;
+            IsStaleHead = _liveRevisionChanged;
             _draftHeadCommitId = Snapshot?.HeadCommitId;
             _completedDiscardEpoch = _discardEpoch;
-            SetStatus("Review draft discarded.");
+            if (Snapshot is { } current) LoadManagementDraft(current, null);
+            // A live refresh retained the old diff coordinates. Do not recreate an empty draft for that revision.
+            if (_liveRevisionChanged) _hasLoaded = false;
+            SetStatus(_liveRevisionChanged ? "Review draft discarded. Reload the review to load its current revision." : "Review draft discarded.");
             RaiseState();
         }
         finally
@@ -660,6 +709,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             if (_isDiscarding || discardEpoch != Volatile.Read(ref _discardEpoch)) return null;
             _saveCancellation?.Cancel();
             var id = CommandId.New();
+            _mutationGeneration++;
             PendingOperationId = id;
             _pendingAction = action;
             _pendingGeneration = _loadGeneration;
@@ -692,10 +742,12 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
             return result;
         }
         var completedAction = _pendingAction;
+        CompleteManagementAction(result, completedAction);
         var generation = _loadGeneration;
+        var preserveOtherDrafts = !string.IsNullOrEmpty(ReplyBody) || HasManagementEdits;
         if (result.Succeeded && clearAllOnSuccess)
         {
-            if (_projectId is { } projectId && Repository is { } repository && PullRequest is { } pullRequest)
+            if (!preserveOtherDrafts && _projectId is { } projectId && Repository is { } repository && PullRequest is { } pullRequest)
                 await _draftStore.DeleteAsync(projectId, PullRequestReviewDefaults.RepositoryKey(repository), pullRequest.Number, cancellationToken);
             if (generation != _loadGeneration) return result;
             Body = string.Empty;
@@ -704,7 +756,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
         PendingOperationId = null;
         _pendingAction = null;
         if (result.Succeeded && string.Equals(completedAction, "Reply", StringComparison.Ordinal)) ReplyBody = string.Empty;
-        if (!result.Succeeded || !clearAllOnSuccess || !string.IsNullOrEmpty(ReplyBody))
+        if (!result.Succeeded || !clearAllOnSuccess || !string.IsNullOrEmpty(ReplyBody) || HasManagementEdits)
             await PersistDraftAsync(cancellationToken);
         if (generation != _loadGeneration) return result;
         SetStatus(result.Message);
@@ -756,7 +808,7 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
         string body, PullRequestReviewEvent reviewEvent, IReadOnlyList<PullRequestInlineComment> comments, string replyBody) =>
         new(PullRequestReviewDefaults.RepositoryKey(snapshot.Repository), snapshot.PullRequest.Number,
             _draftHeadCommitId ?? snapshot.HeadCommitId, body, reviewEvent, comments,
-            PendingOperationId, replyThreadId ?? ReplyThreadId, replyBody, _pendingAction);
+            PendingOperationId, replyThreadId ?? ReplyThreadId, replyBody, _pendingAction, _managementDraft);
 
     private void SetStatus(string status) => Status = status ?? string.Empty;
 
@@ -770,6 +822,8 @@ public sealed class PullRequestReviewViewModel : INotifyPropertyChanged, IDispos
 
     private void RaiseState()
     {
+        RaiseManagementState();
+        OnPropertyChanged(nameof(CanCreateReviewThread));
         OnPropertyChanged(nameof(CanLoadMore));
         OnPropertyChanged(nameof(PaginationSummary));
         OnPropertyChanged(nameof(CanReadReview));

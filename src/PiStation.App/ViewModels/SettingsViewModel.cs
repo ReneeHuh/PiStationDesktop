@@ -149,6 +149,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     public int? NextPullRequestOffset { get; private set; }
+    public PullRequestState? PullRequestStateFilter { get; private set; }
+    public PullRequestListFilters? PullRequestFilters { get; private set; }
+    public long PullRequestQueryVersion { get; private set; }
+    public void SetPullRequestFilters(PullRequestState? state, PullRequestListFilters? filters)
+    {
+        PullRequestStateFilter = state;
+        PullRequestFilters = filters;
+        PullRequestQueryVersion++;
+        ClearSourceControl("Loading filtered pull requests…");
+    }
     public bool CanLoadMorePullRequests => NextPullRequestOffset is not null;
 
     internal void ApplyPullRequests(ListPullRequestsResult result, bool append = false)
@@ -164,7 +174,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         CanCreatePullRequest = result.Repository.CanWrite && HostingCapabilities.CanCreate(result.Repository.Provider);
         SourceControlSummary = $"{result.Repository.Provider} • {result.Repository.Owner}/{result.Repository.Name} • " +
-            $"{PullRequests.Count} pull requests • {(result.Repository.CanWrite ? "Authenticated" : "Authentication required for writes")}";
+            $"{PullRequests.Count} pull requests • {(result.Repository.CanWrite ? "Authenticated" : "Authentication required for writes")}" +
+            (result.Notice is null ? "" : " • " + result.Notice);
     }
 
     internal void ClearSourceControl(string status)

@@ -6,16 +6,47 @@ namespace PiStation.App.ViewModels;
 public sealed partial class ShellViewModel
 {
     private bool _loadingMorePullRequests;
+    private long _pullRequestReadGeneration;
+
+    public async Task RefreshPullRequestsAsync(CancellationToken cancellationToken = default)
+    {
+        var project = SelectedProject;
+        var thread = SelectedThread?.ThreadId;
+        var version = Settings.PullRequestQueryVersion;
+        var generation = Interlocked.Increment(ref _pullRequestReadGeneration);
+        if (project is null)
+        {
+            RunOnUiThread(() => Settings.ClearSourceControl("Select a project to inspect source-control hosting."));
+            return;
+        }
+        var client = RequireClient();
+        try
+        {
+            var result = await client.ListPullRequestsAsync(new(new(project.ProjectId, thread), Settings.PullRequestStateFilter, Filters: Settings.PullRequestFilters), cancellationToken).ConfigureAwait(false);
+            RunOnUiThread(() => { if (Current()) Settings.ApplyPullRequests(result); });
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() => { if (Current()) Settings.ClearSourceControl($"Hosting unavailable: {exception.Message}"); });
+        }
+        bool Current() => generation == _pullRequestReadGeneration && version == Settings.PullRequestQueryVersion &&
+            project.ProjectId == SelectedProject?.ProjectId && thread == SelectedThread?.ThreadId && ReferenceEquals(client, _client);
+    }
+
     public async Task LoadMorePullRequestsAsync()
     {
         var project = SelectedProject;
         var thread = SelectedThread?.ThreadId;
         if (project is null || Settings.NextPullRequestOffset is not { } offset || _loadingMorePullRequests) return;
         _loadingMorePullRequests = true;
+        var version = Settings.PullRequestQueryVersion;
+        var generation = _pullRequestReadGeneration;
+        var client = RequireClient();
         try
         {
-            var page = await RequireClient().ListPullRequestsAsync(new(new(project.ProjectId, thread), Offset: offset));
-            if (SelectedProject?.ProjectId == project.ProjectId && SelectedThread?.ThreadId == thread) Settings.ApplyPullRequests(page, append: true);
+            var page = await client.ListPullRequestsAsync(new(new(project.ProjectId, thread), Settings.PullRequestStateFilter, offset, Filters: Settings.PullRequestFilters));
+            if (generation == _pullRequestReadGeneration && version == Settings.PullRequestQueryVersion && ReferenceEquals(client, _client) && SelectedProject?.ProjectId == project.ProjectId && SelectedThread?.ThreadId == thread)
+                Settings.ApplyPullRequests(page, append: true);
         }
         catch (Exception error) { ReportRuntimeError(error); }
         finally { _loadingMorePullRequests = false; }

@@ -1,0 +1,224 @@
+{
+  "data": {
+    "viewer": {
+      "login": "reviewer"
+    },
+    "repository": {
+      "id": "repo-id",
+      "viewerPermission": "WRITE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "autoMergeAllowed": true,
+      "pullRequest": {
+        "id": "pr-id",
+        "number": 7,
+        "title": "Native GitHub review fixture",
+        "url": "https://github.com/pistation-fixture/review/pull/7",
+        "state": "OPEN",
+        "isDraft": false,
+        "viewerCanUpdate": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "viewerCanEnableAutoMerge": true,
+        "viewerCanDisableAutoMerge": true,
+        "viewerCanUpdateBranch": true,
+        "viewerCanReact": true,
+        "isCrossRepository": true,
+        "autoMergeRequest": null,
+        "body": "Local UI verification data. This fixture does not contact GitHub.",
+        "updatedAt": "2026-09-06T12:00:00Z",
+        "author": {
+          "login": "author"
+        },
+        "headRefName": "feature",
+        "baseRefName": "main",
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "labels": {
+          "nodes": [
+            {
+              "name": "bug"
+            },
+            {
+              "name": "component/ui"
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "reviewRequests": {
+          "nodes": [
+            {
+              "requestedReviewer": {
+                "login": "other-reviewer"
+              }
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "comments": {
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "reviews": {
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "messageHeadline": "Fixture commit",
+                "committedDate": "2026-09-06T11:00:00Z",
+                "author": {
+                  "name": "Author",
+                  "user": {
+                    "login": "author"
+                  }
+                },
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [],
+                    "pageInfo": {
+                      "hasNextPage": false
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "headCommit": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "name": "CI",
+                        "status": "COMPLETED",
+                        "conclusion": "TIMED_OUT"
+                      }
+                    ],
+                    "pageInfo": {
+                      "hasNextPage": false
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "thread-7",
+              "path": "src/App.cs",
+              "line": 2,
+              "diffSide": "RIGHT",
+              "isResolved": false,
+              "isOutdated": false,
+              "viewerCanReply": true,
+              "viewerCanResolve": true,
+              "viewerCanUnresolve": true,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "comment-1",
+                    "databaseId": 1,
+                    "body": "A comment",
+                    "createdAt": "2026-09-06T12:00:00Z",
+                    "viewerDidAuthor": true,
+                    "viewerCanUpdate": true,
+                    "viewerCanDelete": true,
+                    "author": {
+                      "login": "reviewer"
+                    },
+                    "viewerCanReact": true,
+                    "reactionGroups": [
+                      {
+                        "content": "EYES",
+                        "viewerHasReacted": false,
+                        "reactors": {
+                          "totalCount": 2
+                        }
+                      }
+                    ],
+                    "__typename": "PullRequestReviewComment",
+                    "pullRequest": {
+                      "id": "pr-id"
+                    },
+                    "url": "https://github.com/pistation-fixture/review/pull/7#discussion_r1"
+                  }
+                ],
+                "pageInfo": {
+                  "hasNextPage": false
+                }
+              }
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "reactionGroups": [
+          {
+            "content": "HEART",
+            "viewerHasReacted": true,
+            "reactors": {
+              "totalCount": 3
+            }
+          }
+        ],
+        "headRepository": {
+          "nameWithOwner": "contributor/review",
+          "owner": {
+            "login": "contributor"
+          }
+        }
+      }
+    }
+  },
+  "files": [
+    {
+      "filename": "src/App.cs",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "patch": "@@ -1,2 +1,2 @@\n context\n-old\n+new"
+    }
+  ],
+  "workflows": [
+    {
+      "id": 91,
+      "name": "CI from fork",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "action_required",
+      "html_url": "https://github.com/pistation-fixture/review/actions/runs/91",
+      "pull_requests": [
+        {
+          "number": 7,
+          "head": {
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
+    }
+  ]
+}

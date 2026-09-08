@@ -14,6 +14,30 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolSerializationTests
 {
     [Fact]
+    public void PullRequestManagementDraftRoundTripsExpectedTextAndPendingPayload()
+    {
+        var request = new ManagePullRequestRequest(new(new(ProjectId.New()), "github.com/owner/repo", "42", "head"),
+            PullRequestManagementAction.EditDetails, Title: "New title", Body: "New description", ExpectedTitle: "Old title", ExpectedBody: "Old description");
+        var draft = new PullRequestReviewDraft("github.com/owner/repo", "42", "head", "Unsent review", PullRequestReviewEvent.Comment, [],
+            CommandId.New(), PendingAction: "Manage", Management: new("New title", "New description", "Old title", "Old description", PendingRequest: request));
+        var json = JsonSerializer.Serialize(draft, ProtocolJsonContext.Default.PullRequestReviewDraft);
+        var loaded = JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.PullRequestReviewDraft);
+        Assert.Equal(draft.Management, loaded?.Management);
+        Assert.Equal(draft.PendingOperationId, loaded?.PendingOperationId);
+        Assert.Equal("Unsent review", loaded?.Body);
+    }
+
+    [Fact]
+    public void PullRequestCheckoutRoundTripsCapturedWorkspaceRevisionAndModel()
+    {
+        var request = new CreatePullRequestReviewThreadRequest(
+            new(new(ProjectId.New(), ThreadId.New()), "github.com/owner/repo", "42", new string('a', 40)),
+            new("provider", "model"), PiThinkingLevel.High);
+        var json = JsonSerializer.Serialize(request, ProtocolJsonContext.Default.CreatePullRequestReviewThreadRequest);
+        Assert.Equal(request, JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.CreatePullRequestReviewThreadRequest));
+    }
+
+    [Fact]
     public void ClosedCommandUnionRoundTripsWithStringIdentifiers()
     {
         var request = new ExecuteThreadCommandRequest(
@@ -958,6 +982,21 @@ public sealed class ProtocolSerializationTests
         Assert.Equal(descriptor, roundTrip.Descriptor);
         Assert.Equal("ready> ", roundTrip.BufferedOutput);
         Assert.Contains("\"$type\":\"snapshot\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AdvancedPullRequestPayloadsRoundTripWithoutLosingSelectedOptions()
+    {
+        var target = new PullRequestReviewTarget(new(ProjectId.New()), "github.com/owner/repo", "7", new string('a', 40));
+        var request = new ManagePullRequestRequest(target, PullRequestManagementAction.Merge, OperationId: CommandId.New(),
+            MergeMethod: PullRequestMergeMethod.Squash, UpdateMethod: PullRequestUpdateMethod.Rebase, Reaction: PullRequestReactionContent.Heart, Reacted: false);
+        var json = JsonSerializer.Serialize(request, ProtocolJsonContext.Default.ManagePullRequestRequest);
+        Assert.Equal(request, JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.ManagePullRequestRequest));
+        var workflows = new PullRequestWorkflowsResult(target, [new("91", "CI", "Awaiting approval", "https://github.com/owner/repo/actions/runs/91")], 2);
+        var roundTrip = JsonSerializer.Deserialize(JsonSerializer.Serialize(workflows, ProtocolJsonContext.Default.PullRequestWorkflowsResult), ProtocolJsonContext.Default.PullRequestWorkflowsResult)!;
+        Assert.Equal(workflows.Target, roundTrip.Target);
+        Assert.Equal(workflows.NextPage, roundTrip.NextPage);
+        Assert.Equal(workflows.Workflows, roundTrip.Workflows);
     }
 
     private static ExecuteThreadCommandRequest CreateRequest(ThreadCommand command) => new(

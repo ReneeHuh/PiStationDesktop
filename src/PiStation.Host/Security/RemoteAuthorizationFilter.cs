@@ -104,6 +104,9 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
             [nameof(EnvironmentHub.ApplyThreadBulkOperation)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.SetThreadPinnedOrder)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.LinkThreadPullRequest)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CreatePullRequestReviewThread)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.ManagePullRequest)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.GetPullRequestWorkflows)] = RemoteAccessLevel.ReadOnly,
         };
 
     public async ValueTask<object?> InvokeMethodAsync(HubInvocationContext invocationContext,

@@ -26,7 +26,10 @@ internal static class AppBootstrapper
         ArgumentNullException.ThrowIfNull(viewModel);
         ArgumentNullException.ThrowIfNull(launchOptions);
         if (await SshEnvironmentHost.TryDiscoverAsync(launchOptions.DataRoot, cancellationToken).ConfigureAwait(false) is { } existing)
+        {
+            if (launchOptions.UiTestHostingFixture is not null) throw new InvalidOperationException("Stop the existing host before starting a hosting UI fixture.");
             return await AttachExistingAsync(viewModel, existing, launchOptions, cancellationToken).ConfigureAwait(false);
+        }
         launchOptions.Log("Starting embedded environment.");
 
         PiInstallation? piInstallation = null;
@@ -75,8 +78,17 @@ internal static class AppBootstrapper
             JournalEventLimit = launchOptions.UiTestJournalEventLimit ?? 512,
         };
         EmbeddedEnvironmentHost host;
-        try { host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, cancellationToken: cancellationToken).ConfigureAwait(false); }
-        catch (IOException)
+        try
+        {
+#if DEBUG
+            var hostingFixture = launchOptions.UiTestHostingFixture is { } fixturePath ? new UiTestHostingFixture(fixturePath) : null;
+            host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, sourceControlFactory: hostingFixture is null ? null :
+                (resolver, projects) => new(resolver, projects, hostingFixture.ExecuteAsync), cancellationToken: cancellationToken).ConfigureAwait(false);
+#else
+            host = await EmbeddedEnvironmentHost.StartAsync(hostOptions, cancellationToken: cancellationToken).ConfigureAwait(false);
+#endif
+        }
+        catch (IOException) when (launchOptions.UiTestHostingFixture is null)
         {
             // A simultaneous SSH/desktop launch may acquire the data lock first.
             for (var attempt = 0; attempt < 10; attempt++)

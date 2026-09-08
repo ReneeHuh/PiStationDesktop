@@ -57,12 +57,22 @@ public sealed record PullRequestDescriptor(
 
 public sealed record DetectSourceControlRequest(WorkspaceTarget Target);
 
-public sealed record ListPullRequestsRequest(WorkspaceTarget Target, PullRequestState? State = null, int Offset = 0, string? SourceBranch = null);
+public enum PullRequestInvolvement { All, Authored, ReviewRequested }
+public enum PullRequestDraftFilter { Any, Only, Hide }
+public enum PullRequestReviewFilter { Any, Approved, ChangesRequested, ReviewRequired, None }
+public enum PullRequestChecksFilter { Any, Passing, Failing, Pending }
+public sealed record PullRequestListFilters(string Query = "", PullRequestInvolvement Involvement = PullRequestInvolvement.All,
+    PullRequestDraftFilter Draft = PullRequestDraftFilter.Any, PullRequestReviewFilter Review = PullRequestReviewFilter.Any,
+    PullRequestChecksFilter Checks = PullRequestChecksFilter.Any, string? Author = null,
+    IReadOnlyList<IReadOnlyList<string>>? LabelGroups = null, IReadOnlyList<string>? ExcludedLabels = null);
+
+public sealed record ListPullRequestsRequest(WorkspaceTarget Target, PullRequestState? State = null, int Offset = 0, string? SourceBranch = null,
+    PullRequestListFilters? Filters = null);
 
 public sealed record ListPullRequestsResult(
     SourceControlRepository Repository,
     IReadOnlyList<PullRequestDescriptor> PullRequests,
-    int? NextOffset = null);
+    int? NextOffset = null, string? Notice = null);
 
 public sealed record CloneHostedRepositoryRequest(
     string RemoteUrl,

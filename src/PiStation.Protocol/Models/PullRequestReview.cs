@@ -11,7 +11,9 @@ public sealed record PullRequestChangedFile(string Path, string? PreviousPath, s
     IReadOnlyList<PullRequestDiffLine> Lines, bool PatchUnavailable = false, int PatchLineOffset = 0);
 public sealed record PullRequestCommit(string Sha, string Title, string Author, DateTimeOffset CreatedUtc, string? Url = null);
 public sealed record PullRequestCheck(string Name, string Status, string? Conclusion, string? Url = null, string? Id = null);
-public sealed record PullRequestReviewComment(string Id, string Author, string Body, DateTimeOffset CreatedUtc, string? Url = null);
+public sealed record PullRequestReviewComment(string Id, string Author, string Body, DateTimeOffset CreatedUtc, string? Url = null,
+    bool CanEdit = false, bool CanDelete = false, PullRequestCommentKind Kind = PullRequestCommentKind.General,
+    bool CanReact = false, IReadOnlyList<PullRequestReaction>? Reactions = null);
 public sealed record PullRequestDiscussion(string Id, string? Path, int? Line, PullRequestDiffSide? Side,
     bool IsResolved, bool IsOutdated, bool CanReply, bool CanResolve, IReadOnlyList<PullRequestReviewComment> Comments);
 public enum PullRequestReviewPageKind { Files, Commits, Checks, Threads, ThreadComments, Comments, Reviews, Labels, Reviewers }
@@ -22,7 +24,9 @@ public sealed record PullRequestReviewSnapshot(SourceControlRepository Repositor
     string Body, string HeadCommitId, string BaseCommitId, string ViewerLogin,
     IReadOnlyList<PullRequestCommit> Commits, IReadOnlyList<PullRequestCheck> Checks,
     IReadOnlyList<PullRequestChangedFile> Files, IReadOnlyList<PullRequestDiscussion> Discussions,
-    bool IsTruncated = false, string? Notice = null, IReadOnlyList<PullRequestReviewContinuation>? NextPages = null);
+    bool IsTruncated = false, string? Notice = null, IReadOnlyList<PullRequestReviewContinuation>? NextPages = null,
+    bool CanEditDetails = false, bool CanManageMetadata = false,
+    PullRequestAdvancedState? Advanced = null, bool CanReact = false, IReadOnlyList<PullRequestReaction>? Reactions = null);
 
 // Writes bind to the repository and revision the user actually inspected.
 public sealed record PullRequestReviewTarget(WorkspaceTarget Workspace, string Repository, string Number, string HeadCommitId);
@@ -34,7 +38,8 @@ public sealed record SetPullRequestThreadResolvedRequest(PullRequestReviewTarget
 
 public sealed record PullRequestReviewDraft(string Repository, string Number, string HeadCommitId, string Body,
     PullRequestReviewEvent Event, IReadOnlyList<PullRequestInlineComment> Comments, CommandId? PendingOperationId = null,
-    string? ReplyThreadId = null, string ReplyBody = "", string? PendingAction = null);
+    string? ReplyThreadId = null, string ReplyBody = "", string? PendingAction = null,
+    PullRequestManagementDraft? Management = null);
 
 public static class PullRequestReviewDefaults
 {
@@ -42,6 +47,7 @@ public static class PullRequestReviewDefaults
     public const int MaximumItems = 100;
     public const int MaximumInlineComments = 50;
     public const int MaximumBodyCharacters = 32_768;
+    public const int MaximumDescriptionCharacters = 65_536;
     public const int MaximumDiffLines = 20_000;
     public static string RepositoryKey(SourceControlRepository repository) => $"{repository.Host}/{repository.Owner}/{repository.Name}";
     public static PullRequestCheckState GetCheckState(IReadOnlyList<PullRequestCheck> checks, bool hasMore = false)

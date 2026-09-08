@@ -10,6 +10,7 @@ internal sealed record AppLaunchOptions
     public string? PiExecutable { get; init; }
 
     public string? FakePiScenario { get; init; }
+    public string? UiTestHostingFixture { get; init; }
 
     public string? LogFile { get; init; }
 
@@ -32,6 +33,7 @@ internal sealed record AppLaunchOptions
         string? dataRoot = null;
         string? piExecutable = null;
         string? fakePiScenario = null;
+        string? hostingFixture = null;
         string? logFile = null;
         int? uiTestJournalEventLimit = null;
         int? uiTestTextScalePercent = null;
@@ -52,6 +54,9 @@ internal sealed record AppLaunchOptions
                     break;
                 case "--fake-pi-scenario":
                     fakePiScenario = ReadValue(tokens, ref index, token);
+                    break;
+                case "--ui-test-hosting-fixture":
+                    hostingFixture = ReadValue(tokens, ref index, token);
                     break;
                 case "--log-file":
                     logFile = ReadValue(tokens, ref index, token);
@@ -105,8 +110,11 @@ internal sealed record AppLaunchOptions
                 parameterName);
         }
 
+        if (hostingFixture is not null && (!isUiTest || fakePiScenario is null || dataRoot is null ||
+            !Path.GetFullPath(hostingFixture).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataRoot)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("--ui-test-hosting-fixture requires FakePi UI-test mode, an explicit data root, and a fixture inside that root.", parameterName);
 #if !DEBUG
-        if (fakePiScenario is not null || uiTestTextScalePercent is not null)
+        if (fakePiScenario is not null || uiTestTextScalePercent is not null || hostingFixture is not null)
         {
             throw new InvalidOperationException("FakePi launch options are disabled outside Debug builds.");
         }
@@ -117,6 +125,7 @@ internal sealed record AppLaunchOptions
             DataRoot = Path.GetFullPath(dataRoot ?? PiStation.Host.HostOptions.DefaultDataRoot),
             PiExecutable = piExecutable is null ? null : Path.GetFullPath(piExecutable),
             FakePiScenario = fakePiScenario,
+            UiTestHostingFixture = hostingFixture is null ? null : Path.GetFullPath(hostingFixture),
             LogFile = logFile is null ? null : Path.GetFullPath(logFile),
             IsUiTest = isUiTest,
             UiTestJournalEventLimit = uiTestJournalEventLimit,

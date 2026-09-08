@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PiStation.Host/PiStation.Host.csproj" />
+    <ProjectReference Include="../../src/PiStation.ClientRuntime/PiStation.ClientRuntime.csproj" />
+    <None Include="../PiStation.UiTests/fixtures/pull-request-review.json" Link="pull-request-review.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

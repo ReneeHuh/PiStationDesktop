@@ -117,8 +117,15 @@ public sealed class PullRequestReviewDraftStore
             throw new ArgumentException("The review draft contains an invalid value.", nameof(draft));
         if (draft.PendingOperationId is { } operation && (string.IsNullOrWhiteSpace(operation.Value) || operation.Value.Length > 128))
             throw new ArgumentException("The saved review operation identity is invalid.", nameof(draft));
-        if (draft.PendingAction is not (null or "SubmitReview" or "Reply" or "Resolve" or "Unresolve"))
+        if (draft.PendingAction is not (null or "SubmitReview" or "Reply" or "Resolve" or "Unresolve" or "Manage"))
             throw new ArgumentException("The saved review operation action is invalid.", nameof(draft));
+        if (draft.Management is { } management &&
+            (management.Title is null || management.Title.Length > 256 || management.ExpectedTitle is null || management.ExpectedTitle.Length > 256 ||
+             management.Body is null || management.Body.Length > PullRequestReviewDefaults.MaximumDescriptionCharacters ||
+             management.ExpectedBody is null || management.ExpectedBody.Length > PullRequestReviewDefaults.MaximumDescriptionCharacters ||
+             management.CommentBody is null || management.CommentBody.Length > PullRequestReviewDefaults.MaximumBodyCharacters ||
+             management.ExpectedCommentBody?.Length > PullRequestReviewDefaults.MaximumBodyCharacters || management.CommentId?.Length > 256))
+            throw new ArgumentException("The saved pull request edits exceed their limits.", nameof(draft));
         foreach (var comment in draft.Comments)
             if (comment is null || string.IsNullOrWhiteSpace(comment.Path) || comment.Path.Length > 4096 || comment.Line <= 0 ||
                 !Enum.IsDefined(comment.Side) || string.IsNullOrWhiteSpace(comment.Body) || comment.Body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)

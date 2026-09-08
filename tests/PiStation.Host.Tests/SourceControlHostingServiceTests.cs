@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using PiStation.Host.SourceControl;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
@@ -7,6 +8,33 @@ namespace PiStation.Host.Tests;
 
 public sealed class SourceControlHostingServiceTests
 {
+    [Theory]
+    [InlineData("SUCCESS", PullRequestCheckState.Passed)]
+    [InlineData("FAILURE", PullRequestCheckState.Failed)]
+    [InlineData("ERROR", PullRequestCheckState.Failed)]
+    [InlineData("PENDING", PullRequestCheckState.Pending)]
+    [InlineData("EXPECTED", PullRequestCheckState.Pending)]
+    [InlineData(null, PullRequestCheckState.Unknown)]
+    public void ListCheckRollupsPreserveStatusWithoutExpandingIndividualChecks(string? state, PullRequestCheckState expected)
+    {
+        var node = JsonSerializer.SerializeToElement(new { number = 7, commits = new { nodes = new[] { new { commit = new { statusCheckRollup = new { state } } } } } });
+        Assert.Equal(expected, SourceControlHostingService.ParseListCheckState(node, "7"));
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.ParseListCheckState(node, "8"));
+    }
+
+    [Theory]
+    [InlineData(null, "all")]
+    [InlineData(PullRequestState.Open, "open")]
+    [InlineData(PullRequestState.Draft, "open")]
+    [InlineData(PullRequestState.Closed, "closed")]
+    [InlineData(PullRequestState.Merged, "merged")]
+    public void GitHubAllStateIncludesClosedAndMergedPullRequests(PullRequestState? state, string expected)
+    {
+        var command = SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitHub),
+            new(new(ProjectId.New()), state));
+        Assert.Equal(expected, command.Arguments[Array.IndexOf(command.Arguments, "--state") + 1]);
+    }
+
     [Fact]
     public void PullRequestPagesAndBranchLookupsUseProviderPagingArguments()
     {
@@ -128,6 +156,56 @@ public sealed class SourceControlHostingServiceTests
         var command = SourceControlHostingService.BuildListCommand(SourceControlProvider.GitHub, PullRequestState.Merged);
         Assert.Contains("merged", command.Arguments);
         Assert.Contains("mergedAt", command.Arguments[^1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GitHubFiltersPreserveQuotedValuesGroupingIdentityAndPaging()
+    {
+        var filters = new PullRequestListFilters("literal \"text\" \\path", PullRequestInvolvement.ReviewRequested,
+            PullRequestDraftFilter.Hide, PullRequestReviewFilter.ChangesRequested, PullRequestChecksFilter.Failing, "build[bot]",
+            [["bug", "needs triage"], ["component/api"]], ["blocked"]);
+        var request = new ListPullRequestsRequest(new(ProjectId.New()), PullRequestState.Closed, 100, Filters: filters);
+        var args = SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitHub), request, "reviewer").Arguments;
+        Assert.Equal("201", args[Array.IndexOf(args, "--limit") + 1]);
+        Assert.Equal("github.test/owner/repo", args[Array.IndexOf(args, "--repo") + 1]);
+        var search = args[Array.IndexOf(args, "--search") + 1];
+        Assert.Contains("\"literal \\\"text\\\" \\\\path\"", search);
+        Assert.Contains("review-requested:\"reviewer\"", search);
+        Assert.Contains("author:\"build[bot]\"", search);
+        Assert.Contains("draft:false", search);
+        Assert.Contains("review:changes_requested", search);
+        Assert.Contains("status:failure", search);
+        Assert.Contains("label:\"bug\",\"needs triage\" label:\"component/api\"", search);
+        Assert.Contains("-label:\"blocked\"", search);
+        Assert.Contains("is:unmerged", search);
+        Assert.EndsWith("sort:updated-desc", search);
+    }
+
+    [Fact]
+    public void FiltersRequireCurrentViewerAndDoNotSilentlyWidenUnsupportedProviders()
+    {
+        var request = new ListPullRequestsRequest(new(ProjectId.New()), Filters: new(Involvement: PullRequestInvolvement.Authored));
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitHub), request));
+        var args = SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitHub), request, "alice").Arguments;
+        Assert.Contains("author:\"alice\"", args[Array.IndexOf(args, "--search") + 1]);
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitLab), request, "alice"));
+        var cleared = SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitLab), request with { Filters = null });
+        Assert.Equal("glab", cleared.FileName);
+        Assert.DoesNotContain("--search", SourceControlHostingService.BuildFilteredListCommand(Repository(SourceControlProvider.GitHub), request with { Filters = null }).Arguments);
+    }
+
+    [Fact]
+    public void FiltersRejectInvalidEnumsAndUnboundedLabelGroups()
+    {
+        var repository = Repository(SourceControlProvider.GitHub);
+        var request = new ListPullRequestsRequest(new(ProjectId.New()), Filters: new(Draft: (PullRequestDraftFilter)999));
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(repository, request));
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(repository, request with { Filters = new(LabelGroups: [[]]) }));
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(repository, request with { Filters = new(Query: new string('x', 513)) }));
+        var last = request with { Offset = 900, Filters = new(Query: "bounded") };
+        var args = SourceControlHostingService.BuildFilteredListCommand(repository, last).Arguments;
+        Assert.Equal("1000", args[Array.IndexOf(args, "--limit") + 1]);
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.BuildFilteredListCommand(repository, last with { Offset = 1000 }));
     }
 
     private static SourceControlRepository Repository(SourceControlProvider provider) => new(

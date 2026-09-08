@@ -22,22 +22,24 @@ public sealed partial class SourceControlHostingService
 query($owner:String!, $name:String!, $number:Int!) {
   viewer { login }
   repository(owner:$owner, name:$name) {
-    id
+    id viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed
     pullRequest(number:$number) {
-      number title url state isDraft body updatedAt changedFiles
+      id number title url state isDraft body updatedAt changedFiles viewerCanUpdate
       author { login }
       headRefName baseRefName headRefOid baseRefOid
+      mergeable mergeStateStatus isCrossRepository viewerCanUpdateBranch viewerCanEnableAutoMerge viewerCanDisableAutoMerge
+      autoMergeRequest { enabledAt } viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } }
       labels(first:100) { nodes { name } pageInfo { hasNextPage endCursor } }
-      reviewRequests(first:100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } pageInfo { hasNextPage endCursor } }
+      reviewRequests(first:100) { nodes { requestedReviewer { ... on User { login } ... on Team { name slug organization { login } } } } pageInfo { hasNextPage endCursor } }
       commits(first:100) { nodes { commit { oid messageHeadline committedDate url author { name user { login } } } } pageInfo { hasNextPage endCursor } }
       headCommit: commits(last:1) { nodes { commit { statusCheckRollup { contexts(first:100) { nodes { ... on CheckRun { id name status conclusion detailsUrl } ... on StatusContext { id context state targetUrl } } pageInfo { hasNextPage endCursor } } } } } }
-      comments(first:100) { nodes { id body createdAt url author { login } } pageInfo { hasNextPage endCursor } }
-      reviews(first:100) { nodes { id body submittedAt url author { login } } pageInfo { hasNextPage endCursor } }
+      comments(first:100) { nodes { id body createdAt url viewerCanUpdate viewerCanDelete viewerDidAuthor author { login } viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } } pageInfo { hasNextPage endCursor } }
+      reviews(first:100) { nodes { id body submittedAt url state viewerCanUpdate viewerCanDelete viewerDidAuthor author { login } viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } } pageInfo { hasNextPage endCursor } }
       reviewThreads(first:100) {
         nodes {
           id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
           comments(first:100) {
-            nodes { id databaseId body createdAt url author { login } }
+            nodes { id databaseId body createdAt url viewerCanUpdate viewerCanDelete viewerDidAuthor author { login } viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -364,8 +366,13 @@ mutation($threadId:ID!, $body:String!) {
     private static PullRequestReviewSnapshot ParseReviewSnapshot(SourceControlRepository repository, JsonDocument document, int number)
     {
         var parsed = ParseReview(repository, document, number);
+        var repo = document.RootElement.GetProperty("data").GetProperty("repository");
+        var pr = repo.GetProperty("pullRequest");
         return new PullRequestReviewSnapshot(repository, parsed.Descriptor, parsed.Body, parsed.HeadCommitId, parsed.BaseCommitId,
-            parsed.ViewerLogin, parsed.Commits, parsed.Checks, [], parsed.Discussions, parsed.IsTruncated, parsed.Notice);
+            parsed.ViewerLogin, parsed.Commits, parsed.Checks, [], parsed.Discussions, parsed.IsTruncated, parsed.Notice,
+            CanEditDetails: Boolean(document.RootElement.GetProperty("data").GetProperty("repository").GetProperty("pullRequest"), "viewerCanUpdate"),
+            CanManageMetadata: CanManageRepository(repo), Advanced: ParseAdvancedState(repo, pr),
+            CanReact: Boolean(pr, "viewerCanReact"), Reactions: ParseReactions(pr));
     }
 
     private static ParsedReview ParseReview(SourceControlRepository repository, JsonDocument document, int number)
@@ -442,8 +449,7 @@ mutation($threadId:ID!, $body:String!) {
             commentsTruncated |= HasNext(general);
             foreach (var comment in Nodes(general).Take(PullRequestReviewDefaults.MaximumItems))
             {
-                var parsed = new PullRequestReviewComment(Text(comment, "id") ?? "", NestedText(comment, "author", "login") ?? "Unknown", Text(comment, "body") ?? "",
-                    DateTimeOffset.TryParse(Text(comment, "createdAt"), out var created) ? created : DateTimeOffset.UtcNow, Text(comment, "url"));
+                var parsed = ParseManagementComment(comment, PullRequestCommentKind.General);
                 result.Add(new PullRequestDiscussion(parsed.Id, null, null, null, false, false, false, false, [parsed]));
             }
         }
@@ -453,8 +459,7 @@ mutation($threadId:ID!, $body:String!) {
             {
                 var body = Text(review, "body");
                 if (string.IsNullOrWhiteSpace(body)) continue;
-                var parsed = new PullRequestReviewComment(Text(review, "id") ?? "", NestedText(review, "author", "login") ?? "Unknown", body,
-                    DateTimeOffset.TryParse(Text(review, "submittedAt"), out var submitted) ? submitted : DateTimeOffset.UtcNow, Text(review, "url"));
+                var parsed = ParseManagementComment(review, PullRequestCommentKind.Review);
                 result.Add(new PullRequestDiscussion(parsed.Id, null, null, null, false, false, false, false, [parsed]));
             }
         }
@@ -463,10 +468,7 @@ mutation($threadId:ID!, $body:String!) {
 
     private static PullRequestDiscussion ParseDiscussion(JsonElement thread)
     {
-        var comments = Nodes(thread.GetProperty("comments")).Select(comment => new PullRequestReviewComment(
-            Text(comment, "id") ?? Text(comment, "databaseId") ?? "", NestedText(comment, "author", "login") ?? "Unknown",
-            Text(comment, "body") ?? "", DateTimeOffset.TryParse(Text(comment, "createdAt"), out var created) ? created : DateTimeOffset.UtcNow,
-            Text(comment, "url"))).ToArray();
+        var comments = Nodes(thread.GetProperty("comments")).Select(comment => ParseManagementComment(comment, PullRequestCommentKind.Inline)).ToArray();
         var side = Text(thread, "diffSide")?.ToUpperInvariant() switch
         {
             "LEFT" => PullRequestDiffSide.Left, "RIGHT" => PullRequestDiffSide.Right, _ => (PullRequestDiffSide?)null
@@ -637,7 +639,10 @@ mutation($threadId:ID!, $body:String!) {
     private static int Number(JsonElement element, string property) => int.TryParse(Text(element, property), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
     private static int? NumberNullable(JsonElement element, string property) => int.TryParse(Text(element, property), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : null;
     private static IReadOnlyList<string> ReadNodes(JsonElement parent, string property, string field) => parent.TryGetProperty(property, out var connection) ? Nodes(connection).Select(node => Text(node, field)).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Take(PullRequestReviewDefaults.MaximumItems).ToArray() : [];
-    private static IReadOnlyList<string> ReadReviewers(JsonElement parent) => parent.TryGetProperty("reviewRequests", out var connection) ? Nodes(connection).Select(node => NestedText(node, "requestedReviewer", "login") ?? NestedText(node, "requestedReviewer", "name")).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Take(PullRequestReviewDefaults.MaximumItems).ToArray() : [];
+    private static IReadOnlyList<string> ReadReviewers(JsonElement parent) => parent.TryGetProperty("reviewRequests", out var connection) ? Nodes(connection).Select(node =>
+        NestedText(node, "requestedReviewer", "login") ??
+        (NestedText(node, "requestedReviewer", "slug") is { } slug ? $"{NestedText(node, "requestedReviewer", "organization", "login")}/{slug}" : NestedText(node, "requestedReviewer", "name")))
+        .Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Take(PullRequestReviewDefaults.MaximumItems).ToArray() : [];
 
     private sealed class ConfirmedProviderRejectionException(string message) : Exception(message);
 }

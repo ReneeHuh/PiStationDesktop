@@ -277,6 +277,22 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
     public Task<PullRequestReviewSnapshot> GetPullRequestReviewAsync(GetPullRequestReviewRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PullRequestReviewSnapshot>("GetPullRequestReview", request, cancellationToken);
 
+    public Task<SourceControlOperationResult> ManagePullRequestAsync(ManagePullRequestRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<SourceControlOperationResult>("ManagePullRequest", request, cancellationToken);
+
+    public Task<PullRequestWorkflowsResult> GetPullRequestWorkflowsAsync(GetPullRequestWorkflowsRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PullRequestWorkflowsResult>("GetPullRequestWorkflows", request, cancellationToken);
+
+    public async Task<ThreadDescriptor> CreatePullRequestReviewThreadAsync(CreatePullRequestReviewThreadRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var descriptor = EnsureConnected();
+        var thread = await _supervisor.Connection.InvokeAsync<ThreadDescriptor>(
+            "CreatePullRequestReviewThread", request, cancellationToken).ConfigureAwait(false);
+        ApplyThreadDescriptor(descriptor, thread, request.Target.Workspace.ProjectId);
+        return ThreadMetadata.GetCurrent(thread.ThreadId) ?? thread;
+    }
+
     public Task<SourceControlOperationResult> SubmitPullRequestReviewAsync(SubmitPullRequestReviewRequest request, CancellationToken cancellationToken = default) =>
         InvokeHostingAsync("SubmitPullRequestReview", request.OperationId, id => request with { OperationId = id }, cancellationToken);
 

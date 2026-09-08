@@ -146,6 +146,24 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
     }
 
+    public async Task<SourceControlOperationResult> ManagePullRequest(ManagePullRequestRequest request)
+    {
+        try { return await _environment.ManagePullRequestAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<PullRequestWorkflowsResult> GetPullRequestWorkflows(GetPullRequestWorkflowsRequest request)
+    {
+        try { return await _environment.GetPullRequestWorkflowsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
+    public async Task<ThreadDescriptor> CreatePullRequestReviewThread(CreatePullRequestReviewThreadRequest request)
+    {
+        try { return await _environment.CreatePullRequestReviewThreadAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
     public async Task<SourceControlOperationResult> SubmitPullRequestReview(SubmitPullRequestReviewRequest request)
     {
         try { return await _environment.SubmitPullRequestReviewAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }

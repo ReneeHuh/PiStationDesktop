@@ -98,9 +98,9 @@ public sealed partial class SourceControlHostingService
         if (!string.Equals(snapshot.HeadCommitId, finalReview.HeadCommitId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(snapshot.BaseCommitId, finalReview.BaseCommitId, StringComparison.OrdinalIgnoreCase))
             throw ReviewError("The pull request head or base changed while loading review data. Reload the review.");
-        if (snapshot.Body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)
+        if (snapshot.Body.Length > PullRequestReviewDefaults.MaximumDescriptionCharacters)
         {
-            snapshot = snapshot with { Body = snapshot.Body[..PullRequestReviewDefaults.MaximumBodyCharacters] };
+            snapshot = snapshot with { Body = snapshot.Body[..PullRequestReviewDefaults.MaximumDescriptionCharacters], CanEditDetails = false };
             notices.Add("Pull request body was truncated to the review limit.");
         }
         return snapshot with { NextPages = next, IsTruncated = next.Count > 0 || notices.Count > 0,
@@ -156,7 +156,7 @@ query($threadId:ID!, $cursor:String) {
   node(id:$threadId) { ... on PullRequestReviewThread {
     id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
     pullRequest { number headRefOid repository { nameWithOwner } }
-    comments(first:100, after:$cursor) { nodes { id body createdAt url author { login } } pageInfo { hasNextPage endCursor } }
+    comments(first:100, after:$cursor) { nodes { id body createdAt url viewerCanUpdate viewerCanDelete viewerDidAuthor author { login } viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } } pageInfo { hasNextPage endCursor } }
   } }
 }
 """;
