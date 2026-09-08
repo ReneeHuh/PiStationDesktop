@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.SignalR;
 using PiStation.Host.Hubs;
 using PiStation.Host.Security;
 using PiStation.Host.Threads;
@@ -31,6 +32,7 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
         Address = address;
         BearerCredential = bearerCredential;
         _dataLock = dataLock;
+        environment.PreviewLeases.RegisterControlPort(this, address.Port);
     }
 
     public Uri Address { get; }
@@ -64,12 +66,15 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
             kestrel.Listen(IPAddress.Loopback, 0);
         });
         builder.Services.AddSingleton(environment);
-        builder.Services.AddSignalR().AddJsonProtocol(json =>
+        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); }).AddJsonProtocol(json =>
             json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
         var application = builder.Build();
+        application.UseWebSockets();
         application.Use((context, next) => LoopbackAuthentication.InvokeAsync(context, credential, next));
         application.MapPost(DraftAttachmentEndpoint.Route, DraftAttachmentEndpoint.HandleAsync);
         application.MapHub<EnvironmentHub>(HubPath);
+        application.MapGet("/previews/{lease}/tunnel", environment.PreviewLeases.TunnelAsync);
+        application.MapPost("/updates/{request}/package", environment.Updates.UploadAsync);
         try
         {
             await application.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -96,6 +101,7 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Environment.PreviewLeases.UnregisterControlPort(this);
         try
         {
             try { if (OperatingSystem.IsWindows() && _sshListener is not null) await _sshListener.DisposeAsync().ConfigureAwait(false); }

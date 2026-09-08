@@ -263,6 +263,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         _client = client;
         _client.ConnectionStateChanged += OnConnectionStateChanged;
+        if (_client.Catalog is { } catalog) catalog.Changed += OnCatalogChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;
     }
 
@@ -313,7 +314,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    public async Task SelectProjectAsync(
+    private readonly SemaphoreSlim _selectionGate = new(1, 1);
+    private bool _selectionClosed;
+
+    public async Task SelectProjectAsync(ProjectDescriptor? project, CancellationToken cancellationToken = default)
+    {
+        await _selectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { if (!_selectionClosed) await SelectProjectCoreAsync(project, cancellationToken).ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async Task SelectProjectCoreAsync(
         ProjectDescriptor? project,
         CancellationToken cancellationToken = default)
     {
@@ -323,6 +334,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await Composer.SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
+            if (_subscription is { } previous)
+            {
+                _subscription = null;
+                previous.Store.Changed -= OnProjectionChanged;
+                previous.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+                await previous.DisposeAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {
@@ -437,7 +455,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         });
     }
 
-    public async Task SelectThreadAsync(
+    public async Task SelectThreadAsync(ThreadDescriptor? thread, CancellationToken cancellationToken = default)
+    {
+        await _selectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { if (!_selectionClosed) await SelectThreadCoreAsync(thread, cancellationToken).ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async Task SelectThreadCoreAsync(
         ThreadDescriptor? thread,
         CancellationToken cancellationToken = default)
     {
@@ -457,6 +482,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_subscription is not null)
         {
             _subscription.Store.Changed -= OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+            await _subscription.DisposeAsync().ConfigureAwait(false);
             _subscription = null;
         }
 
@@ -474,8 +501,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             _subscription = RequireClient().SubscribeThread(thread.ThreadId);
             _subscription.Store.Changed += OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged += OnThreadSynchronizationChanged;
             var projection = _subscription.Store.Current;
-            RunOnUiThread(() => ApplyThreadProjection(projection));
+            RunOnUiThread(() => { ApplyThreadProjection(projection); UpdateThreadSynchronizationStatus(); });
         }
         catch (Exception exception)
         {
@@ -606,9 +634,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task RefreshWorkbenchPreviewServersAsync(CancellationToken cancellationToken = default)
     {
-        if (IsRemote)
+        if (IsRemote && !CanOperate)
         {
-            RunOnUiThread(() => WorkbenchPreview.FailDiscovery("Preview discovery is local to the host. Enter a URL reachable from this computer; remote loopback previews need a separate tunnel."));
+            RunOnUiThread(() => WorkbenchPreview.FailDiscovery("Opening host-local previews requires operate access. You can enter a URL reachable from this computer."));
             return;
         }
         var project = SelectedProject;
@@ -669,6 +697,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         PersistWorkbenchPreview();
         return uri;
+    }
+
+    internal async Task<RemotePreviewProxy?> OpenPreviewRouteAsync(Uri address)
+    {
+        if (!IsRemote || !address.IsLoopback) return null;
+        if (!CanOperate || SelectedProject is not { } project || _client is not EnvironmentClient client)
+            throw new InvalidOperationException("Host-local previews require a connected environment with operate access.");
+        return await client.OpenRemotePreviewAsync(new(project.ProjectId, address)).ConfigureAwait(false);
     }
 
     public WorkbenchPreviewTabViewModel AddWorkbenchPreviewTab()
@@ -2304,12 +2340,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await RequireClient().ConnectAsync(cancellationToken).ConfigureAwait(false);
-            await LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(ClearTransportError);
         }
         catch (Exception exception)
         {
-            ReportRuntimeError(exception);
+            ShowTransportError(exception.Message);
         }
     }
 
@@ -2368,6 +2403,16 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _selectionClosed = true;
+        Composer.CancelPendingOperations();
+        CancelPiConfigurationLoad();
+        await _selectionGate.WaitAsync().ConfigureAwait(false);
+        try { await DisposeCoreAsync().ConfigureAwait(false); }
+        finally { _selectionGate.Release(); }
+    }
+
+    private async ValueTask DisposeCoreAsync()
+    {
         // Cancel debounced and in-flight draft work before asynchronous subscription cleanup.
         Composer.CancelPendingOperations();
         CloseFileMentionSuggestions();
@@ -2380,6 +2425,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_subscription is not null)
         {
             _subscription.Store.Changed -= OnProjectionChanged;
+            _subscription.Store.SynchronizationChanged -= OnThreadSynchronizationChanged;
+            await _subscription.DisposeAsync().ConfigureAwait(false);
             _subscription = null;
         }
 
@@ -2388,6 +2435,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_client is not null)
         {
             _client.ConnectionStateChanged -= OnConnectionStateChanged;
+            if (_client.Catalog is { } catalog) catalog.Changed -= OnCatalogChanged;
             _client.PiConfigurations.Changed -= OnPiConfigurationChanged;
         }
 
@@ -2397,6 +2445,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public void ReportRuntimeError(Exception exception) => ReportRuntimeError(exception.Message);
+    public void ReportConnectionError(Exception exception) => ShowTransportError(exception.Message);
 
     public void ReportRuntimeError(string message) => RunOnUiThread(() =>
     {
@@ -2407,6 +2456,62 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
         Connection.ShowRuntimeError(message);
     });
+
+    public bool IsRefreshingCatalog { get; private set; }
+
+    private void OnCatalogChanged(object? sender, EventArgs args) => RunOnUiThread(() =>
+    {
+        IsRefreshingCatalog = true;
+        try { ApplyCatalog(); }
+        finally { IsRefreshingCatalog = false; }
+    });
+
+    private void ApplyCatalog()
+    {
+        if (_client?.Catalog is not { } catalog) return;
+        UpdateCatalogCollection(Projects, catalog.Projects, project => project.ProjectId);
+        if (SelectedProject is not { } selected) return;
+        var project = Projects.FirstOrDefault(p => p.ProjectId == selected.ProjectId);
+        if (project is null)
+        {
+            _ = SelectProjectAsync(null);
+            return;
+        }
+        SelectedProject = project;
+        var threads = _client.ThreadMetadata.GetProjectThreads(project.ProjectId, IsShowingArchivedThreads);
+        UpdateCatalogCollection(Threads, threads.Where(t => t.IsArchived == IsShowingArchivedThreads &&
+            (string.IsNullOrWhiteSpace(ThreadSearchQuery) ||
+             t.Title.Contains(ThreadSearchQuery.Trim(), StringComparison.OrdinalIgnoreCase))).ToArray(), thread => thread.ThreadId);
+        ThreadListStatus = BuildThreadListStatus(Threads.Count, ThreadSearchQuery, IsShowingArchivedThreads, isTruncated: false);
+        if (SelectedThread is { } current)
+        {
+            var updated = _client.ThreadMetadata.GetCurrent(current.ThreadId);
+            if (updated is null || updated.IsArchived != IsShowingArchivedThreads) _ = SelectThreadAsync(null);
+            else SelectedThread = updated;
+        }
+        RaiseCommandStateChanged();
+    }
+
+    private static void UpdateCatalogCollection<T, TKey>(ObservableCollection<T> target, IReadOnlyList<T> incoming,
+        Func<T, TKey> key) where TKey : notnull
+    {
+        var keys = incoming.Select(key).ToHashSet();
+        for (var index = target.Count - 1; index >= 0; index--)
+            if (!keys.Contains(key(target[index]))) target.RemoveAt(index);
+        for (var index = 0; index < incoming.Count; index++)
+        {
+            var wanted = key(incoming[index]);
+            if (index >= target.Count || !EqualityComparer<TKey>.Default.Equals(key(target[index]), wanted))
+            {
+                var existing = -1;
+                for (var search = index + 1; search < target.Count; search++)
+                    if (EqualityComparer<TKey>.Default.Equals(key(target[search]), wanted)) { existing = search; break; }
+                if (existing >= 0) target.Move(existing, index);
+                else target.Insert(index, incoming[index]);
+            }
+            if (!EqualityComparer<T>.Default.Equals(target[index], incoming[index])) target[index] = incoming[index];
+        }
+    }
 
     private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs args) =>
         RunOnUiThread(() =>
@@ -2420,9 +2525,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 EnvironmentConnectionState.Retrying => "Reconnecting",
                 EnvironmentConnectionState.AuthenticationRequired => "Authentication required",
                 EnvironmentConnectionState.Incompatible => "Protocol incompatible",
+                EnvironmentConnectionState.TrustRequired => "Verify host identity",
                 _ => "Disconnected",
             };
             Connection.Status = $"{EnvironmentLabel} • {state}";
+            if (args.Diagnostics is { State: EnvironmentConnectionState.Retrying } diagnostics)
+                Connection.Status += $" · attempt {diagnostics.Attempt} · {diagnostics.Failure}";
             OnPropertyChanged(nameof(CanOperate));
             OnPropertyChanged(nameof(IsReadOnly));
             WorkbenchChanges.AllowOperations = CanOperate;
@@ -2431,10 +2539,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             if (args.State == EnvironmentConnectionState.Connected)
             {
                 ClearTransportError();
+                UpdateThreadSynchronizationStatus();
+            }
+            else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired && args.Error is PiStation.ClientRuntime.ConnectionValidationException)
+            {
+                ShowTransportError(args.Error.Message);
             }
             else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired)
             {
-                ReportRuntimeError("Remote access was rejected. It may have expired or been revoked. In Settings → Connections, pair again using a fresh host link, then select Open; you do not need to forget the saved environment.");
+                ShowTransportError("Remote access was rejected. It may have expired or been revoked. In Settings → Connections, pair again using a fresh host link, then select Open; you do not need to forget the saved environment.");
             }
             else if (args.State is EnvironmentConnectionState.Retrying or EnvironmentConnectionState.Disconnected)
             {
@@ -2443,7 +2556,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             }
             else if (args.Error is not null)
             {
-                ReportRuntimeError(args.Error);
+                ShowTransportError(args.Error.Message);
             }
 
             RaiseCommandStateChanged();
@@ -2451,6 +2564,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void OnProjectionChanged(object? sender, ProjectionChangedEventArgs args) =>
         RunOnUiThread(() => ApplyThreadProjection(args.Projection));
+
+    private void OnThreadSynchronizationChanged(object? sender, EventArgs args) => RunOnUiThread(UpdateThreadSynchronizationStatus);
+
+    private void UpdateThreadSynchronizationStatus()
+    {
+        if (!IsRemote || _client?.ConnectionState != EnvironmentConnectionState.Connected) return;
+        var stage = _subscription?.Store.IsSynchronized == false ? "Synchronizing thread" : CanOperate ? "Ready" : "Read only";
+        Connection.Status = $"{EnvironmentLabel} • {stage}";
+    }
 
     private void OnTerminalChanged(object? sender, TerminalChangedEventArgs args)
     {

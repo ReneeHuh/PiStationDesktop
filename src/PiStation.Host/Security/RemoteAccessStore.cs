@@ -6,7 +6,7 @@ using PiStation.Protocol.Models;
 namespace PiStation.Host.Security;
 
 /// <summary>Shared CLI/host authentication database. Only SHA-256 credential hashes are persisted.</summary>
-public sealed class RemoteAccessStore : IDisposable
+public sealed partial class RemoteAccessStore : IDisposable
 {
     private readonly object _gate = new();
     private readonly SqliteConnection _database;
@@ -50,6 +50,7 @@ public sealed class RemoteAccessStore : IDisposable
                     while (reader.Read()) hasSubject |= reader.GetString(1) == "Subject";
                 if (!hasSubject) Execute("ALTER TABLE RemoteDevices ADD COLUMN Subject TEXT");
             }
+            InitializeActivity();
             Prune();
             migration.Commit();
             _transaction = null;
@@ -149,7 +150,7 @@ public sealed class RemoteAccessStore : IDisposable
         using var command = Command("SELECT DeviceId,DeviceName,AccessLevel,ExpiresAt,Subject FROM RemoteDevices ORDER BY ExpiresAt,DeviceId");
         using var reader = command.ExecuteReader();
         var result = new List<RemoteDevice>();
-        while (reader.Read()) result.Add(ReadDevice(reader));
+        while (reader.Read()) result.Add(WithActivity(ReadDevice(reader)));
         return result;
     });
 
@@ -186,7 +187,7 @@ public sealed class RemoteAccessStore : IDisposable
             var token = NewSecret();
             var device = new RemoteDevice(Guid.NewGuid().ToString("N"), label, accessLevel, expiry, subject);
             InsertDevice(device, Hash(token));
-            return new IssuedRemoteSession(device, token);
+            return new IssuedRemoteSession(WithActivity(device), token);
         });
     }
 
@@ -214,9 +215,9 @@ public sealed class RemoteAccessStore : IDisposable
                 ("$hash", hash), ("$now", _time.GetUtcNow().ToUnixTimeSeconds()));
             using var reader = command.ExecuteReader();
             if (!reader.Read()) return null;
-            var device = ReadDevice(reader);
+            var device = WithActivity(ReadDevice(reader));
             if (!_live.TryGetValue(hash, out var revoked)) _live.Add(hash, revoked = new());
-            return new(device, revoked.Token, () => IsCurrent(hash, device.DeviceId));
+            return new(device, revoked.Token, () => IsCurrent(hash, device.DeviceId), id => TrackConnection(device.DeviceId, id));
         }
     }
 
@@ -279,11 +280,15 @@ public sealed class RemoteAccessStore : IDisposable
         DELETE FROM RemoteDevices WHERE ExpiresAt <= $now;
         """, ("$now", _time.GetUtcNow().ToUnixTimeSeconds()));
 
-    private void InsertDevice(RemoteDevice device, string hash) => Execute("""
+    private void InsertDevice(RemoteDevice device, string hash)
+    {
+        Execute("""
         INSERT INTO RemoteDevices (DeviceId,DeviceName,CredentialHash,AccessLevel,ExpiresAt,Subject)
         VALUES ($id,$name,$hash,$level,$expiry,$subject)
         """, ("$id", device.DeviceId), ("$name", device.DeviceName), ("$hash", hash),
         ("$level", (int)device.AccessLevel), ("$expiry", device.ExpiresAt.ToUnixTimeSeconds()), ("$subject", device.Subject));
+        Execute("UPDATE RemoteActivity SET CreatedAt=$now WHERE DeviceId=$id;", ("$id", device.DeviceId), ("$now", _time.GetUtcNow().ToUnixTimeSeconds()));
+    }
 
     private SqliteCommand Command(string sql, params (string Name, object? Value)[] parameters)
     {
@@ -344,7 +349,8 @@ public sealed class RemoteAccessStore : IDisposable
     }
 }
 
-public sealed record RemoteAuthorization(RemoteDevice Device, CancellationToken Revoked, Func<bool>? CheckActive = null)
+public sealed record RemoteAuthorization(RemoteDevice Device, CancellationToken Revoked, Func<bool>? CheckActive = null,
+    Func<string, IDisposable>? TrackConnection = null)
 {
     public bool IsActive => !Revoked.IsCancellationRequested && (CheckActive?.Invoke() ?? true);
 }

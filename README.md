@@ -209,6 +209,8 @@ winapp run .\src\PiStation.App\PiStation.App.csproj --configuration Debug --arch
 
 ## Remote access
 
+Remote access now uses protocol 20 for persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, scoped preview forwarding and owner-managed updates. See [remote access usage and qualification](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) for workflows, package tooling and outstanding release checks.
+
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:
 
@@ -229,9 +231,10 @@ Approvals last 180 days and survive restarts. Use **Revoke selected session** on
 to disconnect an existing device and prevent reconnection. **Stop sharing** closes the
 remote listener while local work continues; the sharing preference persists across launches.
 Re-pair with a fresh link after access expires or is revoked, then select **Open**.
-This replaces the saved credentials and any open window using the old connection;
-there is no need to forget the environment first. Save unsent work before replacing
-a connection: its old draft is not automatically submitted through the replacement.
+This verifies the saved credentials and switches an existing remote window in place,
+preserving its client identity, drafts and dirty file editors. There is no need to
+forget the environment first. Changes to Host address use Test connection and
+Verify and save address, with rollback if validation or persistence fails.
 
 **Unused pairing links** shows active links from Settings and the CLI, with their
 labels, access level, and expiration. Select a link created during this Settings
@@ -246,7 +249,8 @@ codes as passwords.
 **Revoke selected link** prevents redemption of that unused invitation; it does
 not remove an already approved device's access. **Device sessions** includes both
 paired devices and CLI-issued sessions. Select a session to see its access level,
-expiration, subject (when supplied by the CLI), and ID, or revoke it. The lists
+expiration, active connections, recent activity, subject (when supplied by the CLI),
+and ID, or revoke it. The lists
 refresh while Settings is open, including changes made by the CLI.
 
 Read-only viewers can inspect saved conversations and observe live activity, but
@@ -264,9 +268,10 @@ such as Tailscale can provide a reachable address, but PiStation does not config
 There is no hosted relay or Windows background-service installer in this release.
 
 Projects, Pi, files, Git, and terminals run on the host. Attachments come from the
-receiving computer and are uploaded. Folder/editor launch and automatic loopback
-preview discovery are local-only; remote preview pages need an address reachable
-from the receiving computer or a separately configured tunnel. **Forget** removes
+receiving computer and are uploaded. Folder/editor launch is local-only. Operate
+devices can discover host-loopback preview servers and render them through a scoped
+native forwarding route over direct HTTPS or SSH. Read-only devices can use manually
+reachable preview URLs. **Forget** removes
 the saved connection; host-side revocation removes authorization.
 
 See [the implementation plan and T3 review](Docs/PISTATION-REMOTE-ACCESS-PLAN.md).
@@ -322,8 +327,8 @@ installer. An incomplete upload is not activated.
 **Update / reconnect with bundled host** uses the version in the current desktop
 installation, not an online "latest" feed. It asks before stopping a host owned
 by that connection because active agents and terminals can be interrupted.
-A reused desktop or independently running server is left running; update that
-host at its source when a version mismatch is reported. Incompatible protocols
+A reused desktop or independently running server is left running by this command;
+use Install owner-managed update for an update-capable, opted-in owner. Incompatible protocols
 are rejected. Older installed folders remain available for manual rollback;
 database migrations are not automatically rolled back.
 
@@ -333,7 +338,7 @@ reusing that managed host will also disconnect when its owner stops it. To share
 a host independently of any client, start an installed server yourself and leave it running:
 
 ```powershell
-C:\Tools\PiStation\PiStation.Server.exe serve
+C:\Tools\PiStation\PiStation.Server.exe supervise --enable-remote-updates true
 ```
 
 Such a separately running host is reused through a current-user Windows named
@@ -347,9 +352,10 @@ dotnet publish .\src\PiStation.Server\PiStation.Server.csproj -c Release -r win-
 
 Normal desktop builds/publishes create and include `SshHost\host-win-x64.zip`
 automatically, together with the installer and password helper.
-Normal transport failures use SignalR's bounded reconnect policy and re-establish
+Normal transport failures use persistent capped retries and re-establish
 SSH at the same local endpoint. A forwarding-only failure preserves the healthy
-control session and does not restart its host. After retries are exhausted, use **Open / retry**.
+control session and does not restart its host. **Open / retry** requests an immediate attempt;
+explicit Disconnect stops automatic recovery.
 Changed environment identity fails closed; check the target/data directory before
 forgetting and re-adding it. An intentionally rotated host security identity
 requires closing and reopening the window. Commands with uncertain outcomes are

@@ -56,13 +56,17 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel.IsRefreshingCatalog ||
+            (ProjectSelector.SelectedItem as ProjectDescriptor)?.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId) return;
         await ViewModel.SelectProjectAsync(ProjectSelector.SelectedItem as ProjectDescriptor);
     }
 
     private async void OnThreadSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel.IsRefreshingCatalog) return;
         if (ThreadTabList.SelectedItem is ThreadDescriptor thread)
         {
+            if (thread.ThreadId == ViewModel.Workspace.SelectedThread?.ThreadId) return;
             await ViewModel.SelectThreadAsync(thread);
         }
         else if (ViewModel.Workspace.SelectedThread is null)

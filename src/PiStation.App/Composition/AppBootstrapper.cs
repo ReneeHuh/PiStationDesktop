@@ -66,6 +66,8 @@ internal static class AppBootstrapper
             await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
             await viewModel.LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
             if (remoteAccess is not null) await remoteAccess.AttachAsync(host.Environment).ConfigureAwait(false);
+            if (Microsoft.UI.Xaml.Application.Current is App app)
+                host.Environment.Updates.SetOwner(new DesktopUpdateOwner(app.PrepareDesktopUpdateAsync, app.FinishDesktopUpdateAsync));
             launchOptions.Log($"Environment ready at {host.Address}.");
             return new AppRuntime(host, client, viewModel);
         }

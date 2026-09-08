@@ -8,6 +8,27 @@ namespace PiStation.Host.Tests;
 public sealed class RemoteAccessStoreTests
 {
     [Fact]
+    public void ActivityTracksIndividualConnectionsAndExpiredLeasesAcrossStores()
+    {
+        using var directory = new HostTestDirectory();
+        var clock = new TestClock();
+        var path = directory.GetPath("access.db");
+        using var store = new RemoteAccessStore(path, clock);
+        using var cli = new RemoteAccessStore(path, clock);
+        var issued = store.IssueSession();
+        var authorization = store.Authenticate(issued.Token)!;
+        using var first = authorization.TrackConnection!("first");
+        using var second = authorization.TrackConnection!("second");
+        Assert.Equal(2, Assert.Single(cli.ListDevices()).ActiveConnections);
+        first.Dispose();
+        Assert.Equal(1, Assert.Single(cli.ListDevices()).ActiveConnections);
+        Assert.NotNull(Assert.Single(cli.ListDevices()).LastConnectedAt);
+        clock.Now += TimeSpan.FromSeconds(61);
+        Assert.Equal(0, Assert.Single(cli.ListDevices()).ActiveConnections);
+        cli.Revoke(issued.Device.DeviceId);
+        Assert.Empty(store.ListDevices());
+    }
+    [Fact]
     public void InvitationIsSingleUseAndApprovalIsRequiredBeforeAuthentication()
     {
         using var directory = new HostTestDirectory();
@@ -142,7 +163,8 @@ public sealed class RemoteAccessStoreTests
     [Fact]
     public void EveryHubMethodHasAnExplicitRemotePolicyOrLocalOnlyDecision()
     {
-        var localOnly = new[] { nameof(EnvironmentHub.DiscoverProjectPreviewServers), nameof(EnvironmentHub.OpenProjectFileInEditor) };
+        var localOnly = new[] { nameof(EnvironmentHub.OpenProjectFileInEditor) };
+        Assert.Equal(RemoteAccessLevel.Operate, RemoteAuthorizationFilter.MethodAccess[nameof(EnvironmentHub.DiscoverProjectPreviewServers)]);
         var methods = typeof(EnvironmentHub).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(m => m.Name);
         foreach (var method in methods)
             Assert.True(RemoteAuthorizationFilter.MethodAccess.ContainsKey(method) || localOnly.Contains(method), $"Choose a remote policy for {method}.");

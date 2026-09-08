@@ -57,6 +57,10 @@ public sealed class PiThreadRegistry : IAsyncDisposable
         return false;
     }
 
+    public bool HasActiveWork => _controllers.Values.Any(lazy => lazy.IsValueCreated &&
+        (!lazy.Value.IsCompleted || lazy.Value.IsCompletedSuccessfully && lazy.Value.Result.Journal.Projection.RuntimeState is
+            ThreadRuntimeState.Starting or ThreadRuntimeState.Hydrating or ThreadRuntimeState.Running or ThreadRuntimeState.Stopping));
+
     public async Task StopAndForgetAsync(
         ThreadId threadId,
         CancellationToken cancellationToken = default)

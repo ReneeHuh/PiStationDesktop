@@ -95,7 +95,8 @@ public sealed class SshSetupTests
         var spawned = 0;
         await using var connection = new ManagedSshConnection(Profile(), _ => { spawned++; return new AuthProcess(string.Empty, true); },
             (_, _, _) => Task.CompletedTask, requestPassword: (_, _) => Task.FromResult<string?>(null));
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => connection.EnsureConnectedAsync());
+        var error = await Assert.ThrowsAsync<ConnectionValidationException>(() => connection.EnsureConnectedAsync());
+        Assert.Equal(ConnectionFailure.Authentication, error.Failure);
         Assert.Contains("canceled", error.Message, StringComparison.Ordinal);
         Assert.Equal(1, spawned);
     }

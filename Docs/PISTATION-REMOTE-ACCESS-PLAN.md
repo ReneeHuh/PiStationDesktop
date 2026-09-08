@@ -1,5 +1,7 @@
 # Remote access: review and implementation plan
 
+**September 7 follow-up:** this document records the initial release. The [completion implementation](REMOTE-ACCESS-IMPLEMENTATION.md) supersedes its original reconnect, re-pairing, update, and preview limitations. Protocol 20 adds persistent recovery, live catalog synchronization, verified address replacement, owner-mediated updates, and authenticated preview forwarding. Signed desktop update and physical two-machine qualification remain pending there.
+
 ## T3 Code review
 
 Reviewed the local `C:/Users/Bacon21/Workspace/t3code` checkout at commit

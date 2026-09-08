@@ -97,13 +97,17 @@ public sealed partial class RemoteConnectionsPanel : UserControl
     {
         if (!_active) return;
         var controller = HostController;
+        if (!_busy && AllowRemoteUpdates.IsOn != (controller?.AllowsRemoteUpdates == true))
+            AllowRemoteUpdates.IsOn = controller?.AllowsRemoteUpdates == true;
+        AllowRemoteUpdates.IsEnabled = !_busy && controller?.CanHost == true;
         StartSharing.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false };
         StopSharing.IsEnabled = !_busy && controller?.IsSharing == true;
         CreatePairingLink.IsEnabled = !_busy && controller?.IsSharing == true;
         PairingLabel.IsEnabled = PairingLifetime.IsEnabled = PairingAccess.IsEnabled = CreatePairingLink.IsEnabled;
         ListenAddress.IsEnabled = ListenPort.IsEnabled = controller?.IsSharing != true && !_busy;
         UpdateApprovalState();
-        SharingState.Text = controller?.IsSharing == true
+        SharingState.Text = controller?.NeedsAddress == true ? "Sharing needs an address. The selected network address is unavailable. Stop sharing, then choose an active address."
+            : controller?.IsSharing == true
             ? $"Sharing at {controller.Address}\nCertificate: {controller.Fingerprint}"
             : controller?.CanHost == true ? "Remote sharing is off." : "This window is attached to an existing host. Manage direct sharing from the desktop that owns it; SSH access remains available.";
         var invitations = controller?.Access?.ListInvitations() ?? [];
@@ -162,7 +166,7 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         if (_busy || !_active) return;
         _busy = true;
         try { RefreshHost(); await operation(); }
-        catch (OperationCanceledException) { Status.Text = "Pairing canceled or expired. Create a fresh link to try again."; }
+        catch (OperationCanceledException) { Status.Text = "The operation was canceled or timed out."; }
         catch (Exception exception) { Status.Text = exception.Message; }
         finally { _busy = false; RefreshHostSafely(); }
     }
@@ -290,6 +294,8 @@ public sealed partial class RemoteConnectionsPanel : UserControl
                     PairingProgress.Text = message;
             });
             var environment = await RemotePairingClient.PairAsync(invitation, DeviceName.Text, progress, cancellation.Token);
+            if (Controller?.Connections.Load().FirstOrDefault(saved => saved.EnvironmentId == environment.EnvironmentId) is { } previous)
+                environment = environment with { ClientId = previous.ClientId };
             Controller?.Connections.Save(environment);
             IncomingLink.Text = string.Empty;
             RefreshSaved();
@@ -302,11 +308,75 @@ public sealed partial class RemoteConnectionsPanel : UserControl
 
     private void OnCancelPairing(object sender, RoutedEventArgs e) => _pairing?.Cancel();
 
+    private void OnAllowRemoteUpdatesChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_active || _busy || HostController is not { CanHost: true } controller) return;
+        try { controller.AllowsRemoteUpdates = AllowRemoteUpdates.IsOn; }
+        catch (Exception exception) { Status.Text = exception.Message; }
+    }
+
+    private async void OnCopyDiagnostics(object sender, RoutedEventArgs e) => await RunAsync(() =>
+    {
+        if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment saved && Application.Current is App app)
+        {
+            var data = new DataPackage();
+            data.SetText(app.GetRemoteDiagnostics(saved));
+            Clipboard.SetContent(data);
+            Status.Text = "Connection diagnostics copied. Credentials and file contents are excluded.";
+        }
+        return Task.CompletedTask;
+    });
+
+    private async void OnTestEndpoint(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    {
+        if (SavedEnvironments.SelectedItem is not SavedRemoteEnvironment saved) return;
+        var candidate = saved with { Address = new Uri(EndpointAddress.Text.Trim()) };
+        RemoteEndpoint.Validate(candidate.Address);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        _pairing = cancellation;
+        try
+        {
+            await using var probe = new EnvironmentClient(candidate.CreateOptions());
+            await probe.ConnectAsync(cancellation.Token);
+            Status.Text = $"Verified {probe.Descriptor!.EnvironmentName} • host {probe.Descriptor.ServerVersion}. Address has not been saved.";
+        }
+        finally { _pairing = null; }
+    });
+
+    private async void OnSaveEndpoint(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    {
+        if (SavedEnvironments.SelectedItem is not SavedRemoteEnvironment saved || Application.Current is not App app) return;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _pairing = cancellation;
+        try
+        {
+            Status.Text = "Verifying the new address and host identity…";
+            await app.ReplaceRemoteAddressAsync(saved, new Uri(EndpointAddress.Text.Trim()), cancellation.Token);
+            RefreshSaved();
+            Status.Text = "Verified address saved. Open work and device identity are preserved.";
+        }
+        finally { _pairing = null; }
+    });
+
     private async void OnOpenEnvironment(object sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
         if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment && Application.Current is App app)
             await app.OpenRemoteEnvironmentAsync(environment);
     });
+
+    private async void OnInstallHostUpdate(object sender, RoutedEventArgs e) => await RunAsync(() => RunUpdateAsync(false));
+    private async void OnCheckHostUpdate(object sender, RoutedEventArgs e) => await RunAsync(() => RunUpdateAsync(true));
+
+    private async Task RunUpdateAsync(bool historyOnly)
+    {
+        if (SavedEnvironments.SelectedItem is not SavedRemoteEnvironment saved || Application.Current is not App app) return;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        _pairing = cancellation;
+        var existing = app.FindRemoteClient(saved.EnvironmentId.ToString());
+        var client = existing ?? new EnvironmentClient(saved.CreateOptions());
+        try { await RemoteUpdateWorkflow.RunAsync(client, XamlRoot, new Progress<string>(message => Status.Text = message), historyOnly, cancellation.Token); }
+        finally { _pairing = null; if (existing is null) await client.DisposeAsync(); }
+    }
 
     private void OnDisconnectEnvironment(object sender, RoutedEventArgs e)
     {
@@ -418,6 +488,9 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         }
         finally { if (bytes is not null) CryptographicOperations.ZeroMemory(bytes); }
     }
-    private void OnSavedSelectionChanged(object sender, SelectionChangedEventArgs e) => SavedDetails.Text =
-        SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment ? environment.Address.AbsoluteUri : string.Empty;
+    private void OnSavedSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        SavedDetails.Text = SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment ? environment.Address.AbsoluteUri : string.Empty;
+        EndpointAddress.Text = SavedDetails.Text;
+    }
 }

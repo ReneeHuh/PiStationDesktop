@@ -155,6 +155,13 @@ public sealed class ThreadMetadataStore
         }
     }
 
+    internal void Remove(ThreadId threadId)
+    {
+        ThreadDescriptor? removed;
+        lock (_gate) _threads.Remove(threadId, out removed);
+        if (removed is not null) Changed?.Invoke(this, new(removed.ProjectId, threadId, null));
+    }
+
     internal void Clear()
     {
         ThreadDescriptor[] removed;

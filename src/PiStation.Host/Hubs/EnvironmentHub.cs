@@ -14,6 +14,33 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
 
+    public RemoteUpdateDescriptor GetRemoteUpdateDescriptor() => _environment.Updates.Descriptor;
+    public RemoteUpdateReceipt[] GetRemoteUpdateHistory() => _environment.Updates.GetHistory(
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!));
+    public RemoteUpdateReceipt? GetRemoteUpdateReceipt(Guid id) => _environment.Updates.GetReceipt(id);
+    public RemoteUpdateReceipt PrepareRemoteUpdate(PrepareRemoteUpdateRequest request) => _environment.Updates.Prepare(request,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!));
+    public RemoteUpdateReceipt CommitRemoteUpdate(CommitRemoteUpdateRequest request) => _environment.Updates.Commit(request,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!));
+    public RemoteUpdateReceipt CancelRemoteUpdate(Guid id) => _environment.Updates.Cancel(id,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!));
+
+    public Task<PreviewLease> OpenPreview(OpenPreviewRequest request) => _environment.OpenPreviewAsync(request,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!), Context.ConnectionId, Context.ConnectionAborted);
+
+    public PreviewLease RenewPreview(string id) => _environment.PreviewLeases.Renew(id,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!), Context.ConnectionId);
+
+    public void ClosePreview(string id) => _environment.PreviewLeases.Close(id,
+        PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!));
+
+    public async IAsyncEnumerable<CatalogBatch> SubscribeCatalog(CatalogCursor? cursor,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Context.ConnectionAborted);
+        await foreach (var batch in _environment.SubscribeCatalogAsync(cursor, lifetime.Token).ConfigureAwait(false)) yield return batch;
+    }
+
     public async Task<ProjectDescriptor[]> ListProjects() =>
         [.. await _environment.ListProjectsAsync(Context.ConnectionAborted).ConfigureAwait(false)];
 
@@ -357,7 +384,7 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try
         {
-            var passive = Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
+            var passive = _environment.Updates.IsDraining || Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
                 readOnly is true;
             return await (passive
                 ? _environment.GetThreadDraftPassiveAsync(threadId, Context.ConnectionAborted)
@@ -373,7 +400,7 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try
         {
-            var passive = Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
+            var passive = _environment.Updates.IsDraining || Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) &&
                 readOnly is true;
             return await (passive
                     ? _environment.GetThreadPiConfigurationPassiveAsync(threadId, Context.ConnectionAborted)
@@ -403,15 +430,27 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         CommandId commandId) =>
         _environment.GetCommandReceiptAsync(clientId, commandId, Context.ConnectionAborted);
 
-    public IAsyncEnumerable<ThreadEnvelope> SubscribeThread(
+    public async IAsyncEnumerable<ThreadEnvelope> SubscribeThread(
         ThreadId threadId,
-        ThreadCursor? cursor) =>
-        Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) && readOnly is true
-            ? _environment.SubscribeThreadPassiveAsync(threadId, cursor, Context.ConnectionAborted)
-            : _environment.SubscribeThreadAsync(threadId, cursor, Context.ConnectionAborted);
+        ThreadCursor? cursor,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Context.ConnectionAborted);
+        using var tracked = _environment.TrackStream(terminal: false);
+        var stream = _environment.Updates.IsDraining || Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) && readOnly is true
+            ? _environment.SubscribeThreadPassiveAsync(threadId, cursor, linked.Token)
+            : _environment.SubscribeThreadAsync(threadId, cursor, linked.Token);
+        await foreach (var item in stream.ConfigureAwait(false)) yield return item;
+    }
 
-    public IAsyncEnumerable<TerminalEnvelope> SubscribeTerminal(
+    public async IAsyncEnumerable<TerminalEnvelope> SubscribeTerminal(
         TerminalSessionId terminalSessionId,
-        TerminalCursor? cursor) =>
-        _environment.SubscribeTerminalAsync(terminalSessionId, cursor, Context.ConnectionAborted);
+        TerminalCursor? cursor,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Context.ConnectionAborted);
+        using var tracked = _environment.TrackStream(terminal: true);
+        await foreach (var item in _environment.SubscribeTerminalAsync(terminalSessionId, cursor, linked.Token).ConfigureAwait(false))
+            yield return item;
+    }
 }

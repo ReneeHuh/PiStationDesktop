@@ -54,6 +54,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
 
     public bool HasAttachments => Attachments.Count != 0;
 
+    internal bool HasUnsavedChanges => _draft is not null && !string.Equals(_text, _draft.Text, StringComparison.Ordinal);
+
     public double AttachmentRailHeight => HasAttachments ? 36 : 1;
 
     public double AttachmentNoticeHeight => HasAttachments ? double.NaN : 1;

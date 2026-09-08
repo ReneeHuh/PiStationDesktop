@@ -25,11 +25,21 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
     public RemoteConnectionStore Connections { get; } = new(Path.Combine(dataRoot, "remote-connections.protected"));
     public PiStation.ClientRuntime.Ssh.SshConnectionStore SshConnections { get; } = new(Path.Combine(dataRoot, "ssh-connections.protected"));
     public bool IsSharing => _listener is not null;
+    public bool NeedsAddress => _listener is not null && !GetNetworkAddresses().Contains(_listener.Address.Host);
     public bool CanHost => _environment is not null && _access is not null;
     public string Address => _listener?.Address.AbsoluteUri ?? string.Empty;
     public string Fingerprint => _certificate?.GetCertHashString(HashAlgorithmName.SHA256) ?? string.Empty;
     public string? StartupError { get; private set; }
     public RemoteAccessStore? Access => _access;
+    public bool AllowsRemoteUpdates
+    {
+        get => _environment?.Updates.Enabled == true;
+        set
+        {
+            if (_environment is null) throw new InvalidOperationException("The local host is unavailable.");
+            _environment.Updates.Enabled = value;
+        }
+    }
 
     public static IReadOnlyList<string> GetNetworkAddresses() => NetworkInterface.GetAllNetworkInterfaces()
         .Where(n => n.OperationalStatus == OperationalStatus.Up)

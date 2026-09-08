@@ -26,6 +26,14 @@ public sealed class TerminalStore(TerminalSessionId terminalSessionId)
     private readonly object _gate = new();
     private readonly StringBuilder _output = new();
     private TerminalSessionDescriptor? _descriptor;
+    private bool _isSynchronized;
+
+    public bool IsSynchronized { get { lock (_gate) return _isSynchronized; } }
+
+    internal void SetSynchronized(bool value)
+    {
+        lock (_gate) _isSynchronized = value;
+    }
 
     public event EventHandler<TerminalChangedEventArgs>? Changed;
 

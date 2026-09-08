@@ -7,6 +7,6 @@ public sealed class ProtocolVersionTests
     [Fact]
     public void CommandSystemProtocolVersionIsNineteen()
     {
-        Assert.Equal(19, ProtocolVersion.Current);
+        Assert.Equal(20, ProtocolVersion.Current);
     }
 }

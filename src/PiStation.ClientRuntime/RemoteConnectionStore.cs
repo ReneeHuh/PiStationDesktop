@@ -67,6 +67,32 @@ public sealed class RemoteConnectionStore(string path)
         }
     }
 
+    public void Replace(SavedRemoteEnvironment expected, SavedRemoteEnvironment replacement)
+    {
+        if (expected.EnvironmentId != replacement.EnvironmentId || expected.ClientId != replacement.ClientId)
+            throw new ArgumentException("Endpoint changes must retain the saved identity.", nameof(replacement));
+        lock (_gate)
+        {
+            if (Load().SingleOrDefault(e => e.EnvironmentId == expected.EnvironmentId) != expected)
+                throw new InvalidOperationException("This connection changed while it was being verified. Select it again.");
+            Save(replacement);
+        }
+    }
+
+    public async Task<SavedRemoteEnvironment> VerifyAndReplaceAsync(SavedRemoteEnvironment expected, Uri address,
+        CancellationToken cancellationToken = default)
+    {
+        Protocol.Models.RemoteEndpoint.Validate(address);
+        var replacement = expected with { Address = address };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        await using var probe = new EnvironmentClient(replacement.CreateOptions());
+        await probe.ConnectAsync(timeout.Token).ConfigureAwait(false);
+        timeout.Token.ThrowIfCancellationRequested();
+        Replace(expected, replacement);
+        return replacement;
+    }
+
     private void Write(SavedRemoteEnvironment[] entries)
     {
         var records = entries.Select(e => new RemoteStorageEntry(e.EnvironmentId.ToString(), e.Name, e.Address.AbsoluteUri,

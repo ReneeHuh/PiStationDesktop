@@ -45,6 +45,10 @@ public sealed class EnvironmentService : IAsyncDisposable
     private readonly GlobalSearchService _search;
     private readonly PiThreadRegistry _threads;
     private readonly TerminalSessionRegistry _terminals;
+    private readonly CancellationTokenSource _catalogStopping = new();
+    private readonly object _catalogGate = new();
+    private readonly HashSet<TaskCompletionSource> _catalogReaders = [];
+    private bool _catalogDisposed;
 
     private EnvironmentService(
         HostOptions options,
@@ -78,9 +82,45 @@ public sealed class EnvironmentService : IAsyncDisposable
         _search = search;
         _threads = threads;
         _terminals = terminals;
+        Updates = new(options.CanonicalDataRoot, () => _threads.HasActiveWork || _terminals.HasActiveWork);
     }
 
     public EnvironmentId EnvironmentId => _environment.EnvironmentId;
+
+    public PreviewLeaseRegistry PreviewLeases { get; } = new();
+
+    public PiStation.Host.Updates.RemoteUpdateCoordinator Updates { get; }
+
+    private int _threadStreams;
+    private int _terminalStreams;
+    public int ActiveThreadStreamCount => Volatile.Read(ref _threadStreams);
+    public int ActiveTerminalStreamCount => Volatile.Read(ref _terminalStreams);
+    internal StreamLifetime TrackStream(bool terminal) => new(this, terminal);
+    internal sealed class StreamLifetime : IDisposable
+    {
+        private readonly EnvironmentService _owner;
+        private readonly bool _terminal;
+        private int _disposed;
+        internal StreamLifetime(EnvironmentService owner, bool terminal)
+        {
+            _owner = owner; _terminal = terminal;
+            if (terminal) Interlocked.Increment(ref owner._terminalStreams);
+            else Interlocked.Increment(ref owner._threadStreams);
+        }
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            if (_terminal) Interlocked.Decrement(ref _owner._terminalStreams);
+            else Interlocked.Decrement(ref _owner._threadStreams);
+        }
+    }
+
+    public async Task<PreviewLease> OpenPreviewAsync(OpenPreviewRequest request, string principal, string connectionId, CancellationToken cancellationToken)
+    {
+        if (await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false) is null)
+            throw new HostOperationException(ProtocolErrorCodes.ProjectNotFound, "The preview project no longer exists.");
+        return PreviewLeases.Open(request, principal, connectionId, cancellationToken);
+    }
 
     private RemoteExposure? _remoteExposure;
     internal RemoteExposure? CurrentRemoteExposure => Volatile.Read(ref _remoteExposure);
@@ -147,10 +187,47 @@ public sealed class EnvironmentService : IAsyncDisposable
         ProtocolVersion.Current,
         _options.PiInstallation is not null,
         _options.PiInstallation?.PiVersion.ToString(),
-        ["project.read", "project.write", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.draft", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload"]);
+        ["catalog.read", "project.read", "project.write", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.draft", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload"]);
 
     public Task<IReadOnlyList<ProjectDescriptor>> ListProjectsAsync(CancellationToken cancellationToken = default) =>
         _projects.ListAsync(cancellationToken);
+
+    public async IAsyncEnumerable<CatalogBatch> SubscribeCatalogAsync(CatalogCursor? cursor,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenSource lifetime;
+        lock (_catalogGate)
+        {
+            if (_catalogDisposed) yield break;
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _catalogStopping.Token);
+            _catalogReaders.Add(completed);
+        }
+        using (lifetime)
+        try
+        {
+            var initial = true;
+            while (!lifetime.IsCancellationRequested)
+            {
+                var changed = false;
+                await foreach (var batch in _database.ReadCatalogAsync(cursor, lifetime.Token).ConfigureAwait(false))
+                {
+                    changed = true;
+                    if (batch.Complete) cursor = new(batch.Epoch, batch.Sequence);
+                    yield return batch;
+                }
+                if (initial && !changed && cursor is not null)
+                    yield return new CatalogBatch(EnvironmentId, cursor.Epoch, cursor.Sequence, false, true, [], [], [], []);
+                initial = false;
+                await Task.Delay(TimeSpan.FromMilliseconds(250), lifetime.Token).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            lock (_catalogGate) _catalogReaders.Remove(completed);
+            completed.TrySetResult();
+        }
+    }
 
     public Task<ProjectDescriptor> AddProjectAsync(
         AddProjectRequest request,
@@ -824,7 +901,19 @@ public sealed class EnvironmentService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Updates.Dispose();
+        Task[] catalogReaders;
+        lock (_catalogGate)
+        {
+            if (_catalogDisposed) return;
+            _catalogDisposed = true;
+            catalogReaders = _catalogReaders.Select(reader => reader.Task).ToArray();
+        }
+        await _catalogStopping.CancelAsync().ConfigureAwait(false);
+        await Task.WhenAll(catalogReaders).ConfigureAwait(false);
+        _catalogStopping.Dispose();
         _preview.Dispose();
+        PreviewLeases.Dispose();
         await _terminals.DisposeAsync().ConfigureAwait(false);
         await _threads.DisposeAsync().ConfigureAwait(false);
     }

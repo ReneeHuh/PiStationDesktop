@@ -16,6 +16,7 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     private readonly HostOptions _options;
     private readonly ConcurrentDictionary<TerminalSessionId, TerminalSession> _sessions = new();
     private bool _disposed;
+    public bool HasActiveWork => _sessions.Values.Any(session => session.Descriptor.State == TerminalSessionState.Running);
     private readonly ThreadWorkspaceResolver _workspaceResolver;
 
     public TerminalSessionRegistry(

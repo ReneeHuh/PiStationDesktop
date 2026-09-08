@@ -9,6 +9,7 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
     internal const string AuthorizationItem = "PiStation.RemoteAuthorization";
     internal const string ReadOnlyItem = "PiStation.RemoteReadOnly";
     private const string LifetimeItem = "PiStation.RemoteLifetime";
+    private const string ActivityItem = "PiStation.RemoteActivity";
 
     // An explicit list makes new RPCs inaccessible remotely until their policy is chosen.
     public static IReadOnlyDictionary<string, RemoteAccessLevel> MethodAccess { get; } =
@@ -16,6 +17,17 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
         {
             [nameof(EnvironmentHub.GetEnvironmentDescriptor)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.ListProjects)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.SubscribeCatalog)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.GetRemoteUpdateDescriptor)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.GetRemoteUpdateReceipt)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.GetRemoteUpdateHistory)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.PrepareRemoteUpdate)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CommitRemoteUpdate)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CancelRemoteUpdate)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.DiscoverProjectPreviewServers)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.OpenPreview)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.RenewPreview)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.ClosePreview)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.SearchProjectFiles)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.ReadProjectFile)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.ListProjectEntries)] = RemoteAccessLevel.ReadOnly,
@@ -70,7 +82,7 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
         var result = await next(context).ConfigureAwait(false);
         if (result is EnvironmentDescriptor descriptor)
         {
-            var capabilities = descriptor.Capabilities.Where(c => c is not ("preview.discover" or "editor.open"));
+            var capabilities = descriptor.Capabilities.Where(c => c != "editor.open");
             if (authorization.Device.AccessLevel == RemoteAccessLevel.ReadOnly)
                 capabilities = capabilities.Where(c => c.EndsWith(".read", StringComparison.Ordinal) ||
                     c.Contains("search", StringComparison.Ordinal) || c is "file.assets" or "git.refs" or "git.worktrees");
@@ -82,6 +94,7 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
     public async Task OnConnectedAsync(HubLifetimeContext context, Func<HubLifetimeContext, Task> next)
     {
         var authorization = GetAuthorization(context.Context) ?? throw new HubException("Remote authorization is required.");
+        if (authorization.TrackConnection is { } track) context.Context.Items[ActivityItem] = track(context.Context.ConnectionId);
         context.Context.Items[ReadOnlyItem] = authorization.Device.AccessLevel == RemoteAccessLevel.ReadOnly;
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(authorization.Revoked);
         var remaining = authorization.Device.ExpiresAt - DateTimeOffset.UtcNow;
@@ -99,6 +112,7 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
     public async Task OnDisconnectedAsync(HubLifetimeContext context, Exception? exception,
         Func<HubLifetimeContext, Exception?, Task> next)
     {
+        if (context.Context.Items.Remove(ActivityItem, out var activity) && activity is IDisposable tracking) tracking.Dispose();
         if (context.Context.Items.Remove(LifetimeItem, out var value) &&
             value is ValueTuple<CancellationTokenSource, CancellationTokenRegistration, Timer> lifetime)
         {

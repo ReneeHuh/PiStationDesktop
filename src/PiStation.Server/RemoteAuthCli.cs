@@ -19,6 +19,8 @@ internal static partial class RemoteAuthCli
     internal const string Help = """
         PiStation.Server (Windows)
           serve [--data-root PATH] [--pi-executable PATH] [--host IP --port 52740]
+          supervise [serve options] [--enable-remote-updates true]
+          update-manifest
           attach [--data-root PATH] [--pi-executable PATH]
           status [--data-root PATH] [--json]
           pair [--ttl 5m] [--label NAME] [--access read-only|operate] [--no-qr] [--json]
@@ -41,6 +43,9 @@ internal static partial class RemoteAuthCli
         serve defaults to loopback-only; --host explicitly enables LAN/VPN sharing.
         No firewall, Windows service, SSH daemon, or Tailscale configuration is changed.
         attach stops only a host it starts when stdin closes or receives 'stop'.
+        supervise owns its server, validates staged ZIP updates and restarts it after activation.
+        Remote updates are disabled until the host owner opts in. They require operate access.
+        A normal serve without supervise remains externally managed.
         """;
 
     [SupportedOSPlatform("windows")]
@@ -174,7 +179,7 @@ internal static partial class RemoteAuthCli
                 if (options.Json) WriteJson(output, sessions);
                 else
                 {
-                    foreach (var item in sessions) output.WriteLine($"{item.DeviceId}  {item.DeviceName}  {item.AccessLevel}  {item.ExpiresAt:O}  {item.Subject}");
+                    foreach (var item in sessions) output.WriteLine($"{item.DeviceId}  {item.DeviceName}  {item.AccessLevel}  {item.ExpiresAt:O}  {item.Subject}  connections={item.ActiveConnections}  last-seen={item.LastSeenAt:O}");
                     if (sessions.Length == 0) output.WriteLine("No active device sessions.");
                 }
                 return 0;

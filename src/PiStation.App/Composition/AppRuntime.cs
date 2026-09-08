@@ -15,14 +15,21 @@ internal sealed class AppRuntime(
     private readonly ShellViewModel _viewModel = viewModel;
     private readonly SemaphoreSlim _disposeGate = new(1, 1);
     private bool _disposed;
+    internal EnvironmentClient Client => _client;
 
-    public async Task ReconnectAsync(CancellationToken cancellationToken = default)
-    {
-        await _client.ConnectAsync(cancellationToken);
-        await _viewModel.LoadProjectsAsync(cancellationToken);
-    }
+    public Task ReconnectAsync(CancellationToken cancellationToken = default) => _client.ConnectAsync(cancellationToken);
 
     public ValueTask DisposeAsync() => DisposeAsync(flushDraft: true);
+
+    public void NotifyActivated() => _client.NotifyNetworkRestored();
+
+    public string ExportDiagnostics() => _client.ExportDiagnostics();
+
+    public bool HasUnsavedChanges => _viewModel.WorkbenchFiles.OpenDocuments.Any(document => document.IsDirty || document.IsSaving) ||
+        _viewModel.Composer.HasUnsavedChanges;
+
+    public Task ReplaceEndpointAsync(SavedRemoteEnvironment replacement, Action commit, CancellationToken cancellationToken = default) =>
+        _client.ReplaceEndpointAsync(replacement.CreateOptions(), commit, cancellationToken);
 
     /// <summary>Disposes the runtime without flushing when its client identity is being replaced.</summary>
     public async ValueTask DisposeAsync(bool flushDraft)

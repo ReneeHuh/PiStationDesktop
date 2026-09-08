@@ -93,7 +93,8 @@ public sealed class ManagedSshConnectionTests
         var spawned = 0;
         await using var connection = new ManagedSshConnection(Profile() with { ExpectedEnvironmentId = EnvironmentId.New() },
             _ => { spawned++; return process; }, (_, _, _) => Task.CompletedTask);
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => connection.EnsureConnectedAsync());
+        var failure = await Assert.ThrowsAsync<ConnectionValidationException>(() => connection.EnsureConnectedAsync());
+        Assert.Equal(ConnectionFailure.Identity, failure.Failure);
         Assert.Contains("identity changed", failure.Message, StringComparison.Ordinal);
         Assert.Equal(1, spawned);
         Assert.True(process.Disposed);
@@ -167,7 +168,8 @@ public sealed class ManagedSshConnectionTests
         var process = new FakeProcess(Handshake(Info() with { BootstrapVersion = 999 }));
         var count = 0;
         await using var connection = new ManagedSshConnection(Profile(), _ => { count++; return process; }, (_, _, _) => Task.CompletedTask);
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => connection.EnsureConnectedAsync());
+        var error = await Assert.ThrowsAsync<ConnectionValidationException>(() => connection.EnsureConnectedAsync());
+        Assert.Equal(ConnectionFailure.Protocol, error.Failure);
         Assert.Contains("incompatible", error.Message, StringComparison.Ordinal);
         Assert.Equal(1, count);
         Assert.True(process.Disposed);
@@ -208,12 +210,36 @@ public sealed class ManagedSshConnectionTests
         Assert.Empty(store.Load());
     }
 
+    [Fact]
+    public async Task HostKeyFailureStopsAutomaticRecoveryWithoutRequestingPassword()
+    {
+        var process = new FakeProcess(string.Empty) { HasExited = true, HostKeyVerificationFailed = true };
+        var spawned = 0;
+        var prompts = 0;
+        await using var connection = new ManagedSshConnection(Profile(), _ => { spawned++; return process; },
+            (_, _, _) => Task.CompletedTask, requestPassword: (_, _) => { prompts++; return Task.FromResult<string?>("unused"); });
+        await using var supervisor = new ConnectionSupervisor(new()
+        {
+            HubAddress = new(connection.Address, "/environment"), BearerCredential = new string('A', 64),
+            EnsureTransportAsync = connection.EnsureConnectedAsync, ReconnectDelays = [TimeSpan.Zero], RetryJitter = 0,
+        });
+        var error = await Assert.ThrowsAsync<ConnectionValidationException>(() => supervisor.ConnectAsync());
+        Assert.Equal(ConnectionFailure.Identity, error.Failure);
+        Assert.Equal(EnvironmentConnectionState.TrustRequired, supervisor.State);
+        supervisor.NotifyNetworkRestored();
+        await Task.Delay(350);
+        Assert.Equal(1, spawned);
+        Assert.Equal(0, prompts);
+        Assert.True(process.Disposed);
+    }
+
     private static string Handshake(SshHostInfo info) => "PISTATION_SSH " + JsonSerializer.Serialize(info, ProtocolJsonContext.Default.SshHostInfo) + "\n";
 
     private sealed class FakeProcess(string output) : ISshProcess
     {
         public TextReader Output { get; } = new StringReader(output);
         public bool HasExited { get; set; }
+        public bool HostKeyVerificationFailed { get; init; }
         public bool Disposed { get; private set; }
         public string FailureMessage => "Fake SSH failure.";
         public ValueTask DisposeAsync() { Disposed = HasExited = true; Output.Dispose(); return ValueTask.CompletedTask; }

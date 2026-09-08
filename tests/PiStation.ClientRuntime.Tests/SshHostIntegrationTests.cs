@@ -30,7 +30,7 @@ public sealed class SshHostIntegrationTests
                 options.ApplicationDataRoot, @"C:\not-installed\pi.exe", null, ClientId.New());
             await using var attach = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1]);
             first = (await ManagedSshConnection.ReadHandshakeAsync(attach.Process.StandardOutput, timeout.Token))!;
-            Assert.NotNull(first);
+            if (first is null) throw new InvalidOperationException("The attach fixture exited before discovery: " + await attach.Errors);
             Assert.False(first.StartedByConnection);
             Assert.Equal("desktop", first.HostKind);
             Assert.Equal(desktop.Environment.EnvironmentId, first.EnvironmentId);
@@ -145,7 +145,7 @@ public sealed class SshHostIntegrationTests
             await client.ConnectAsync(timeout.Token);
             Assert.Contains("remote.access", client.Descriptor!.Capabilities);
             Assert.DoesNotContain("editor.open", client.Descriptor.Capabilities);
-            Assert.DoesNotContain("preview.discover", client.Descriptor.Capabilities);
+            Assert.Contains("preview.discover", client.Descriptor.Capabilities);
             var project = await client.AddProjectAsync(new(directory.CreateDirectory("ssh-project")), timeout.Token);
             Assert.Equal(project.ProjectId, Assert.Single(await client.ListProjectsAsync(timeout.Token)).ProjectId);
             await using var wrongPin = new EnvironmentClient(ClientOptions(first) with { CertificateFingerprint = new string('0', 64) });
@@ -218,6 +218,7 @@ public sealed class SshHostIntegrationTests
     private sealed class OwnedProcess : IAsyncDisposable
     {
         private readonly Task<string> _error;
+        public Task<string> Errors => _error;
         public OwnedProcess(string encodedCommand)
         {
             var start = new ProcessStartInfo("powershell.exe")

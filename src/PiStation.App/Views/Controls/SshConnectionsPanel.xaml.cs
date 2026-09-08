@@ -132,6 +132,17 @@ public sealed partial class SshConnectionsPanel : UserControl
         DiscoveredHosts.ItemsSource = _discovered;
     }
 
+    private async void OnInstallOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(false, token));
+    private async void OnCheckOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(true, token));
+    private Task RunOwnerUpdateAsync(bool historyOnly, CancellationToken cancellationToken)
+    {
+        if (SavedConnections.SelectedItem is not SshConnectionProfile profile) return Task.CompletedTask;
+        var client = CurrentApp?.FindRemoteClient("ssh:" + profile.Id)
+            ?? throw new InvalidOperationException("Open this SSH environment first, then manage its host update.");
+        return PiStation.App.Composition.RemoteUpdateWorkflow.RunAsync(client, XamlRoot,
+            new Progress<string>(message => Status.Text = message), historyOnly, cancellationToken);
+    }
+
     private async void OnDiscoverHosts(object sender, RoutedEventArgs e) => await RunAsync(async _ =>
     {
         await DiscoverAsync();

@@ -115,7 +115,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
                 kestrel.Listen(IPAddress.Loopback, 0, listener => listener.UseHttps(identity.Certificate));
             });
             builder.Services.AddTransient(_ => new EnvironmentHub(environment));
-            builder.Services.AddSignalR(signalR => signalR.AddFilter<SshAuthorizationFilter>())
+            builder.Services.AddSignalR(signalR => { EnvironmentTransportLimits.Configure(signalR); signalR.AddFilter<SshAuthorizationFilter>(); signalR.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
                 .AddJsonProtocol(json => json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
             builder.Services.AddRateLimiter(options =>
             {
@@ -124,6 +124,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
             });
             application = builder.Build();
             var app = application;
+            app.UseWebSockets();
             app.UseRateLimiter();
             RemotePairingEndpoints.Map(app, environment, access);
             app.Use(async (context, next) =>
@@ -139,7 +140,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
                 { await next(context).ConfigureAwait(false); return; }
                 var authorization = access.Authenticate(credential);
                 if (authorization is null) { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
-                if (context.Request.Path.StartsWithSegments("/threads") && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
+                if ((context.Request.Path.StartsWithSegments("/threads") || context.Request.Path.StartsWithSegments("/previews") || context.Request.Path.StartsWithSegments("/updates")) && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
                 { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
                 context.Items[RemoteAuthorizationFilter.AuthorizationItem] = authorization;
                 using var revoked = authorization.Revoked.Register(context.Abort);
@@ -148,8 +149,11 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
             app.MapGet("/ssh/health", () => "ready");
             app.MapPost(DraftAttachmentEndpoint.Route, (Microsoft.AspNetCore.Http.HttpContext context) => DraftAttachmentEndpoint.HandleAsync(context, environment));
             app.MapHub<EnvironmentHub>(EmbeddedEnvironmentHost.HubPath);
+            app.MapGet("/previews/{lease}/tunnel", environment.PreviewLeases.TunnelAsync);
+            app.MapPost("/updates/{request}/package", environment.Updates.UploadAsync);
             await app.StartAsync(cancellationToken).ConfigureAwait(false);
             var address = new Uri(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single());
+            environment.PreviewLeases.RegisterControlPort(app, address.Port);
             var info = new SshHostInfo(SshHostInfo.CurrentBootstrapVersion, ProtocolVersion.Current,
                 environment.EnvironmentId, environment.GetDescriptor().EnvironmentName, address.Port,
                 identity.Certificate.GetCertHashString(HashAlgorithmName.SHA256), identity.Credential, false,
@@ -188,7 +192,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
         try { await pipe.ConnectAsync(500, cancellationToken).ConfigureAwait(false); }
         catch (TimeoutException) { return null; }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var reader = new StreamReader(pipe, Encoding.UTF8);
         var buffer = new char[8192];
         var length = 0;
@@ -207,17 +211,20 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
         throw new InvalidOperationException("SSH host discovery response exceeded its limit.");
     }
 
-    private async Task ServeDiscoveryAsync(string pipeName, CancellationToken cancellationToken)
+    private Task ServeDiscoveryAsync(string pipeName, CancellationToken cancellationToken) =>
+        Task.WhenAll(Enumerable.Range(0, 4).Select(_ => ServeDiscoveryWorkerAsync(pipeName, cancellationToken)));
+
+    private async Task ServeDiscoveryWorkerAsync(string pipeName, CancellationToken cancellationToken)
     {
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.Out, 1, PipeTransmissionMode.Byte,
+                using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.Out, 4, PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
                 try
                 {
                     await JsonSerializer.SerializeAsync(pipe, Info, ProtocolJsonContext.Default.SshHostInfo, timeout.Token).ConfigureAwait(false);
@@ -232,6 +239,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Environment.PreviewLeases.UnregisterControlPort(_application);
         await _lifetime.CancelAsync().ConfigureAwait(false);
         try
         {

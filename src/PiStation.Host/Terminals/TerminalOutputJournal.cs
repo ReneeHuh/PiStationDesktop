@@ -105,24 +105,21 @@ internal sealed class TerminalOutputJournal
     {
         var channel = CreateChannel();
         long subscriberId;
+        TerminalEnvelope[] initial;
+        TerminalSynchronizedEnvelope synchronized;
         lock (_gate)
         {
             subscriberId = ++_subscriberId;
-            foreach (var envelope in GetMissing(cursor))
-            {
-                if (!channel.Writer.TryWrite(envelope))
-                {
-                    channel = CreateChannel();
-                    channel.Writer.TryWrite(CreateSnapshot());
-                    break;
-                }
-            }
-
+            initial = GetMissing(cursor);
+            if (initial.Length > _subscriberCapacity) initial = [CreateSnapshot()];
+            synchronized = new(_descriptor.TerminalSessionId, _descriptor.Sequence);
             _subscribers.Add(subscriberId, channel);
         }
 
         try
         {
+            foreach (var envelope in initial) yield return envelope;
+            yield return synchronized;
             await foreach (var envelope in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return envelope;

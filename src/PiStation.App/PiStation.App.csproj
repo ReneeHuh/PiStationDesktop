@@ -26,6 +26,7 @@
     <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Updates\apply-desktop-update.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Include="TerminalWeb\dist\**\*">
       <Link>TerminalWeb\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -39,6 +40,7 @@
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
+    <AppxManifest Include="$(RemoteUpdateManifest)" Condition="'$(RemoteUpdateManifest)' != ''" />
   </ItemGroup>
 
   <!--
@@ -84,6 +86,7 @@
     <MSBuild Projects="..\PiStation.Server\PiStation.Server.csproj" Targets="Publish"
       RemoveProperties="TargetFramework;PublishProfile;TargetPlatformIdentifier;TargetPlatformVersion;TargetPlatformMinVersion"
       Properties="Configuration=$(Configuration);Platform=AnyCPU;RuntimeIdentifier=win-x64;SelfContained=true;PublishTrimmed=false;PublishReadyToRun=false;PublishDir=$(SshBundleRoot)host\" />
+    <Exec Command="&quot;$(SshBundleRoot)host\PiStation.Server.exe&quot; update-manifest &gt; &quot;$(SshBundleRoot)host\pistation-update.json&quot;" />
     <ZipDirectory SourceDirectory="$(SshBundleRoot)host" DestinationFile="$(SshBundleRoot)host-win-x64.zip" Overwrite="true" />
     <ItemGroup>
       <Content Include="$(SshBundleRoot)host-win-x64.zip" Link="SshHost\host-win-x64.zip"

@@ -23,12 +23,22 @@ public sealed record ClientRuntimeOptions
         TimeSpan.FromSeconds(1),
         TimeSpan.FromSeconds(2),
         TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(30),
     ];
+
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
+    public double RetryJitter { get; init; } = 0.15;
 
     internal void Validate()
     {
         ArgumentNullException.ThrowIfNull(HubAddress);
         ArgumentException.ThrowIfNullOrWhiteSpace(BearerCredential);
+        ArgumentNullException.ThrowIfNull(TimeProvider);
+        if (ReconnectDelays.Count == 0 || ReconnectDelays.Any(delay => delay < TimeSpan.Zero) ||
+            RetryJitter is < 0 or > 0.5 || double.IsNaN(RetryJitter))
+            throw new ArgumentException("Retry delays must be nonnegative and jitter must be between zero and 0.5.");
         if (!HubAddress.IsAbsoluteUri || HubAddress.UserInfo.Length != 0 ||
             HubAddress.Query.Length != 0 || HubAddress.Fragment.Length != 0 ||
             (HubAddress.Scheme != Uri.UriSchemeHttps &&

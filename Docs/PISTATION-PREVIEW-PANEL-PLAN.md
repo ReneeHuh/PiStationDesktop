@@ -5,6 +5,8 @@ Target: Protocol v15 and the packaged WinUI workbench
 Reference baseline: T3 Code `9159b808d35a88e74fc91e11070f3270cdb321f9`  
 Last reviewed: 2026-09-04
 
+**September 7 extension:** the first-release design below is retained as history. Protocol 20 now supports remote discovery and preview forwarding over direct HTTPS and SSH; see [the implementation and qualification notes](REMOTE-ACCESS-IMPLEMENTATION.md). WebView2 remains client-owned. A native proxy assigns each route an isolated temporary origin and forwards browser traffic through an authenticated host lease; browser scripts never receive the device credential. Host-local remote URLs open in embedded Preview. Remote forwarding keeps each tab's browser state client-owned.
+
 ## Implementation result
 
 Stages 1–5 are complete:

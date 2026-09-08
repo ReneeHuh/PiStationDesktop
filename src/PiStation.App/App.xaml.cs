@@ -130,6 +130,10 @@ public partial class App : Application
         _remoteWindows.Keys.Where(window => !_remoteClosingWindows.Contains(window)).Append(_window)
             .FirstOrDefault(window => window?.Content?.XamlRoot == xamlRoot);
 
+    internal EnvironmentClient? FindRemoteClient(string id) =>
+        _environmentWindows.TryGetValue(id, out var window) && !_remoteClosingWindows.Contains(window) &&
+        _remoteWindows.TryGetValue(window, out var runtime) ? runtime.Client : null;
+
     internal void CloseRemoteEnvironment(string id)
     {
         if (_environmentWindows.TryGetValue(id, out var window) && !_remoteClosingWindows.Contains(window)) window.Close();
@@ -256,6 +260,56 @@ public partial class App : Application
         return completion.Task.WaitAsync(cancellationToken);
     }
 
+    internal async Task ReplaceRemoteAddressAsync(SavedRemoteEnvironment expected, Uri address, CancellationToken cancellationToken)
+    {
+        if (RemoteAccess is null) throw new InvalidOperationException("Connection settings are unavailable.");
+        PiStation.Protocol.Models.RemoteEndpoint.Validate(address);
+        var replacement = expected with { Address = address };
+        var id = expected.EnvironmentId.ToString();
+        if (_environmentWindows.TryGetValue(id, out var window) && _remoteWindows.TryGetValue(window, out var runtime) && !_remoteClosingWindows.Contains(window))
+        {
+            await runtime.ReplaceEndpointAsync(replacement, () => RemoteAccess.Connections.Replace(expected, replacement), cancellationToken);
+            _remoteProfiles[id] = replacement;
+        }
+        else await RemoteAccess.Connections.VerifyAndReplaceAsync(expected, address, cancellationToken);
+    }
+
+    internal string GetRemoteDiagnostics(SavedRemoteEnvironment environment) =>
+        _environmentWindows.TryGetValue(environment.EnvironmentId.ToString(), out var window) && _remoteWindows.TryGetValue(window, out var runtime)
+            ? runtime.ExportDiagnostics() : "This saved environment is closed. Open it to inspect connection diagnostics.";
+
+    internal Task PrepareDesktopUpdateAsync() => OnUpdateUiAsync(() =>
+    {
+        if (_runtime?.HasUnsavedChanges == true || _remoteWindows.Values.Any(runtime => runtime.HasUnsavedChanges))
+            throw new InvalidOperationException("Save open drafts and file edits on the host desktop before updating.");
+        return Task.CompletedTask;
+    });
+
+    internal Task FinishDesktopUpdateAsync() => OnUpdateUiAsync(async () =>
+    {
+        if (_runtime?.HasUnsavedChanges == true || _remoteWindows.Values.Any(runtime => runtime.HasUnsavedChanges))
+            throw new InvalidOperationException("New edits were made while preparing the update. Save them and retry.");
+        var windows = _remoteWindows.Keys.Append(_window).Where(window => window is not null).ToArray();
+        // Remove interactive surfaces in this UI dispatch before awaiting shutdown.
+        foreach (var window in windows) window!.Content = new TextBlock { Text = "Installing the desktop update…", Margin = new Thickness(24) };
+        foreach (var runtime in _remoteWindows.Values.ToArray()) await runtime.DisposeAsync();
+        if (RemoteAccess is not null) await RemoteAccess.DisposeAsync();
+        if (_runtime is not null) await _runtime.DisposeAsync();
+        foreach (var window in windows) window!.Close();
+        Exit();
+    });
+
+    private Task OnUpdateUiAsync(Func<Task> operation)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (_dispatcherQueue?.TryEnqueue(async () =>
+        {
+            try { await operation(); completion.TrySetResult(); }
+            catch (Exception exception) { completion.TrySetException(exception); }
+        }) != true) completion.TrySetException(new InvalidOperationException("The desktop is closing."));
+        return completion.Task;
+    }
+
     internal async Task OpenRemoteEnvironmentAsync(SavedRemoteEnvironment environment,
         ManagedSshConnection? ssh = null, string? windowId = null, bool replaceExisting = false,
         CancellationToken cancellationToken = default)
@@ -275,12 +329,10 @@ public partial class App : Application
             }
             if (_remoteProfiles.TryGetValue(id, out var previous) && DesktopLifecycle.ProfileChanged(previous, environment))
             {
-                // Never flush a draft through credentials/address that are being replaced.
-                _remoteReplacementCloses.Add(existing);
-                existing.Close();
-                if (_remoteCloseCompletions.TryGetValue(existing, out var completion))
-                    await completion.Task.ConfigureAwait(true);
-                await OpenRemoteEnvironmentAsync(environment, ssh, windowId, cancellationToken: cancellationToken);
+                if (!_remoteWindows.TryGetValue(existing, out var replacingRuntime)) throw new InvalidOperationException("The remote window is closing.");
+                // Verify fresh credentials before switching the existing client. Dirty editors and drafts stay in place.
+                await replacingRuntime.ReplaceEndpointAsync(environment, () => _remoteProfiles[id] = environment, cancellationToken);
+                existing.Activate();
                 return;
             }
             existing.Activate();
@@ -298,6 +350,10 @@ public partial class App : Application
         viewModel.Attach(client);
         var window = new MainWindow(viewModel) { Title = $"Pi Station • {environment.Name} (Remote)" };
         var runtime = new AppRuntime(null, client, viewModel, ssh);
+        window.Activated += (_, args) =>
+        {
+            if (args.WindowActivationState != WindowActivationState.Deactivated) runtime.NotifyActivated();
+        };
         _remoteWindows.Add(window, runtime);
         _environmentWindows[id] = window;
         _remoteProfiles[id] = environment;
@@ -327,7 +383,7 @@ public partial class App : Application
         }
         catch (Exception exception)
         {
-            if (_remoteWindows.ContainsKey(window) && !_remoteClosingWindows.Contains(window)) viewModel.ReportRuntimeError(exception);
+            if (_remoteWindows.ContainsKey(window) && !_remoteClosingWindows.Contains(window)) viewModel.ReportConnectionError(exception);
         }
     }
 

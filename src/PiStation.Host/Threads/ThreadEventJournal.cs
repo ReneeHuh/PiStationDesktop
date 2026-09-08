@@ -87,24 +87,20 @@ public sealed class ThreadEventJournal
             FullMode = BoundedChannelFullMode.Wait,
         });
         long subscriberId;
+        ThreadEnvelope[] initial;
+        ThreadSynchronizedEnvelope synchronized;
         lock (_lock)
         {
             subscriberId = ++_subscriberId;
-            var missing = GetMissing(cursor);
-            foreach (var envelope in missing)
-            {
-                if (!channel.Writer.TryWrite(envelope))
-                {
-                    channel = CreateSnapshotChannel();
-                    break;
-                }
-            }
-
+            initial = GetMissing(cursor);
+            synchronized = new(_projection.EnvironmentId, _projection.ThreadId, _projection.ProjectionEpoch, _projection.Sequence);
             _subscribers.Add(subscriberId, channel);
         }
 
         try
         {
+            foreach (var envelope in initial) yield return envelope;
+            yield return synchronized;
             await foreach (var envelope in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return envelope;

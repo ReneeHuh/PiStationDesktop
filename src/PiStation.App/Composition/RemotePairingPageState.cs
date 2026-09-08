@@ -81,5 +81,6 @@ internal sealed record RemoteSessionRow(RemoteDevice Device)
 {
     public string Name => Device.DeviceName;
     public string Summary => $"{RemotePairingPageState.AccessLabel(Device.AccessLevel)} · {RemotePairingPageState.ExpiryLabel(Device.ExpiresAt)}";
-    public string Details => $"{Summary}\nSubject: {Device.Subject ?? "Not specified"}\nSession ID: {Device.DeviceId}";
+    public string Details => $"{Summary}\nConnections: {Device.ActiveConnections}\nLast seen: {Device.LastSeenAt?.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture) ?? "Never"}\n" +
+        $"Last connected: {Device.LastConnectedAt?.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture) ?? "Never"}\nSubject: {Device.Subject ?? "Not specified"}\nSession ID: {Device.DeviceId}";
 }

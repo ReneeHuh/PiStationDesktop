@@ -27,6 +27,13 @@ internal static class Program
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; lifetime.Cancel(); };
         try
         {
+            if (args[0] == "update-manifest")
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new { version = typeof(EnvironmentService).Assembly.GetName().Version!.ToString(),
+                    protocolVersion = PiStation.Protocol.ProtocolVersion.Current, platform = "win-x64", databaseCompatibilityVersion = 1 }));
+                return 0;
+            }
+            if (args[0] == "supervise") return await ServerUpdateLauncher.RunAsync(args, lifetime.Token).ConfigureAwait(false);
             if (args[0] is "pair" or "auth" or "status")
             {
                 Console.OutputEncoding = new UTF8Encoding(false);
@@ -36,6 +43,8 @@ internal static class Program
             if (!attach && args[0] != "serve") throw new ArgumentException("Unknown command. See --help.");
             string? root = null;
             string? piPath = null;
+            string? ownerDirectory = null;
+            bool enableUpdates = false;
             IPAddress? sharingAddress = null;
             int sharingPort = 52740;
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -48,6 +57,8 @@ internal static class Program
                 {
                     case "--data-root": root = Path.GetFullPath(Environment.ExpandEnvironmentVariables(args[i + 1])); break;
                     case "--pi-executable": piPath = args[i + 1]; break;
+                    case "--owner-directory" when !attach: ownerDirectory = Path.GetFullPath(args[i + 1]); break;
+                    case "--enable-remote-updates" when !attach: enableUpdates = bool.Parse(args[i + 1]); break;
                     case "--host" when !attach:
                         if (!IPAddress.TryParse(args[i + 1], out sharingAddress) || sharingAddress.Equals(IPAddress.Any) ||
                             sharingAddress.Equals(IPAddress.IPv6Any) || sharingAddress.IsIPv6Multicast)
@@ -63,7 +74,7 @@ internal static class Program
             if (seen.Contains("--port") && sharingAddress is null) throw new ArgumentException("--port requires --host.");
             root ??= HostOptions.DefaultDataRoot;
             // EOF or an explicit stop ends an owned host. A reused host is never stopped here.
-            var inputEnded = attach ? WatchInputAsync(lifetime) : Task.CompletedTask;
+            var inputEnded = attach || ownerDirectory is not null ? WatchInputAsync(lifetime) : Task.CompletedTask;
             if (attach && await SshEnvironmentHost.TryDiscoverAsync(root, lifetime.Token).ConfigureAwait(false) is { } existing)
             {
                 await WriteInfoAsync(existing).ConfigureAwait(false);
@@ -99,6 +110,13 @@ internal static class Program
             }
             await using (host.ConfigureAwait(false))
             {
+                if (ownerDirectory is not null)
+                {
+                    if (ownerDirectory != Path.GetFullPath(Path.Combine(root, "update-owner")))
+                        throw new InvalidDataException("The update owner directory must belong to this environment.");
+                    host.Environment.Updates.SetOwner(new PiStation.Host.Updates.StandaloneUpdateOwner(ownerDirectory, lifetime.Cancel));
+                }
+                if (enableUpdates) host.Environment.Updates.Enabled = true;
                 if (attach)
                 {
                     await WriteInfoAsync(host.Info with { StartedByConnection = true }).ConfigureAwait(false);

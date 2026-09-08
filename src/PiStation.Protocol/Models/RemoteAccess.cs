@@ -13,7 +13,8 @@ public sealed record PairingStatus(string RequestId, string State, EnvironmentId
 public sealed record PendingRemoteDevice(string RequestId, string DeviceName, RemoteAccessLevel AccessLevel, DateTimeOffset ExpiresAt,
     string? VerificationCode = null);
 public sealed record RemoteDevice(string DeviceId, string DeviceName, RemoteAccessLevel AccessLevel, DateTimeOffset ExpiresAt,
-    string? Subject = null);
+    string? Subject = null, DateTimeOffset? CreatedAt = null, DateTimeOffset? LastSeenAt = null,
+    DateTimeOffset? LastConnectedAt = null, DateTimeOffset? LastDisconnectedAt = null, int ActiveConnections = 0);
 public sealed record RemotePairingInvitation(string Id, string? Label, RemoteAccessLevel AccessLevel, DateTimeOffset ExpiresAt);
 public sealed record IssuedRemotePairing(RemotePairingInvitation Invitation, string Token)
 {

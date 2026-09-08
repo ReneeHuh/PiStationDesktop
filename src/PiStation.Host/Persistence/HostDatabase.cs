@@ -8,7 +8,7 @@ using PiStation.Protocol.Serialization;
 
 namespace PiStation.Host.Persistence;
 
-public sealed class HostDatabase
+public sealed partial class HostDatabase
 {
     private readonly string _connectionString;
     private readonly HostOptions _options;
@@ -27,7 +27,7 @@ public sealed class HostDatabase
         {
             DataSource = options.DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            Cache = SqliteCacheMode.Private,
             ForeignKeys = true,
             Pooling = false,
         }.ToString();
@@ -188,6 +188,7 @@ public sealed class HostDatabase
         await EnsureThreadCheckpointColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadLifecycleColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureThreadWorkspaceColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await InitializeCatalogAsync(connection, cancellationToken).ConfigureAwait(false);
         await using (var lifecycleIndex = connection.CreateCommand())
         {
             lifecycleIndex.CommandText = """
@@ -1358,11 +1359,19 @@ public sealed class HostDatabase
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static async Task<HostEnvironmentRecord?> ReadEnvironmentAsync(

@@ -9,6 +9,7 @@ internal interface ISshProcess : IAsyncDisposable
     bool HasExited { get; }
     string FailureMessage { get; }
     bool AuthenticationFailed => false;
+    bool HostKeyVerificationFailed => false;
     TextWriter Input => throw new NotSupportedException("This SSH process has no input stream.");
     Task WaitForOutputAsync() => Task.CompletedTask;
 }
@@ -46,6 +47,15 @@ internal sealed class SshProcess : ISshProcess
     public TextWriter Input => _process.StandardInput;
     public bool HasExited => _process.HasExited;
     public Task WaitForOutputAsync() => _errors;
+    public bool HostKeyVerificationFailed
+    {
+        get
+        {
+            lock (_errorGate)
+                return _error.ToString().Contains("Host key verification failed", StringComparison.OrdinalIgnoreCase) ||
+                    _error.ToString().Contains("REMOTE HOST IDENTIFICATION HAS CHANGED", StringComparison.OrdinalIgnoreCase);
+        }
+    }
     public bool AuthenticationFailed
     {
         get
@@ -63,7 +73,7 @@ internal sealed class SshProcess : ISshProcess
             string message;
             lock (_errorGate) message = _error.ToString();
             // Never surface remote stderr verbatim: commands and remote tools can echo secrets.
-            if (message.Contains("Host key verification failed", StringComparison.OrdinalIgnoreCase) || message.Contains("REMOTE HOST IDENTIFICATION HAS CHANGED", StringComparison.Ordinal))
+            if (HostKeyVerificationFailed)
                 return "SSH host key is unknown or changed. Verify the host fingerprint with its administrator and connect using ssh in a terminal first; PiStation will not bypass verification.";
             if (message.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
                 return "SSH authentication failed. Check the username, key/agent, or password, and whether the host permits password authentication.";

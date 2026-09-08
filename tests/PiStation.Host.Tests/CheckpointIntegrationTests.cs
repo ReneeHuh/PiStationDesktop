@@ -24,7 +24,9 @@ public sealed class CheckpointIntegrationTests
         var thread = await environment.CreateThreadAsync(new CreateThreadRequest(project.ProjectId));
         var clientId = ClientId.New();
         var startCommandId = CommandId.New();
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        // This correctness test launches two turns and multiple real Git subprocesses;
+        // leave headroom when the complete solution suite is running alongside builds.
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
         await environment.ExecuteThreadCommandAsync(new ExecuteThreadCommandRequest(
             ProtocolVersion.Current,

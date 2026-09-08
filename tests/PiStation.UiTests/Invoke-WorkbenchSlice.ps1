@@ -29,7 +29,7 @@ using System.Runtime.InteropServices;
 public static class PiStationWorkbenchWindow
 {
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool SetWindowPos(
+    private static extern bool SetWindowPos(
         IntPtr hWnd,
         IntPtr hWndInsertAfter,
         int x,
@@ -37,6 +37,26 @@ public static class PiStationWorkbenchWindow
         int width,
         int height,
         uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    public static bool ResizeLogicalPixels(IntPtr window, int width, int height)
+    {
+        // SetWindowPos otherwise virtualizes coordinates in a DPI-unaware PowerShell host.
+        var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        if (previous == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try
+        {
+            var scale = GetDpiForWindow(window) / 96.0;
+            return SetWindowPos(window, IntPtr.Zero, 0, 0,
+                (int)Math.Round(width * scale), (int)Math.Round(height * scale), 0x0042);
+        }
+        finally { SetThreadDpiAwarenessContext(previous); }
+    }
 }
 '@
 
@@ -115,7 +135,13 @@ function Start-PreviewServer {
             }
 
             while ($true) {
+                # Keep the job responsive to Stop-Job while the browser is idle.
+                if (-not $listener.Pending()) {
+                    Start-Sleep -Milliseconds 50
+                    continue
+                }
                 $client = $listener.AcceptTcpClient()
+                $client.ReceiveTimeout = 2000
                 try {
                     $stream = $client.GetStream()
                     $reader = [System.IO.StreamReader]::new(
@@ -181,9 +207,21 @@ function Stop-PreviewServer {
 
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
-    return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
-        '--app', "$script:launchedProcessId", '--json'
-    ))
+    for ($readAttempt = 0; ; $readAttempt++) {
+        try {
+            return Invoke-CheckedNative -FilePath 'winapp' -ArgumentList (@('ui') + $Arguments + @(
+                '--app', "$script:launchedProcessId", '--json'
+            ))
+        }
+        catch {
+            $canRetryRead = $Arguments[0] -in @('get-property', 'inspect', 'wait-for') -and
+                $_.Exception.Message -match '"code"\s*:\s*"(stale_element|element_not_found)"'
+            if (-not $canRetryRead -or $readAttempt -ge 2) { throw }
+            # Pane rebuilding briefly replaces UIA peers. Reacquire reads by their
+            # semantic selector; never replay an input, click, or host mutation here.
+            Start-Sleep -Milliseconds 100
+        }
+    }
 }
 
 function Wait-UiValue {
@@ -356,15 +394,10 @@ function Set-TestWindowSize {
         throw 'The packaged app did not expose a main window handle.'
     }
 
-    $noMoveAndShow = 0x0042
-    $didResize = [PiStationWorkbenchWindow]::SetWindowPos(
+    $didResize = [PiStationWorkbenchWindow]::ResizeLogicalPixels(
         $process.MainWindowHandle,
-        [IntPtr]::Zero,
-        0,
-        0,
         $Width,
-        $Height,
-        $noMoveAndShow)
+        $Height)
     if (-not $didResize) {
         throw "Could not resize the packaged app window to ${Width}x${Height}."
     }
@@ -380,8 +413,11 @@ function Wait-ForWindowWidth {
     $deadline = [DateTime]::UtcNow.AddMilliseconds($Timeout)
     do {
         $bounds = Get-UiBounds -Selector 'AppMainWindow'
-        if (($Direction -eq 'Below' -and $bounds.Width -lt $Threshold) -or
-            ($Direction -eq 'Above' -and $bounds.Width -gt $Threshold)) {
+        $windowHandle = (Get-Process -Id $script:launchedProcessId).MainWindowHandle
+        $scale = [PiStationWorkbenchWindow]::GetDpiForWindow($windowHandle) / 96.0
+        $logicalWidth = $bounds.Width / $scale
+        if (($Direction -eq 'Below' -and $logicalWidth -lt $Threshold) -or
+            ($Direction -eq 'Above' -and $logicalWidth -gt $Threshold)) {
             return
         }
 
@@ -654,7 +690,17 @@ try {
     Invoke-Ui 'set-value' 'TerminalSearchTextBox' 'PISTATION-TERMINAL-EXECUTED' | Out-Null
     Wait-TerminalSearchResults
     Wait-UiValue -Selector 'TerminalSearchNextButton' -Value 'True' -Property 'IsEnabled'
-    Invoke-Ui 'invoke' 'TerminalSearchNextButton' | Out-Null
+    $searchBefore = Invoke-Ui 'get-property' 'TerminalSearchCountText' '--property' 'Name' | ConvertFrom-Json
+    $searchCount = [regex]::Match([string]$searchBefore.properties.Name, '^(\d+) of (\d+)$')
+    if (-not $searchCount.Success -or [int]$searchCount.Groups[2].Value -eq 0) { throw 'Terminal search lost its results before navigation.' }
+    $expectedSearchCount = '{0} of {1}' -f (([int]$searchCount.Groups[1].Value % [int]$searchCount.Groups[2].Value) + 1), $searchCount.Groups[2].Value
+    try { Invoke-Ui 'invoke' 'TerminalSearchNextButton' | Out-Null }
+    catch {
+        if ($_.Exception.Message -notmatch '"code"\s*:\s*"stale_element"') { throw }
+        # winapp can lose the peer while reporting an already completed navigation.
+        # Verify its effect instead of issuing the action again.
+    }
+    Wait-UiValue -Selector 'TerminalSearchCountText' -Value $expectedSearchCount
     Invoke-Ui 'screenshot' 'AppMainWindow' '--output' (Join-Path $runRoot 'terminal-search.png') '--focus' |
         Out-Null
     Invoke-Ui 'invoke' 'TerminalSearchMatchCaseToggle' | Out-Null

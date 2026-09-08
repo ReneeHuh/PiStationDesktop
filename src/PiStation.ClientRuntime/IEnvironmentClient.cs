@@ -17,6 +17,8 @@ public interface IEnvironmentClient : IAsyncDisposable
 
     ThreadMetadataStore ThreadMetadata { get; }
 
+    CatalogStore? Catalog => null;
+
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     Task DisconnectAsync(CancellationToken cancellationToken = default);

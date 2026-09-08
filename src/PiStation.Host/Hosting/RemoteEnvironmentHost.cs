@@ -24,6 +24,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
     {
         _application = application; _environment = environment; Address = address;
         environment.RegisterRemoteExposure(this, address, fingerprint);
+        environment.PreviewLeases.RegisterControlPort(this, address.Port);
     }
 
     public Uri Address { get; }
@@ -59,7 +60,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
         });
         // Do not register the shared disposable environment in DI: this listener does not own it.
         builder.Services.AddTransient(_ => new EnvironmentHub(environment));
-        builder.Services.AddSignalR(options => options.AddFilter<RemoteAuthorizationFilter>())
+        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter<RemoteAuthorizationFilter>(); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
             .AddJsonProtocol(json => json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
         builder.Services.AddRateLimiter(options =>
         {
@@ -67,6 +68,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
             options.GlobalLimiter = RemotePairingRateLimiter.Create();
         });
         var app = builder.Build();
+        app.UseWebSockets();
         app.UseRateLimiter();
         RemotePairingEndpoints.Map(app, environment, access);
         app.Use(async (context, next) =>
@@ -77,7 +79,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
             var authorization = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
                 ? access.Authenticate(header[7..]) : null;
             if (authorization is null) { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
-            if (context.Request.Path.StartsWithSegments("/threads") && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
+            if ((context.Request.Path.StartsWithSegments("/threads") || context.Request.Path.StartsWithSegments("/previews") || context.Request.Path.StartsWithSegments("/updates")) && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
             { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
             context.Items[RemoteAuthorizationFilter.AuthorizationItem] = authorization;
             using var registration = authorization.Revoked.Register(context.Abort);
@@ -86,6 +88,8 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
         });
         app.MapPost(DraftAttachmentEndpoint.Route, (HttpContext context) => DraftAttachmentEndpoint.HandleAsync(context, environment));
         app.MapHub<EnvironmentHub>(EmbeddedEnvironmentHost.HubPath);
+        app.MapGet("/previews/{lease}/tunnel", environment.PreviewLeases.TunnelAsync);
+        app.MapPost("/updates/{request}/package", environment.Updates.UploadAsync);
         try
         {
             await app.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -98,6 +102,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _environment.UnregisterRemoteExposure(this);
+        _environment.PreviewLeases.UnregisterControlPort(this);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try { await _application.StopAsync(timeout.Token).ConfigureAwait(false); }
         finally { await _application.DisposeAsync().ConfigureAwait(false); }

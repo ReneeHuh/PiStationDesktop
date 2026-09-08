@@ -95,12 +95,14 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(_profile.ServerPath))
                 _bundle ??= await SshHostBundle.LoadAsync(deadline.Token).ConfigureAwait(false);
             var info = await StartControlAsync(deadline.Token).ConfigureAwait(false);
+            if (info.ProtocolVersion != Protocol.ProtocolVersion.Current || info.BootstrapVersion != SshHostInfo.CurrentBootstrapVersion)
+                throw new ConnectionValidationException(ConnectionFailure.Protocol, "The SSH host protocol is incompatible. Update its owning desktop or server.");
             info.Validate();
             if ((_profile.ExpectedEnvironmentId is { } expected && expected != info.EnvironmentId) ||
                 (_info is not null && _info.EnvironmentId != info.EnvironmentId))
-                throw new InvalidOperationException("The SSH host environment identity changed. Check the host and data directory; forget and add the connection only if the change was intentional.");
+                throw new ConnectionValidationException(ConnectionFailure.Identity, "The SSH host environment identity changed. Check the host and data directory before connecting.");
             if (_info is not null && (_info.BearerCredential != info.BearerCredential || _info.CertificateFingerprint != info.CertificateFingerprint))
-                throw new InvalidOperationException("The SSH host security identity changed. Close and reopen the connection to obtain its new credentials over SSH.");
+                throw new ConnectionValidationException(ConnectionFailure.Identity, "The SSH host security identity changed. Close and reopen the connection to obtain its new credentials over SSH.");
             _controlOutput = DrainAsync(_control!.Output);
             _progress?.Report(info.StartedByConnection ? "Started Windows host; opening the encrypted tunnel…" : "Reusing running Windows host; opening the encrypted tunnel…");
             await StartForwardAsync(info, deadline.Token).ConfigureAwait(false);
@@ -184,7 +186,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
                 _authSecret = null;
                 _progress?.Report("SSH needs a password or key passphrase…");
                 _authSecret = await _requestPassword(new(_profile.Target, attempt + 1), cancellationToken).ConfigureAwait(false);
-                if (_authSecret is null) throw new InvalidOperationException("SSH authentication canceled.");
+                if (_authSecret is null) throw new ConnectionValidationException(ConnectionFailure.Authentication, "SSH authentication canceled. Use Open / retry when ready.");
                 if (_authSecret.Length > 4096 || _authSecret.Contains('\n', StringComparison.Ordinal) || _authSecret.Contains('\r', StringComparison.Ordinal))
                 {
                     _authSecret = null;
@@ -197,6 +199,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
     private static async Task<Exception> FailureAsync(ISshProcess process, CancellationToken cancellationToken)
     {
         await process.WaitForOutputAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (process.HostKeyVerificationFailed) return new ConnectionValidationException(ConnectionFailure.Identity, process.FailureMessage);
         return process.AuthenticationFailed ? new SshAuthenticationException(process.FailureMessage) : new InvalidOperationException(process.FailureMessage);
     }
 
@@ -242,16 +245,19 @@ public sealed class ManagedSshConnection : IAsyncDisposable
 
     private static async Task ProbeAsync(Uri address, SshHostInfo info, CancellationToken cancellationToken)
     {
-        using var http = new HttpClient(RemoteTransport.CreateHandler(info.CertificateFingerprint)) { Timeout = TimeSpan.FromSeconds(3) };
+        var certificateRejected = false;
+        using var http = new HttpClient(RemoteTransport.CreateHandler(info.CertificateFingerprint, () => certificateRejected = true)) { Timeout = TimeSpan.FromSeconds(3) };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", info.BearerCredential);
         try
         {
             using var response = await http.GetAsync(new Uri(address, "/ssh/health"), cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.Unauthorized) throw new InvalidOperationException("The SSH host rejected its bootstrap credential.");
+            if (response.StatusCode == HttpStatusCode.Unauthorized) throw new ConnectionValidationException(ConnectionFailure.Authentication, "The SSH host rejected its bootstrap credential. Reopen the SSH connection.");
             response.EnsureSuccessStatusCode();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         { throw new TimeoutException("The SSH tunnel is not ready."); }
+        catch (HttpRequestException) when (certificateRejected)
+        { throw new ConnectionValidationException(ConnectionFailure.Certificate, "The SSH host certificate changed or expired. Verify its identity before reopening."); }
     }
 
     private async Task StopProcessesAsync()

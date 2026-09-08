@@ -25,7 +25,7 @@ public sealed class SshAuthorizationFilter : IHubFilter
             throw new HubException("This operation is not available over SSH.");
         var result = await next(context).ConfigureAwait(false);
         return result is EnvironmentDescriptor descriptor
-            ? descriptor with { Capabilities = descriptor.Capabilities.Where(c => c is not ("preview.discover" or "editor.open")).Append("remote.access").ToArray() }
+            ? descriptor with { Capabilities = descriptor.Capabilities.Where(c => c != "editor.open").Append("remote.access").ToArray() }
             : result;
     }
 }

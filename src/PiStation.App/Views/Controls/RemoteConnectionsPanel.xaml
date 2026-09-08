@@ -11,6 +11,8 @@
             automation:AutomationProperties.Name="Remote connections">
             <TextBlock Text="Connections" Style="{StaticResource PiPanelHeaderTextStyle}" />
             <StackPanel x:Name="HostControls" Spacing="8">
+                <ToggleSwitch x:Name="AllowRemoteUpdates" Header="Allow approved operate devices to request host updates"
+                    Toggled="OnAllowRemoteUpdatesChanged" />
                 <TextBlock Text="Share this computer" FontWeight="SemiBold" />
                 <TextBlock Text="Allow approved devices on your LAN or VPN to use this environment. Keep this window open while sharing."
                     TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
@@ -124,14 +126,26 @@
             <ListView x:Name="SavedEnvironments" DisplayMemberPath="Name" MaxHeight="180" SelectionMode="Single"
                 SelectionChanged="OnSavedSelectionChanged" automation:AutomationProperties.AutomationId="SavedRemoteEnvironments" />
             <TextBlock x:Name="SavedDetails" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+            <TextBox x:Name="EndpointAddress" Header="Host address" PlaceholderText="https://host:52740/"
+                automation:AutomationProperties.AutomationId="RemoteEndpointAddress" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Test connection" Click="OnTestEndpoint" Style="{StaticResource PiSecondaryButtonStyle}" />
+                <Button Content="Verify and save address" Click="OnSaveEndpoint" Style="{StaticResource PiSecondaryButtonStyle}" />
+                <Button Content="Cancel" Click="OnCancelPairing" Style="{StaticResource PiSecondaryButtonStyle}" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Content="Open" Click="OnOpenEnvironment" Style="{StaticResource PiSecondaryButtonStyle}"
                     automation:AutomationProperties.AutomationId="OpenRemoteEnvironmentButton" />
                 <Button Content="Disconnect" Click="OnDisconnectEnvironment" Style="{StaticResource PiSecondaryButtonStyle}" />
+                <Button Content="Copy diagnostics" Click="OnCopyDiagnostics" Style="{StaticResource PiSecondaryButtonStyle}" />
                 <Button Content="Forget" Click="OnForgetEnvironment" Style="{StaticResource PiSecondaryButtonStyle}" />
             </StackPanel>
             <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
                 automation:AutomationProperties.AutomationId="RemoteConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Install host update" Click="OnInstallHostUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
+                <Button Content="Check update status" Click="OnCheckHostUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
+            </StackPanel>
             <controls:SshConnectionsPanel x:Name="SshConnections" />
         </StackPanel>
     </Border>

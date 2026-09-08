@@ -5,13 +5,18 @@ namespace PiStation.ClientRuntime;
 
 public static class RemoteTransport
 {
-    public static HttpClientHandler CreateHandler(string? fingerprint)
+    public static HttpClientHandler CreateHandler(string? fingerprint, Action? certificateRejected = null)
     {
         var handler = new HttpClientHandler { AllowAutoRedirect = false };
         if (fingerprint is not null)
         {
             Protocol.Models.RemoteEndpoint.ValidateFingerprint(fingerprint);
-            handler.ServerCertificateCustomValidationCallback = (_, certificate, _, _) => Matches(certificate, fingerprint);
+            handler.ServerCertificateCustomValidationCallback = (_, certificate, _, _) =>
+            {
+                var accepted = Matches(certificate, fingerprint);
+                if (!accepted) certificateRejected?.Invoke();
+                return accepted;
+            };
         }
         return handler;
     }

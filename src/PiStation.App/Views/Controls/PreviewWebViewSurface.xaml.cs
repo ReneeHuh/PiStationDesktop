@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using PiStation.App.ViewModels;
+using PiStation.ClientRuntime;
 using Windows.Storage.Streams;
 
 namespace PiStation.App.Views.Controls;
@@ -16,6 +17,9 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     private string? _elementPickToken;
     private Task? _initializationTask;
     private string? _navigationContext;
+    private RemotePreviewProxy? _remoteRoute;
+    private readonly SemaphoreSlim _navigationGate = new(1, 1);
+    public Func<Uri, Task<RemotePreviewProxy?>>? RemoteRouteFactory { get; set; }
 
     public PreviewWebViewSurface()
     {
@@ -32,7 +36,10 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 
     public bool IsInitialized => Browser.CoreWebView2 is not null;
 
-    public string? CurrentSource => Browser.CoreWebView2?.Source;
+    public string? CurrentSource => LogicalSource(Browser.CoreWebView2?.Source);
+
+    private string? LogicalSource(string? source) => _remoteRoute is not null && Uri.TryCreate(source, UriKind.Absolute, out var uri)
+        ? _remoteRoute.ToLogicalUri(uri).AbsoluteUri : source;
 
     public void SetNavigationContext(string? context)
     {
@@ -62,7 +69,38 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
 
         await InitializeAsync();
-        Browser.CoreWebView2.Navigate(normalized.AbsoluteUri);
+        await _navigationGate.WaitAsync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_remoteRoute is not null && normalized.GetLeftPart(UriPartial.Authority) != _remoteRoute.Target.GetLeftPart(UriPartial.Authority))
+            {
+                _remoteRoute.Reconnected -= OnRouteReconnected;
+                await _remoteRoute.DisposeAsync();
+                _remoteRoute = null;
+            }
+            if (_remoteRoute is null && RemoteRouteFactory is { } factory)
+            {
+                _remoteRoute = await factory(normalized);
+                if (_remoteRoute is not null) _remoteRoute.Reconnected += OnRouteReconnected;
+                if (_disposed)
+                {
+                    if (_remoteRoute is not null) await _remoteRoute.DisposeAsync();
+                    _remoteRoute = null;
+                    return;
+                }
+            }
+            if (_remoteRoute is { } route)
+            {
+                var cookie = Browser.CoreWebView2.CookieManager.CreateCookie(route.CookieName, route.CookieValue, route.Address.Host, "/");
+                cookie.IsHttpOnly = true;
+                cookie.SameSite = CoreWebView2CookieSameSiteKind.Strict;
+                Browser.CoreWebView2.CookieManager.AddOrUpdateCookie(cookie);
+                normalized = route.ToBrowserUri(normalized);
+            }
+            Browser.CoreWebView2.Navigate(normalized.AbsoluteUri);
+        }
+        finally { _navigationGate.Release(); }
     }
 
     public void GoBack()
@@ -82,6 +120,11 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     }
 
     public void Reload() => Browser.CoreWebView2?.Reload();
+
+    private void OnRouteReconnected(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (!_disposed && ReferenceEquals(sender, _remoteRoute)) Reload();
+    });
 
     public void Stop() => Browser.CoreWebView2?.Stop();
 
@@ -163,6 +206,13 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
 
         _disposed = true;
+        if (_remoteRoute is { } route)
+        {
+            route.Reconnected -= OnRouteReconnected;
+            Browser.CoreWebView2?.CookieManager.DeleteCookies(route.CookieName, route.Address.AbsoluteUri);
+            _ = route.DisposeAsync().AsTask();
+            _remoteRoute = null;
+        }
         CancelElementPicker();
         if (Browser.CoreWebView2 is { } core)
         {
@@ -244,6 +294,17 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             return;
         }
 
+        if (_remoteRoute is { } route)
+        {
+            if (uri.IsLoopback && uri.GetLeftPart(UriPartial.Authority) != route.Address.GetLeftPart(UriPartial.Authority))
+            {
+                args.Cancel = true;
+                NavigationFinished?.Invoke(this, new PreviewNavigationCompletedEventArgs(context, false,
+                    "Enter the new host-local address in Preview to authorize another route."));
+                return;
+            }
+            uri = route.ToLogicalUri(uri);
+        }
         NavigationStarted?.Invoke(this, new PreviewNavigationStartingEventArgs(context, uri));
     }
 
@@ -391,7 +452,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             this,
             new PreviewBrowserStateEventArgs(
                 context,
-                core.Source,
+                LogicalSource(core.Source) ?? core.Source,
                 core.DocumentTitle,
                 core.CanGoBack,
                 core.CanGoForward));
