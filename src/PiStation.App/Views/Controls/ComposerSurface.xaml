@@ -72,6 +72,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <Border
@@ -200,7 +201,7 @@
 
             <TextBox
                 x:Name="PromptInput"
-                IsReadOnly="{x:Bind ViewModel.IsReadOnly, Mode=OneWay}"
+                IsReadOnly="{x:Bind ViewModel.IsComposerReadOnly, Mode=OneWay}"
                 Grid.Row="2"
                 Height="48"
                 MinHeight="48"
@@ -344,6 +345,20 @@
                     </Button>
                 </Grid>
             </Border>
+            <StackPanel Grid.Row="5" Spacing="6" Margin="8"
+                Visibility="{x:Bind ViewModel.Composer.RecoveryConflictVisibility, Mode=OneWay}">
+                <TextBlock Text="This device has recovered text that differs from the host draft."
+                    TextWrapping="Wrap" automation:AutomationProperties.LiveSetting="Polite" />
+                <TextBox Header="Recovered text on this device" Text="{x:Bind ViewModel.Composer.RecoveredText, Mode=OneWay}"
+                    IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120"
+                    automation:AutomationProperties.AutomationId="RecoveredDraftPreview" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Use recovered text" Click="OnRestoreRecoveredDraft"
+                        automation:AutomationProperties.AutomationId="RestoreRecoveredDraft" />
+                    <Button Content="Keep host draft" Click="OnKeepHostDraft"
+                        automation:AutomationProperties.AutomationId="KeepHostDraft" />
+                </StackPanel>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>

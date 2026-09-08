@@ -43,6 +43,17 @@ internal static class ServerUpdateLauncher
         {
             var interrupted = StandaloneUpdateOwner.ReadHandoff(handoffPath);
             ValidateHandoff(interrupted, root);
+            var snapshot = Path.Combine(Path.GetDirectoryName(interrupted.ReceiptPath)!, "database-before-update");
+            if (!RemoteUpdateCoordinator.IsActivationConfirmed(interrupted.ReceiptPath) && HostDatabaseSnapshot.Exists(snapshot))
+            {
+                var previous = File.ReadAllText(Path.Combine(snapshot, "runtime.txt"));
+                ValidatePreviousRuntime(previous, root);
+                HostDatabaseSnapshot.Restore(root, snapshot);
+                executable = previous;
+                SaveActiveRuntime(activePath, previous);
+                RemoteUpdateCoordinator.CompleteActivation(interrupted.ReceiptPath, false,
+                    "Interrupted activation recovered: the pre-update database and previous runtime were restored.");
+            }
             File.Delete(handoffPath);
         }
         RemoteUpdateCoordinator.FailInterruptedActivations(root);
@@ -59,28 +70,41 @@ internal static class ServerUpdateLauncher
                 var update = StandaloneUpdateOwner.ReadHandoff(handoffPath);
                 ValidateHandoff(update, root);
                 var previous = executable;
+                var snapshot = Path.Combine(Path.GetDirectoryName(update.ReceiptPath)!, "database-before-update");
                 try
                 {
                     await ServerUpdatePackage.ValidateAsync(update.PackagePath, update.RuntimeDirectory, cancellationToken).ConfigureAwait(false);
+                    Directory.CreateDirectory(snapshot);
+                    File.WriteAllText(Path.Combine(snapshot, "runtime.txt"), previous);
+                    HostDatabaseSnapshot.Create(root, snapshot);
                     executable = Path.Combine(update.RuntimeDirectory, "PiStation.Server.exe");
                     child.Dispose();
+                    child = null;
                     child = Start(executable, childArgs);
                     await WaitReadyAsync(child, root, expected, update.TargetVersion, cancellationToken).ConfigureAwait(false);
-                    File.WriteAllText(activePath + ".tmp", executable);
-                    File.Move(activePath + ".tmp", activePath, overwrite: true);
+                    SaveActiveRuntime(activePath, executable);
                     RemoteUpdateCoordinator.CompleteActivation(update.ReceiptPath, true, "The owner verified the new runtime with the existing environment identity.");
+                    File.Delete(handoffPath);
                 }
                 catch (Exception) when (!cancellationToken.IsCancellationRequested)
                 {
-                    await StopOwnedAsync(child).ConfigureAwait(false);
-                    child.Dispose();
-                    // Accepted archives explicitly share database compatibility version 1 with this launcher.
+                    if (child is not null)
+                    {
+                        await StopOwnedAsync(child).ConfigureAwait(false);
+                        child.Dispose();
+                        child = null;
+                    }
+                    var restoredDatabase = HostDatabaseSnapshot.Exists(snapshot);
+                    if (restoredDatabase) HostDatabaseSnapshot.Restore(root, snapshot);
                     executable = previous;
+                    SaveActiveRuntime(activePath, previous);
                     child = Start(previous, childArgs);
                     await WaitReadyAsync(child, root, expected, null, cancellationToken).ConfigureAwait(false);
-                    RemoteUpdateCoordinator.CompleteActivation(update.ReceiptPath, false, "Activation failed; the previous compatible runtime was restored.");
+                    RemoteUpdateCoordinator.CompleteActivation(update.ReceiptPath, false, restoredDatabase
+                        ? "Activation failed; the pre-update database and previous compatible runtime were restored."
+                        : "Activation failed before replacement startup; the previous runtime was restarted.");
+                    File.Delete(handoffPath);
                 }
-                File.Delete(handoffPath);
             }
             return 0;
         }
@@ -95,6 +119,23 @@ internal static class ServerUpdateLauncher
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true };
         foreach (var argument in args) start.ArgumentList.Add(argument);
         return Process.Start(start) ?? throw new InvalidOperationException("The owned server did not start.");
+    }
+
+    private static void SaveActiveRuntime(string path, string executable)
+    {
+        // The launcher's bundled runtime is the default and does not need a saved override.
+        if (string.Equals(executable, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) { File.Delete(path); return; }
+        File.WriteAllText(path + ".tmp", executable);
+        File.Move(path + ".tmp", path, overwrite: true);
+    }
+
+    private static void ValidatePreviousRuntime(string executable, string root)
+    {
+        var path = Path.GetFullPath(executable);
+        if ((!string.Equals(path, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase) &&
+            !path.StartsWith(Path.GetFullPath(Path.Combine(root, "remote-updates")) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ||
+            !Path.GetFileName(path).Equals("PiStation.Server.exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+            throw new InvalidDataException("The pre-update runtime path is invalid.");
     }
 
     private static async Task StopOwnedAsync(Process child)

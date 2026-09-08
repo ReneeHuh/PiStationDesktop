@@ -75,6 +75,14 @@ internal sealed class SshProcess : ISshProcess
             // Never surface remote stderr verbatim: commands and remote tools can echo secrets.
             if (HostKeyVerificationFailed)
                 return "SSH host key is unknown or changed. Verify the host fingerprint with its administrator and connect using ssh in a terminal first; PiStation will not bypass verification.";
+            if (message.Contains("PISTATION_HOST_NOT_RUNNING", StringComparison.Ordinal))
+                return "PiStation is not running for this SSH account and data directory. Start PiStation on the remote computer under the same Windows account, then choose Open / retry.";
+            if (message.Contains("PISTATION_HOST_AMBIGUOUS", StringComparison.Ordinal))
+                return "Multiple PiStation data directories were found. Enter the data directory used by the running remote PiStation host.";
+            if (message.Contains("PISTATION_HOST_WRONG_OWNER", StringComparison.Ordinal))
+                return "The PiStation discovery endpoint belongs to another Windows account. Start PiStation under the SSH account and retry.";
+            if (message.Contains("PISTATION_HOST_DISCOVERY_FAILED", StringComparison.Ordinal))
+                return "The running PiStation host could not be discovered. Check that PiStation is ready under the SSH account and that the host data directory matches.";
             if (message.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
                 return "SSH authentication failed. Check the username, key/agent, or password, and whether the host permits password authentication.";
             if (message.Contains("Address already in use", StringComparison.OrdinalIgnoreCase) || message.Contains("cannot listen to port", StringComparison.OrdinalIgnoreCase))
@@ -85,7 +93,7 @@ internal sealed class SshProcess : ISshProcess
                 return "Pi or Node could not be found on the remote host. Check its non-interactive SSH PATH or supply an explicit Pi executable.";
             if (message.Contains("PISTATION_INSTALL_FAILED", StringComparison.Ordinal))
                 return "The bundled SSH host could not be installed. Check free space and write access to the remote account's LocalAppData. The running host and its data were not replaced.";
-            return "SSH could not connect or start the host. Check reachability, key authentication, the remote PiStation.Server.exe path, and Pi installation using ssh in a terminal.";
+            return "SSH could not connect to the running PiStation host. Check reachability, SSH authentication, and the host data directory. Start PiStation under the SSH account before retrying.";
         }
     }
 

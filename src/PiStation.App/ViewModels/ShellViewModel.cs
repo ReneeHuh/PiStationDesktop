@@ -37,6 +37,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private long _threadSearchVersion;
     private readonly bool _uiTestFaultControlsEnabled;
     private readonly string _previewCaptureRoot;
+    private readonly EditingRecoveryStore? _editingRecovery;
 
     public ShellViewModel(
         DispatcherQueue dispatcherQueue,
@@ -55,7 +56,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         PiConfiguration = new PiConfigurationViewModel();
         Connection = new ConnectionViewModel();
         FileMentions = new FileMentionViewModel();
-        WorkbenchFiles = new WorkbenchFilesViewModel();
+        _editingRecovery = layoutSettingsPath is null ? null : new EditingRecoveryStore(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(layoutSettingsPath))!, "editing-recovery"));
+        WorkbenchFiles = new WorkbenchFilesViewModel(_editingRecovery);
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
         WorkbenchPreview = new WorkbenchPreviewViewModel();
@@ -65,7 +68,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             SaveDraftAsync,
             UploadDraftAttachmentAsync,
             RemoveDraftAttachmentAsync,
-            ClearDraftAsync);
+            ClearDraftAsync,
+            _editingRecovery);
         Composer.PropertyChanged += OnComposerPropertyChanged;
         Composer.SaveFailed += OnComposerSaveFailed;
     }
@@ -74,12 +78,16 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public bool IsRemote { get; private set; }
     public string EnvironmentLabel { get; private set; } = "Local";
-    public bool CanOperate => !IsRemote || _client?.Descriptor?.Capabilities.Contains("thread.operate") == true;
+    private bool _runtimeStopped;
+    public bool CanOperate => !_runtimeStopped && (!IsRemote || _client?.Descriptor?.Capabilities.Contains("thread.operate") == true);
     public bool IsReadOnly => !CanOperate;
 
-    public void ConfigureRemote(string name)
+    private PiStation.ClientRuntime.Ssh.SshConnectionProfile? _remoteEditorProfile;
+
+    public void ConfigureRemote(string name, PiStation.ClientRuntime.Ssh.SshConnectionProfile? editorProfile = null)
     {
         IsRemote = true;
+        _remoteEditorProfile = editorProfile;
         EnvironmentLabel = $"{name} (Remote)";
         Connection.Status = $"{EnvironmentLabel} • Disconnected";
         WorkbenchChanges.AllowOperations = false;
@@ -212,8 +220,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
+    public bool IsComposerReadOnly => IsReadOnly || Composer.HasRecoveryConflict || !Composer.HasDraft;
+
     public bool CanSend =>
         CanOperate &&
+        !Composer.HasRecoveryConflict &&
+        Composer.HasDraft &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Ready &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -1669,6 +1681,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         var readCancellation = new CancellationTokenSource();
+        var editVersion = document.EditVersion;
         Interlocked.Exchange(ref _workbenchFileReadCancellation, readCancellation)?.Cancel();
         try
         {
@@ -1702,7 +1715,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     if (SelectedProject?.ProjectId == project.ProjectId &&
                         WorkbenchFiles.OpenDocuments.Contains(document))
                     {
-                        document.ApplyText(result);
+                        document.ApplyTextIfUnchanged(result, editVersion);
                     }
                 }).ConfigureAwait(false);
             }
@@ -1750,7 +1763,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                     content,
                     revision,
                     SelectedThread?.ThreadId)).ConfigureAwait(false);
-            await RunOnUiThreadAsync(() => document.ApplySaved(result)).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() => document.ApplySaved(result, content)).ConfigureAwait(false);
             _ = QueueWorkbenchFileSearchAsync(debounce: false);
         }
         catch (Exception exception)
@@ -1773,11 +1786,6 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task OpenWorkbenchFileInEditorAsync(WorkbenchFileDocumentViewModel? document = null)
     {
-        if (IsRemote)
-        {
-            ReportRuntimeError("External editor launch is available on the host computer. Use the Files workbench to edit remotely.");
-            return;
-        }
         var project = SelectedProject;
         document ??= WorkbenchFiles.ActiveDocument;
         if (project is null || document is null)
@@ -1788,6 +1796,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         document.Status = "Opening external editor…";
         try
         {
+            if (IsRemote)
+            {
+                if (_remoteEditorProfile is null)
+                    throw new InvalidOperationException("Open this environment through a saved SSH connection to launch VS Code on this device.");
+                var workspace = await RequireClient().GetProjectChangesAsync(new(project.ProjectId, ThreadId: SelectedThread?.ThreadId));
+                var link = PiStation.ClientRuntime.Ssh.RemoteEditorLink.Create(_remoteEditorProfile, workspace.WorkspacePath, document.RelativePath);
+                var opened = await Windows.System.Launcher.LaunchUriAsync(link);
+                document.Status = opened ? "Opened in local VS Code over SSH • PiStation's unsaved edits stay here"
+                    : "Install VS Code with Remote SSH to open this workspace externally.";
+                return;
+            }
             var result = await RequireClient().OpenProjectFileInEditorAsync(
                 new OpenProjectFileInEditorRequest(
                     project.ProjectId,
@@ -2401,8 +2420,23 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public Task FlushDraftAsync(CancellationToken cancellationToken = default) =>
         Composer.FlushAsync(cancellationToken);
 
+    internal bool HasUnsavedChanges => WorkbenchFiles.HasUnsavedChanges || Composer.HasUnsavedChanges;
+
+    internal Task PreserveEditsAsync(CancellationToken cancellationToken = default) =>
+        _editingRecovery?.FlushAsync(cancellationToken) ?? Task.CompletedTask;
+
     public async ValueTask DisposeAsync()
     {
+        await RunOnUiThreadAsync(() =>
+        {
+            _runtimeStopped = true;
+            SetWindowActive(false);
+            WorkbenchFiles.SetWriteAccess(false);
+            OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
+            RaiseCommandStateChanged();
+        }).ConfigureAwait(false);
         _selectionClosed = true;
         Composer.CancelPendingOperations();
         CancelPiConfigurationLoad();
@@ -2533,13 +2567,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 Connection.Status += $" · attempt {diagnostics.Attempt} · {diagnostics.Failure}";
             OnPropertyChanged(nameof(CanOperate));
             OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
             WorkbenchChanges.AllowOperations = CanOperate;
             WorkbenchTerminal.AllowOperations = CanOperate;
-            foreach (var document in WorkbenchFiles.OpenDocuments) document.HasWriteAccess = CanOperate;
+            WorkbenchFiles.SetWriteAccess(CanOperate);
             if (args.State == EnvironmentConnectionState.Connected)
             {
                 ClearTransportError();
                 UpdateThreadSynchronizationStatus();
+                _ = RefreshRemoteWorkspaceAsync();
             }
             else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired && args.Error is PiStation.ClientRuntime.ConnectionValidationException)
             {
@@ -2669,9 +2705,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             OnPropertyChanged(nameof(PromptText));
             OnPropertyChanged(nameof(CanSend));
         }
-        else if (args.PropertyName == nameof(ComposerViewModel.HasAttachments))
+        else if (args.PropertyName is nameof(ComposerViewModel.HasAttachments) or nameof(ComposerViewModel.HasRecoveryConflict) or nameof(ComposerViewModel.HasDraft))
         {
             OnPropertyChanged(nameof(CanSend));
+            OnPropertyChanged(nameof(IsComposerReadOnly));
         }
         else if (args.PropertyName == nameof(ComposerViewModel.CanAttach))
         {

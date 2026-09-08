@@ -19,14 +19,16 @@ public sealed class RemoteUpdateCoordinator : IDisposable
     private CancellationTokenSource? _activationCancellation;
     private bool _disposed;
     private bool _draining;
+    private readonly string? _startupGatePath;
     private int _operations;
-    public bool IsDraining { get { lock (_gate) return _draining; } }
+    public bool IsDraining { get { lock (_gate) return _draining || IsAwaitingOwner; } }
+    private bool IsAwaitingOwner => _startupGatePath is not null && File.Exists(_startupGatePath);
 
     internal OperationLease? EnterOperation(bool allowDuringDrain)
     {
         lock (_gate)
         {
-            if (_draining)
+            if (_draining || IsAwaitingOwner)
             {
                 if (!allowDuringDrain) throw new InvalidOperationException("The host is restarting for an update. New operations are paused.");
                 return null;
@@ -51,6 +53,8 @@ public sealed class RemoteUpdateCoordinator : IDisposable
         _dataRoot = Path.GetFullPath(dataRoot);
         _root = Path.Combine(_dataRoot, "remote-updates");
         _busy = busy;
+        var handoff = Path.Combine(_dataRoot, "update-owner", "activate.json");
+        if (File.Exists(handoff)) _startupGatePath = handoff;
         if (Directory.Exists(_root))
             foreach (var directory in Directory.EnumerateDirectories(_root))
                 if (Guid.TryParseExact(Path.GetFileName(directory), "N", out var id) && Read(id) is { } previous &&
@@ -197,7 +201,9 @@ public sealed class RemoteUpdateCoordinator : IDisposable
             if (update.Receipt.State is RemoteUpdateState.WaitingForIdle or RemoteUpdateState.Restarting or RemoteUpdateState.Succeeded) return update.Receipt;
             if (update.Receipt.State != RemoteUpdateState.Ready) throw new InvalidOperationException("Upload and validate the package before activating it.");
             if (_activation is { IsCompleted: false }) throw new InvalidOperationException("Another update is being activated.");
-            var waiting = update with { Receipt = update.Receipt with { State = RemoteUpdateState.WaitingForIdle, UpdatedAt = DateTimeOffset.UtcNow } };
+            var waiting = update with { Receipt = update.Receipt with { State = RemoteUpdateState.WaitingForIdle,
+                Message = "Waiting for agent work and open terminal sessions to finish. Close terminals, including idle shells, to allow activation. You can cancel this update while waiting.",
+                UpdatedAt = DateTimeOffset.UtcNow } };
             Write(waiting);
             _activationCancellation?.Dispose();
             _activationCancellation = new();
@@ -238,7 +244,8 @@ public sealed class RemoteUpdateCoordinator : IDisposable
                     if (interrupt || _operations == 0 && !_busy())
                     {
                         _draining = true;
-                        update = update with { Receipt = update.Receipt with { State = RemoteUpdateState.Restarting, UpdatedAt = DateTimeOffset.UtcNow } };
+                        update = update with { Receipt = update.Receipt with { State = RemoteUpdateState.Restarting,
+                            Message = "The owner is activating the verified package. Reconnecting will recover this request's status.", UpdatedAt = DateTimeOffset.UtcNow } };
                         Write(update);
                         break;
                     }
@@ -301,6 +308,9 @@ public sealed class RemoteUpdateCoordinator : IDisposable
         var stored = JsonSerializer.Deserialize(File.ReadAllBytes(receiptPath), RemoteUpdateJsonContext.Default.StoredUpdate) ?? throw new InvalidDataException("The update receipt is invalid.");
         WriteReceiptFile(receiptPath, stored with { Receipt = stored.Receipt with { State = succeeded ? RemoteUpdateState.Succeeded : RemoteUpdateState.Failed, Message = message, UpdatedAt = DateTimeOffset.UtcNow } });
     }
+
+    public static bool IsActivationConfirmed(string receiptPath) =>
+        JsonSerializer.Deserialize(File.ReadAllBytes(receiptPath), RemoteUpdateJsonContext.Default.StoredUpdate)?.Receipt.State == RemoteUpdateState.Succeeded;
 
     /// <summary>Called by a standalone launcher holding its exclusive owner lock, before starting a child.</summary>
     public static void FailInterruptedActivations(string dataRoot)

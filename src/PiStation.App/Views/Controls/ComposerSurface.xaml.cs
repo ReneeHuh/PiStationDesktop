@@ -27,6 +27,10 @@ public sealed partial class ComposerSurface : UserControl
 
     public void FocusPrompt() => PromptInput.Focus(FocusState.Programmatic);
 
+    private void OnRestoreRecoveredDraft(object sender, RoutedEventArgs e) => ViewModel.Composer.RestoreRecoveredDraft();
+
+    private void OnKeepHostDraft(object sender, RoutedEventArgs e) => ViewModel.Composer.KeepHostDraft();
+
     private async void OnSendPromptClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.SendPromptAsync();
 

@@ -19,8 +19,8 @@ public static class ServerUpdatePackage
         await using var manifestStream = manifestEntry.Open();
         var manifest = await JsonSerializer.DeserializeAsync(manifestStream, ServerPackageJsonContext.Default.ServerPackageManifest, cancellationToken).ConfigureAwait(false);
         if (manifest is null || manifest.Platform != "win-x64" || manifest.ProtocolVersion != ProtocolVersion.Current ||
-            manifest.DatabaseCompatibilityVersion != 1 || !Version.TryParse(manifest.Version, out var expectedVersion))
-            throw new InvalidDataException("The package platform, protocol, or database version is incompatible.");
+            manifest.DatabaseCompatibilityVersion != 1 || manifest.StartupWriteGateVersion != 1 || !Version.TryParse(manifest.Version, out var expectedVersion))
+            throw new InvalidDataException("The package platform, protocol, database, or startup safety version is incompatible.");
         var root = Path.GetFullPath(runtimeDirectory);
         Directory.CreateDirectory(root);
         if (File.GetAttributes(root).HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException("The staging directory cannot be a link.");
@@ -64,7 +64,7 @@ public static class ServerUpdatePackage
     }
 }
 
-public sealed record ServerPackageManifest(string Version, int ProtocolVersion, string Platform, int DatabaseCompatibilityVersion);
+public sealed record ServerPackageManifest(string Version, int ProtocolVersion, string Platform, int DatabaseCompatibilityVersion, int StartupWriteGateVersion = 0);
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ServerPackageManifest))]
 internal sealed partial class ServerPackageJsonContext : JsonSerializerContext;

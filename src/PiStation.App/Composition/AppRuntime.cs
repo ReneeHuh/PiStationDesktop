@@ -25,8 +25,9 @@ internal sealed class AppRuntime(
 
     public string ExportDiagnostics() => _client.ExportDiagnostics();
 
-    public bool HasUnsavedChanges => _viewModel.WorkbenchFiles.OpenDocuments.Any(document => document.IsDirty || document.IsSaving) ||
-        _viewModel.Composer.HasUnsavedChanges;
+    public bool HasUnsavedChanges => _viewModel.HasUnsavedChanges;
+
+    public Task PreserveEditsAsync(CancellationToken cancellationToken = default) => _viewModel.PreserveEditsAsync(cancellationToken);
 
     public Task ReplaceEndpointAsync(SavedRemoteEnvironment replacement, Action commit, CancellationToken cancellationToken = default) =>
         _client.ReplaceEndpointAsync(replacement.CreateOptions(), commit, cancellationToken);
@@ -48,6 +49,7 @@ internal sealed class AppRuntime(
                 _viewModel.FlushDraftAsync,
                 [
                     () => _viewModel.DisposeAsync().AsTask(),
+                    () => _viewModel.PreserveEditsAsync(),
                     () => transport is null ? Task.CompletedTask : transport.DisposeAsync().AsTask(),
                     () => _client.DisposeAsync().AsTask(),
                     () => _host is null ? Task.CompletedTask : _host.DisposeAsync().AsTask(),

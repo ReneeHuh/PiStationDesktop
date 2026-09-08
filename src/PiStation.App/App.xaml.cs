@@ -130,24 +130,33 @@ public partial class App : Application
         _remoteWindows.Keys.Where(window => !_remoteClosingWindows.Contains(window)).Append(_window)
             .FirstOrDefault(window => window?.Content?.XamlRoot == xamlRoot);
 
+    internal Task<ContentDialogResult> ShowConnectionDialogAsync(ContentDialog dialog, CancellationToken cancellationToken) =>
+        FindWindow(dialog.XamlRoot) is MainWindow window ? window.ShowConnectionDialogAsync(dialog, cancellationToken)
+            : throw new InvalidOperationException("The connection window is unavailable.");
+
     internal EnvironmentClient? FindRemoteClient(string id) =>
         _environmentWindows.TryGetValue(id, out var window) && !_remoteClosingWindows.Contains(window) &&
         _remoteWindows.TryGetValue(window, out var runtime) ? runtime.Client : null;
 
-    internal void CloseRemoteEnvironment(string id)
+    internal async Task CloseRemoteEnvironmentAsync(string id)
     {
-        if (_environmentWindows.TryGetValue(id, out var window) && !_remoteClosingWindows.Contains(window)) window.Close();
+        if (_environmentWindows.TryGetValue(id, out var window) && !_remoteClosingWindows.Contains(window))
+            await ((MainWindow)window).CloseWithRecoveryAsync();
     }
 
     internal async Task OpenSshEnvironmentAsync(SshConnectionProfile profile, IProgress<string>? progress,
         CancellationToken cancellationToken, XamlRoot? promptRoot = null, bool updateWithBundledHost = false)
     {
+        // Keep the replacement workflow for later, but do not expose automatic host setup yet.
+        if (updateWithBundledHost)
+            throw new InvalidOperationException("Automatic SSH host installation and startup are deferred. Start PiStation on the remote computer, then open its SSH connection.");
         if (updateWithBundledHost)
         {
             await ManagedSshConnection.CheckBundledHostAsync(cancellationToken);
             profile = profile with { ServerPath = string.Empty };
         }
         await _sshOpenGate.WaitAsync(cancellationToken);
+        MainWindow? stoppedWindow = null;
         try
         {
             var id = "ssh:" + profile.Id;
@@ -158,8 +167,11 @@ public partial class App : Application
                 // Keep the client window alive for progress, password prompts and retry. Only
                 // its connection-owned server stops; an external host is never terminated.
                 _sshNeedsReplacement.Add(profile.Id);
-                progress?.Report("Stopping this connection before updating; saved work is retained…");
+                progress?.Report("Preserving local edits before updating…");
+                await ((MainWindow)updatingWindow).PrepareForTransitionAsync();
+                stoppedWindow = (MainWindow)updatingWindow;
                 await updatingRuntime.DisposeAsync();
+                await updatingRuntime.PreserveEditsAsync(CancellationToken.None);
             }
             if (_environmentWindows.TryGetValue(id, out var existing))
             {
@@ -186,12 +198,17 @@ public partial class App : Application
                 var info = connection.Info;
                 _sshHostInfo[profile.Id] = (info.HostKind, info.ServerVersion);
                 await OpenRemoteEnvironmentAsync(new(info.EnvironmentId, profile.Name, connection.Address,
-                    info.CertificateFingerprint, info.BearerCredential, profile.ClientId), connection, id, replaceExisting, cancellationToken);
+                    info.CertificateFingerprint, info.BearerCredential, profile.ClientId), connection, id, replaceExisting, editorProfile: profile, cancellationToken: cancellationToken);
                 _sshNeedsReplacement.Remove(profile.Id);
             }
             catch { await connection.DisposeAsync(); throw; }
         }
-        finally { _sshOpenGate.Release(); }
+        finally
+        {
+            if (stoppedWindow is not null && _environmentWindows.GetValueOrDefault("ssh:" + profile.Id) == stoppedWindow)
+                stoppedWindow.ResumeEditing();
+            _sshOpenGate.Release();
+        }
     }
 
     internal async Task CloseSshEnvironmentAsync(Guid profileId)
@@ -205,7 +222,7 @@ public partial class App : Application
     {
         var id = "ssh:" + profileId;
         if (!_environmentWindows.TryGetValue(id, out var window)) return;
-        CloseRemoteEnvironment(id);
+        await CloseRemoteEnvironmentAsync(id);
         if (_remoteCloseCompletions.TryGetValue(window, out var completion)) await completion.Task;
     }
 
@@ -247,7 +264,7 @@ public partial class App : Application
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var result = await dialog.ShowAsync();
+                    var result = await ShowConnectionDialogAsync(dialog, cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
                     completion.TrySetResult(result == ContentDialogResult.Primary ? password.Password : null);
                 }
@@ -290,12 +307,21 @@ public partial class App : Application
         if (_runtime?.HasUnsavedChanges == true || _remoteWindows.Values.Any(runtime => runtime.HasUnsavedChanges))
             throw new InvalidOperationException("New edits were made while preparing the update. Save them and retry.");
         var windows = _remoteWindows.Keys.Append(_window).Where(window => window is not null).ToArray();
+        try
+        {
+            foreach (var window in windows) await ((MainWindow)window!).PrepareForTransitionAsync();
+        }
+        catch
+        {
+            foreach (var window in windows) ((MainWindow)window!).ResumeEditing();
+            throw;
+        }
         // Remove interactive surfaces in this UI dispatch before awaiting shutdown.
         foreach (var window in windows) window!.Content = new TextBlock { Text = "Installing the desktop update…", Margin = new Thickness(24) };
         foreach (var runtime in _remoteWindows.Values.ToArray()) await runtime.DisposeAsync();
         if (RemoteAccess is not null) await RemoteAccess.DisposeAsync();
         if (_runtime is not null) await _runtime.DisposeAsync();
-        foreach (var window in windows) window!.Close();
+        foreach (var window in windows) await ((MainWindow)window!).CloseWithRecoveryAsync();
         Exit();
     });
 
@@ -312,19 +338,28 @@ public partial class App : Application
 
     internal async Task OpenRemoteEnvironmentAsync(SavedRemoteEnvironment environment,
         ManagedSshConnection? ssh = null, string? windowId = null, bool replaceExisting = false,
-        CancellationToken cancellationToken = default)
+        SshConnectionProfile? editorProfile = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_launchOptions is null) throw new InvalidOperationException("Application settings are unavailable.");
         var id = windowId ?? environment.EnvironmentId.ToString();
         Window? replacingWindow = null;
         if (replaceExisting) _environmentWindows.TryGetValue(id, out replacingWindow);
+        if (replacingWindow is MainWindow replacingMain)
+        {
+            await replacingMain.PrepareForTransitionAsync();
+            if (_remoteWindows.TryGetValue(replacingWindow, out var previousRuntime))
+            {
+                await previousRuntime.DisposeAsync(flushDraft: false);
+                await previousRuntime.PreserveEditsAsync(CancellationToken.None);
+            }
+        }
         if (!replaceExisting && _environmentWindows.TryGetValue(id, out var existing))
         {
             if (_remoteClosingWindows.Contains(existing) && _remoteCloseCompletions.TryGetValue(existing, out var closing) && !closing.Task.IsCompleted)
             {
                 await closing.Task.ConfigureAwait(true);
-                await OpenRemoteEnvironmentAsync(environment, ssh, windowId, cancellationToken: cancellationToken);
+                await OpenRemoteEnvironmentAsync(environment, ssh, windowId, editorProfile: editorProfile, cancellationToken: cancellationToken);
                 return;
             }
             if (_remoteProfiles.TryGetValue(id, out var previous) && DesktopLifecycle.ProfileChanged(previous, environment))
@@ -345,7 +380,7 @@ public partial class App : Application
         var root = Path.Combine(_launchOptions.DataRoot, "remote-environments", folder);
         var viewModel = AppBootstrapper.CreateShellViewModel(DispatcherQueue.GetForCurrentThread(),
             layoutSettingsPath: Path.Combine(root, "layout-settings.json"), previewCaptureRoot: Path.Combine(root, "preview-captures"));
-        viewModel.ConfigureRemote(environment.Name);
+        viewModel.ConfigureRemote(environment.Name, editorProfile);
         var client = new EnvironmentClient(ssh?.CreateOptions() ?? environment.CreateOptions());
         viewModel.Attach(client);
         var window = new MainWindow(viewModel) { Title = $"Pi Station • {environment.Name} (Remote)" };
@@ -368,7 +403,7 @@ public partial class App : Application
         if (replacingWindow is not null && !_remoteClosingWindows.Contains(replacingWindow))
         {
             _remoteReplacementCloses.Add(replacingWindow);
-            replacingWindow.Close();
+            await ((MainWindow)replacingWindow).CloseWithRecoveryAsync();
         }
         try
         {
@@ -377,7 +412,7 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (!_remoteClosingWindows.Contains(window)) window.Close();
+            if (!_remoteClosingWindows.Contains(window)) await window.CloseWithRecoveryAsync();
             await closeCompletion.Task;
             throw;
         }

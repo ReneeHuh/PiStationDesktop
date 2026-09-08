@@ -146,7 +146,7 @@ try {
         'RemoteConnectionStatus',
         'SshConnectionsPanel',
         'SshTarget',
-        'SshServerPath',
+        'SshDataRoot',
         'SavedSshEnvironments',
         'AddSshConnectionButton',
         'CancelSshConnectionButton',
@@ -154,6 +154,12 @@ try {
     )) {
         Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
             'ui', 'wait-for', $selector, '--app', "$launchedProcessId",
+            '--timeout', '5000', '--json'
+        ) | Out-Null
+    }
+    foreach ($selector in @('SshServerPath', 'SshPiExecutable', 'UpdateSshConnectionButton')) {
+        Invoke-CheckedNative -FilePath 'winapp' -ArgumentList @(
+            'ui', 'wait-for', $selector, '--gone', '--app', "$launchedProcessId",
             '--timeout', '5000', '--json'
         ) | Out-Null
     }

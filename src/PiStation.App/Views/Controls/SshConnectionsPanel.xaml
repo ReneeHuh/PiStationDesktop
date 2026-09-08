@@ -4,11 +4,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:automation="using:Microsoft.UI.Xaml.Automation">
     <StackPanel Spacing="8" automation:AutomationProperties.AutomationId="SshConnectionsPanel"
-        automation:AutomationProperties.Name="Managed SSH connections">
-        <TextBlock Text="Managed SSH · Windows host" FontWeight="SemiBold" />
-        <TextBlock Text="Connect to the remote computer's existing PiStation desktop/server, or start one with the same projects and threads. A host started by this connection stops when you disconnect; an existing host is left running."
+        automation:AutomationProperties.Name="SSH connections">
+        <TextBlock Text="SSH · Running Windows host" FontWeight="SemiBold" />
+        <TextBlock Text="Start PiStation on the remote computer first, then connect here. Disconnecting leaves that PiStation host running."
             TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
-        <TextBlock Text="Requires Windows OpenSSH Server, Pi, and a verified SSH host key. Keys/agent are tried first, then a password prompt. Leave the server path empty to install the matching bundled host over SSH. PiStation does not change SSH or firewall settings."
+        <TextBlock Text="Requires Windows OpenSSH Server and a verified SSH host key. PiStation must be running under the same Windows account used for SSH. Keys/agent are tried first, then a password prompt."
             TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
         <ComboBox x:Name="DiscoveredHosts" Header="Discovered SSH targets" HorizontalAlignment="Stretch"
             SelectionChanged="OnDiscoveredHostSelected" automation:AutomationProperties.AutomationId="DiscoveredSshHosts" />
@@ -20,11 +20,11 @@
             automation:AutomationProperties.AutomationId="SshTarget" />
         <NumberBox x:Name="SshPort" Header="SSH port (optional; uses SSH config by default)" Minimum="1" Maximum="65535"
             automation:AutomationProperties.AutomationId="SshPort" />
-        <TextBox x:Name="ServerPath" Header="Existing remote server path (optional; empty installs bundled host)"
+        <TextBox x:Name="ServerPath" Header="Remote server path (automatic setup deferred)" Visibility="Collapsed"
             automation:AutomationProperties.AutomationId="SshServerPath" />
         <TextBox x:Name="DataRoot" Header="Host data directory (optional; defaults to the remote desktop's data)"
             automation:AutomationProperties.AutomationId="SshDataRoot" />
-        <TextBox x:Name="PiExecutable" Header="Pi executable path on the host (optional)"
+        <TextBox x:Name="PiExecutable" Header="Pi executable path on the host (automatic setup deferred)" Visibility="Collapsed"
             automation:AutomationProperties.AutomationId="SshPiExecutable" />
         <StackPanel Orientation="Horizontal" Spacing="8">
             <Button x:Name="AddConnection" Content="Connect and save" Click="OnAddConnection" Style="{StaticResource PiSecondaryButtonStyle}"
@@ -44,7 +44,7 @@
             <Button x:Name="ForgetConnection" Content="Forget" Click="OnForgetConnection" Style="{StaticResource PiSecondaryButtonStyle}"
                 automation:AutomationProperties.AutomationId="ForgetSshConnectionButton" />
         </StackPanel>
-        <Button x:Name="UpdateConnection" Content="Update / reconnect with bundled host" Click="OnUpdateConnection" Style="{StaticResource PiSecondaryButtonStyle}"
+        <Button x:Name="UpdateConnection" Content="Update / reconnect with bundled host" Visibility="Collapsed" Click="OnUpdateConnection" Style="{StaticResource PiSecondaryButtonStyle}"
             automation:AutomationProperties.AutomationId="UpdateSshConnectionButton" />
         <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
             automation:AutomationProperties.AutomationId="SshConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />

@@ -44,7 +44,7 @@ public sealed partial class SshConnectionsPanel : UserControl
         CancelConnection.IsEnabled = busy;
         var selected = SavedConnections.SelectedItem is SshConnectionProfile;
         OpenConnection.IsEnabled = DisconnectConnection.IsEnabled = ForgetConnection.IsEnabled = !busy && selected;
-        UpdateConnection.IsEnabled = !busy && selected;
+        UpdateConnection.IsEnabled = false; // Automatic setup is deferred.
         ConnectionName.IsEnabled = Target.IsEnabled = ServerPath.IsEnabled = DataRoot.IsEnabled = PiExecutable.IsEnabled = !busy;
         SshPort.IsEnabled = DiscoveredHosts.IsEnabled = DiscoverHosts.IsEnabled = !busy;
         SavedConnections.IsEnabled = !busy;
@@ -94,7 +94,7 @@ public sealed partial class SshConnectionsPanel : UserControl
         if (SavedConnections.SelectedItem is SshConnectionProfile profile && CurrentApp is { } app)
         {
             await app.CloseSshEnvironmentAsync(profile.Id);
-            Status.Text = "Disconnected. Any host started by this connection was stopped; separately running hosts were left alone.";
+            Status.Text = "Disconnected. The remote PiStation host is still running.";
         }
     });
 
@@ -118,7 +118,7 @@ public sealed partial class SshConnectionsPanel : UserControl
             PrimaryButtonText = "Update and reconnect", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
         };
         using var canceled = token.Register(() => DispatcherQueue.TryEnqueue(dialog.Hide));
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await app.ShowConnectionDialogAsync(dialog, token) != ContentDialogResult.Primary) return;
         token.ThrowIfCancellationRequested();
         await app.OpenSshEnvironmentAsync(profile, new Progress<string>(message => { if (_active) Status.Text = message; }),
             token, XamlRoot, updateWithBundledHost: true);
@@ -167,7 +167,7 @@ public sealed partial class SshConnectionsPanel : UserControl
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         Details.Text = SavedConnections.SelectedItem is SshConnectionProfile profile
-            ? $"{profile.Target}{(profile.Port is { } port ? $" · port {port}" : string.Empty)}\n{(string.IsNullOrWhiteSpace(profile.ServerPath) ? "Matching bundled Windows host" : profile.ServerPath)}\nHost data: {profile.DataRoot ?? "remote desktop's default directory"}" : string.Empty;
+            ? $"{profile.Target}{(profile.Port is { } port ? $" · port {port}" : string.Empty)}\nConnects to an already-running PiStation host\nHost data: {profile.DataRoot ?? "remote desktop's default directory"}" : string.Empty;
         if (SavedConnections.SelectedItem is SshConnectionProfile selected && CurrentApp?.GetSshHostInfo(selected.Id) is { } info)
             Details.Text += $"\nLast connected host: {info.HostKind}, version {info.ServerVersion ?? "unknown"}\nDesktop version: {PiStation.Protocol.ProductVersion.Current}";
         SetBusy(_operation is not null);

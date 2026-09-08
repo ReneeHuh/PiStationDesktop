@@ -83,6 +83,8 @@ public sealed class RemoteUpdateIntegrationTests
                 catch (Exception) when (!timeout.IsCancellationRequested) { }
             }
             Assert.Equal(failStartup ? RemoteUpdateState.Failed : RemoteUpdateState.Succeeded, receipt.State);
+            Assert.True(PiStation.Host.Updates.HostDatabaseSnapshot.Exists(
+                Path.Combine(options.ApplicationDataRoot, "remote-updates", id.ToString("N"), "database-before-update")));
             if (failStartup) Assert.Contains("restored", receipt.Message!, StringComparison.Ordinal);
             Assert.Equal(info.EnvironmentId, client.Descriptor!.EnvironmentId);
             Assert.Equal(project.ProjectId, Assert.Single(await client.ListProjectsAsync(timeout.Token)).ProjectId);

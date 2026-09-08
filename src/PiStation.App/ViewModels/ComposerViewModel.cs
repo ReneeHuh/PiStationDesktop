@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using PiStation.ClientRuntime;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 
@@ -31,6 +33,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     private ThreadId? _threadId;
     private bool _disposed;
     private bool _settingLoadedText;
+    private readonly EditingRecoveryStore? _recovery;
+    private RecoveredDraft? _conflictingRecovery;
 
     public ComposerViewModel(
         DispatcherQueue dispatcherQueue,
@@ -38,7 +42,8 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         Func<ThreadDraft, string, CancellationToken, Task<ThreadDraft>> saveDraft,
         Func<ThreadDraft, string, string?, Stream, long, CancellationToken, Task<ThreadDraft>> uploadAttachment,
         Func<ThreadDraft, AttachmentId, CancellationToken, Task<ThreadDraft>> removeAttachment,
-        Func<ThreadDraft, CancellationToken, Task<ThreadDraft>> clearDraft)
+        Func<ThreadDraft, CancellationToken, Task<ThreadDraft>> clearDraft,
+        EditingRecoveryStore? recovery = null)
     {
         _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
         _loadDraft = loadDraft ?? throw new ArgumentNullException(nameof(loadDraft));
@@ -46,6 +51,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         _uploadAttachment = uploadAttachment ?? throw new ArgumentNullException(nameof(uploadAttachment));
         _removeAttachment = removeAttachment ?? throw new ArgumentNullException(nameof(removeAttachment));
         _clearDraft = clearDraft ?? throw new ArgumentNullException(nameof(clearDraft));
+        _recovery = recovery;
     }
 
     public event EventHandler<ComposerSaveFailedEventArgs>? SaveFailed;
@@ -53,14 +59,41 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<DraftAttachmentViewModel> Attachments { get; } = [];
 
     public bool HasAttachments => Attachments.Count != 0;
+    public bool HasDraft => _draft is not null;
 
     internal bool HasUnsavedChanges => _draft is not null && !string.Equals(_text, _draft.Text, StringComparison.Ordinal);
+    public Visibility RecoveryConflictVisibility => _conflictingRecovery is null ? Visibility.Collapsed : Visibility.Visible;
+    public bool HasRecoveryConflict => _conflictingRecovery is not null;
+    public string RecoveredText => _conflictingRecovery?.Text ?? string.Empty;
+
+    public void RestoreRecoveredDraft()
+    {
+        if (_conflictingRecovery is not { } recovered) return;
+        _conflictingRecovery = null;
+        OnPropertyChanged(nameof(RecoveredText));
+        OnPropertyChanged(nameof(RecoveryConflictVisibility));
+        OnPropertyChanged(nameof(HasRecoveryConflict));
+        OnPropertyChanged(nameof(CanAttach));
+        Text = recovered.Text;
+        PersistRecovery();
+    }
+
+    public void KeepHostDraft()
+    {
+        _conflictingRecovery = null;
+        OnPropertyChanged(nameof(RecoveredText));
+        OnPropertyChanged(nameof(RecoveryConflictVisibility));
+        OnPropertyChanged(nameof(HasRecoveryConflict));
+        OnPropertyChanged(nameof(CanAttach));
+        PersistRecovery();
+        Status = HasUnsavedChanges ? "Unsaved" : "Saved";
+    }
 
     public double AttachmentRailHeight => HasAttachments ? 36 : 1;
 
     public double AttachmentNoticeHeight => HasAttachments ? double.NaN : 1;
 
-    public bool CanAttach => _draft is not null && Attachments.Count < AttachmentDefaults.MaximumPerDraft;
+    public bool CanAttach => !HasRecoveryConflict && _draft is not null && Attachments.Count < AttachmentDefaults.MaximumPerDraft;
 
     public string AttachmentNotice => HasAttachments
         ? "Attachments will be sent with your next message. Supported images are included directly; other files are shared by path."
@@ -79,6 +112,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             }
 
             Status = "Unsaved";
+            PersistRecovery();
             ScheduleSave();
         }
     }
@@ -110,6 +144,11 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
             {
                 _threadId = threadId;
                 _draft = null;
+                OnPropertyChanged(nameof(HasDraft));
+                _conflictingRecovery = null;
+                OnPropertyChanged(nameof(RecoveredText));
+                OnPropertyChanged(nameof(RecoveryConflictVisibility));
+                OnPropertyChanged(nameof(HasRecoveryConflict));
                 SetLoadedText(string.Empty);
                 ReplaceAttachments([]);
                 Status = threadId is null ? "No active draft" : "Loading draft";
@@ -128,9 +167,20 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
                 }
 
                 _draft = loaded;
-                SetLoadedText(loaded.Text);
+                OnPropertyChanged(nameof(HasDraft));
+                var recovered = _recovery?.LoadDraft(loaded.ThreadId.Value);
+                var restore = recovered is not null && recovered.Text != loaded.Text &&
+                    recovered.DraftId == loaded.DraftId.Value && recovered.BaseText == loaded.Text;
+                _conflictingRecovery = recovered is not null && recovered.Text != loaded.Text && !restore ? recovered : null;
+                OnPropertyChanged(nameof(RecoveredText));
+                SetLoadedText(restore ? recovered!.Text : loaded.Text);
                 ReplaceAttachments(loaded.Attachments);
-                Status = "Saved";
+                Status = _conflictingRecovery is not null ? "Recovered draft differs from the host. Choose which text to keep."
+                    : restore ? "Recovered local draft • ready to edit or send" : "Saved";
+                OnPropertyChanged(nameof(RecoveryConflictVisibility));
+                OnPropertyChanged(nameof(HasRecoveryConflict));
+                OnPropertyChanged(nameof(CanAttach));
+                PersistRecovery();
             }).ConfigureAwait(false);
         }
         catch when (_disposed)
@@ -410,6 +460,7 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         _draft = saved;
         ReplaceAttachments(saved.Attachments);
         Status = string.Equals(_text, saved.Text, StringComparison.Ordinal) ? "Saved" : "Unsaved";
+        PersistRecovery();
     }
 
     private void ApplyClearedDraft(ThreadDraft sentDraft, ThreadDraft cleared)
@@ -428,6 +479,14 @@ public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
         }
 
         Status = string.Equals(_text, cleared.Text, StringComparison.Ordinal) ? "Saved" : "Unsaved";
+        PersistRecovery();
+    }
+
+    private void PersistRecovery()
+    {
+        if (_draft is null || _conflictingRecovery is not null) return;
+        if (HasUnsavedChanges) _recovery?.SaveDraft(new(_draft.ThreadId.Value, _draft.DraftId.Value, _draft.Text, _text));
+        else _recovery?.RemoveDraft(_draft.ThreadId.Value);
     }
 
     private void ReplaceAttachments(IReadOnlyList<DraftAttachment> attachments)

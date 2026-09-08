@@ -16,6 +16,8 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="QRCoder" />
@@ -26,6 +28,8 @@
   <ItemGroup>
     <Compile Include="..\..\src\PiStation.App\Commands\CommandSystem.cs" Link="CommandSystem.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\DesktopLifecycle.cs" Link="DesktopLifecycle.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchFilesViewModel.cs" Link="WorkbenchFilesViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchChangesViewModel.cs" Link="WorkbenchChangesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\RemotePairingPageState.cs" Link="RemotePairingPageState.cs" />
   </ItemGroup>
 

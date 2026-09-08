@@ -378,22 +378,21 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         finally { _pairing = null; if (existing is null) await client.DisposeAsync(); }
     }
 
-    private void OnDisconnectEnvironment(object sender, RoutedEventArgs e)
+    private async void OnDisconnectEnvironment(object sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
         if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment && Application.Current is App app)
-            app.CloseRemoteEnvironment(environment.EnvironmentId.ToString());
-    }
+            await app.CloseRemoteEnvironmentAsync(environment.EnvironmentId.ToString());
+    });
 
-    private async void OnForgetEnvironment(object sender, RoutedEventArgs e) => await RunAsync(() =>
+    private async void OnForgetEnvironment(object sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
         if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment)
         {
-            (Application.Current as App)?.CloseRemoteEnvironment(environment.EnvironmentId.ToString());
+            if (Application.Current is App app) await app.CloseRemoteEnvironmentAsync(environment.EnvironmentId.ToString());
             Controller?.Connections.Forget(environment.EnvironmentId);
             RefreshSaved();
             Status.Text = "Saved connection removed. To remove its host authorization too, revoke the device on the host.";
         }
-        return Task.CompletedTask;
     });
 
     private void OnPendingSelectionChanged(object sender, SelectionChangedEventArgs e)

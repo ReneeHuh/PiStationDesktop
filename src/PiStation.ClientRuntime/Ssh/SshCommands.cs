@@ -6,7 +6,7 @@ namespace PiStation.ClientRuntime.Ssh;
 
 internal static class SshCommands
 {
-    public static ProcessStartInfo Control(SshConnectionProfile profile, string? authSecret = null)
+    public static ProcessStartInfo Control(SshConnectionProfile profile, string? authSecret = null, bool allowHostStartup = false)
     {
         profile.Validate();
         var start = Base(authSecret);
@@ -22,10 +22,10 @@ internal static class SshCommands
         // The outer cmd.exe/PowerShell shell sees only fixed switches and Base64. User paths
         // are literal single-quoted PowerShell values, never executable script fragments.
         var script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ";
-        if (string.IsNullOrWhiteSpace(profile.ServerPath))
+        if (!allowHostStartup || string.IsNullOrWhiteSpace(profile.ServerPath))
         {
-            // Keep the remote command below cmd.exe's command-line limit. The larger installer
-            // is sent as data on stdin, followed (only on request) by the archive.
+            // Keep discovery (or the deferred installer) below cmd.exe's command-line limit
+            // by sending the script as data on stdin.
             script += "$s=[Console]::In.ReadLine(); if (!$s) { exit 1 }; & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s)))); exit $LASTEXITCODE";
         }
         else

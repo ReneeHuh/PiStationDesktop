@@ -18,6 +18,8 @@ public sealed partial class MainWindow : Window
     private readonly int _textScalePercent;
     private readonly ShellPage _shellPage;
     private readonly ChatHeader _chatHeader;
+    private bool _allowClose;
+    private Task? _closeTask;
 
     public MainWindow(ShellViewModel viewModel, int textScalePercent = 100)
     {
@@ -29,6 +31,8 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         _viewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
         Closed += OnMainWindowClosed;
+        Activated += OnWindowActivated;
+        AppWindow.Closing += OnAppWindowClosing;
         RootGrid.Loaded += OnRootGridLoaded;
 
         ExtendsContentIntoTitleBar = true;
@@ -46,6 +50,46 @@ public sealed partial class MainWindow : Window
         ApplySidebarState(_shellPage);
     }
 
+    internal async Task PrepareForTransitionAsync()
+    {
+        _shellPage.IsEnabled = _chatHeader.IsEnabled = false;
+        try { await _viewModel.PreserveEditsAsync(); }
+        catch { ResumeEditing(); throw; }
+    }
+
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) =>
+        _viewModel.SetWindowActive(args.WindowActivationState != WindowActivationState.Deactivated);
+
+    internal void ResumeEditing() => _shellPage.IsEnabled = _chatHeader.IsEnabled = true;
+
+    internal Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowConnectionDialogAsync(
+        Microsoft.UI.Xaml.Controls.ContentDialog dialog, CancellationToken cancellationToken) =>
+        _shellPage.ShowConnectionDialogAsync(dialog, cancellationToken);
+
+    internal async Task CloseWithRecoveryAsync()
+    {
+        try { await (_closeTask ??= CloseCoreAsync()); }
+        catch { _closeTask = null; throw; }
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        await PrepareForTransitionAsync();
+        // Let a canceled native Closing event return before requesting the actual close.
+        await Task.Yield();
+        _allowClose = true;
+        Close();
+    }
+
+    private async void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender,
+        Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_allowClose) return;
+        args.Cancel = true;
+        try { await CloseWithRecoveryAsync(); }
+        catch (Exception exception) { _viewModel.ReportRuntimeError(exception); }
+    }
+
     private void OnLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ShellLayoutViewModel.ThemePreference))
@@ -56,6 +100,9 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
+        AppWindow.Closing -= OnAppWindowClosing;
+        Activated -= OnWindowActivated;
+        _viewModel.SetWindowActive(false);
         _viewModel.Layout.PropertyChanged -= OnLayoutPropertyChanged;
         _shellPage.SidebarCollapsedChanged -= OnSidebarCollapsedChanged;
         _chatHeader.CommandPaletteRequested -= OnCommandPaletteRequested;

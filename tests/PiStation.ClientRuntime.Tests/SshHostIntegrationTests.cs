@@ -26,9 +26,9 @@ public sealed class SshHostIntegrationTests
             await using var local = new EnvironmentClient(new() { HubAddress = desktop.HubAddress, BearerCredential = desktop.BearerCredential });
             await local.ConnectAsync(timeout.Token);
             var project = await local.AddProjectAsync(new(directory.CreateDirectory("desktop-project")), timeout.Token);
-            var profile = new SshConnectionProfile(Guid.NewGuid(), "Shared desktop", "unused", FindServerExecutable(),
+            var profile = new SshConnectionProfile(Guid.NewGuid(), "Shared desktop", "unused", string.Empty,
                 options.ApplicationDataRoot, @"C:\not-installed\pi.exe", null, ClientId.New());
-            await using var attach = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1]);
+            await using var attach = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1], SshRunningHostDiscovery.EncodedScript(profile));
             first = (await ManagedSshConnection.ReadHandshakeAsync(attach.Process.StandardOutput, timeout.Token))!;
             if (first is null) throw new InvalidOperationException("The attach fixture exited before discovery: " + await attach.Errors);
             Assert.False(first.StartedByConnection);
@@ -50,6 +50,36 @@ public sealed class SshHostIntegrationTests
         await using var reopened = new EnvironmentClient(ClientOptions(headless.Info));
         await reopened.ConnectAsync(timeout.Token);
         Assert.Equal(2, (await reopened.ListProjectsAsync(timeout.Token)).Count);
+    }
+
+    [Fact]
+    public async Task DiscoveryOfStoppedHostFailsWithoutCreatingDataOrLaunchingSavedExecutable()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var root = Path.Combine(directory.Path, "Not started's data");
+        // A legacy profile can still name a valid executable. Discovery must not invoke it.
+        var profile = new SshConnectionProfile(Guid.NewGuid(), "Stopped host", "unused", FindServerExecutable(),
+            root, null, null, ClientId.New());
+        await using var discovery = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1], SshRunningHostDiscovery.EncodedScript(profile));
+        var info = await ManagedSshConnection.ReadHandshakeAsync(discovery.Process.StandardOutput, timeout.Token);
+        await discovery.Process.WaitForExitAsync(timeout.Token);
+        Assert.Null(info);
+        Assert.Equal(1, discovery.Process.ExitCode);
+        Assert.Contains("PISTATION_HOST_NOT_RUNNING", await discovery.Errors, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(root));
+
+        // Starting PiStation manually makes the same connection work; leaving the connection
+        // must not stop that host or disturb its data.
+        await using var host = await SshEnvironmentHost.StartAsync(directory.CreateHostOptions() with { ApplicationDataRoot = root }, cancellationToken: timeout.Token);
+        await using var retry = new OwnedProcess(SshCommands.Control(profile).ArgumentList[^1], SshRunningHostDiscovery.EncodedScript(profile));
+        var connected = await ManagedSshConnection.ReadHandshakeAsync(retry.Process.StandardOutput, timeout.Token);
+        Assert.NotNull(connected);
+        Assert.False(connected.StartedByConnection);
+        Assert.Equal(host.Info.EnvironmentId, connected.EnvironmentId);
+        await retry.StopAsync(timeout.Token);
+        Assert.NotNull(await SshEnvironmentHost.TryDiscoverAsync(root, timeout.Token));
     }
 
     [Fact]
@@ -170,7 +200,8 @@ public sealed class SshHostIntegrationTests
         var options = directory.CreateHostOptions() with { ApplicationDataRoot = directory.CreateDirectory("SSH host's data with spaces") };
         var profile = new SshConnectionProfile(Guid.NewGuid(), "CLI test", "unused",
             FindServerExecutable(), options.ApplicationDataRoot, options.PiInstallation!.ExecutablePath, null, ClientId.New());
-        var command = SshCommands.Control(profile);
+        // Keep coverage of the deferred startup implementation, explicitly outside the current flow.
+        var command = SshCommands.Control(profile, allowHostStartup: true);
         // Exercise exactly the encoded Windows bootstrap, without enabling sshd/firewall or
         // depending on the developer's SSH keys. Real cross-machine SSH remains a manual check.
         await using var owner = new OwnedProcess(command.ArgumentList[^1]);
@@ -219,7 +250,7 @@ public sealed class SshHostIntegrationTests
     {
         private readonly Task<string> _error;
         public Task<string> Errors => _error;
-        public OwnedProcess(string encodedCommand)
+        public OwnedProcess(string encodedCommand, string? discoveryScript = null)
         {
             var start = new ProcessStartInfo("powershell.exe")
             {
@@ -229,6 +260,11 @@ public sealed class SshHostIntegrationTests
             foreach (var value in new[] { "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand }) start.ArgumentList.Add(value);
             Process = Process.Start(start)!;
             _error = Process.StandardError.ReadToEndAsync();
+            if (discoveryScript is not null)
+            {
+                Process.StandardInput.WriteLine(discoveryScript);
+                Process.StandardInput.Flush();
+            }
         }
         public Process Process { get; }
         public async Task StopAsync(CancellationToken token)
@@ -258,6 +294,7 @@ public sealed class SshHostIntegrationTests
 
     private sealed class TestControlProcess(SshHostInfo info) : ISshProcess
     {
+        public TextWriter Input { get; } = new StringWriter();
         public TextReader Output { get; } = new StringReader("PISTATION_SSH " + JsonSerializer.Serialize(info, ProtocolJsonContext.Default.SshHostInfo) + "\n");
         public bool HasExited { get; private set; }
         public string FailureMessage => "Test control exited.";

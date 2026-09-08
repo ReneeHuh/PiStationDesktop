@@ -216,6 +216,12 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
         OnPropertyChanged(nameof(CanCommit));
     }
 
+    internal bool Matches(GetProjectChangesResult result) =>
+        _isRepository == result.IsRepository && _headSha == result.HeadSha && _statusToken == result.StatusToken &&
+        (!result.IsRepository || BranchName == (string.IsNullOrWhiteSpace(result.BranchName) ? "Detached HEAD" : result.BranchName)) &&
+        (!result.IsRepository || BranchDetail == FormatBranchDetail(result)) &&
+        Changes.Select(change => change.Change).SequenceEqual(result.Changes);
+
     internal void ApplyRefs(ListGitRefsResult result)
     {
         var selectedName = SelectedBranch?.Name ?? BranchName;

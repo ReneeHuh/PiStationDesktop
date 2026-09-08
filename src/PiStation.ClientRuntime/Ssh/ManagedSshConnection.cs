@@ -15,6 +15,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
     private readonly Func<Uri, SshHostInfo, CancellationToken, Task> _probe;
     private readonly IProgress<string>? _progress;
     private readonly Func<SshPasswordRequest, CancellationToken, Task<string?>>? _requestPassword;
+    private readonly bool _allowHostStartup;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private ISshProcess? _control;
@@ -32,7 +33,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
 
     internal ManagedSshConnection(SshConnectionProfile profile, Func<ProcessStartInfo, ISshProcess> spawn,
         Func<Uri, SshHostInfo, CancellationToken, Task> probe, IProgress<string>? progress = null,
-        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null)
+        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null, bool allowHostStartup = false)
     {
         ArgumentNullException.ThrowIfNull(profile);
         profile.Validate();
@@ -41,6 +42,9 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         _probe = probe;
         _progress = progress;
         _requestPassword = requestPassword;
+        // Automatic installation/startup is deferred. The public connection path always
+        // discovers an already-running host; retain the internal implementation for later.
+        _allowHostStartup = allowHostStartup;
         using var reservation = new TcpListener(IPAddress.Loopback, 0);
         reservation.Server.ExclusiveAddressUse = true;
         reservation.Start();
@@ -92,12 +96,14 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             // If the forward is alive but health is gone, rediscover instead of retrying a
             // stale port forever. Ending this non-owning control does not stop the host.
             await StopProcessesAsync().ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(_profile.ServerPath))
+            if (_allowHostStartup && string.IsNullOrWhiteSpace(_profile.ServerPath))
                 _bundle ??= await SshHostBundle.LoadAsync(deadline.Token).ConfigureAwait(false);
             var info = await StartControlAsync(deadline.Token).ConfigureAwait(false);
             if (info.ProtocolVersion != Protocol.ProtocolVersion.Current || info.BootstrapVersion != SshHostInfo.CurrentBootstrapVersion)
                 throw new ConnectionValidationException(ConnectionFailure.Protocol, "The SSH host protocol is incompatible. Update its owning desktop or server.");
             info.Validate();
+            if (!_allowHostStartup && info.StartedByConnection)
+                throw new InvalidOperationException("SSH requires an already-running PiStation host. Start PiStation on the remote computer and retry.");
             if ((_profile.ExpectedEnvironmentId is { } expected && expected != info.EnvironmentId) ||
                 (_info is not null && _info.EnvironmentId != info.EnvironmentId))
                 throw new ConnectionValidationException(ConnectionFailure.Identity, "The SSH host environment identity changed. Check the host and data directory before connecting.");
@@ -108,14 +114,14 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             await StartForwardAsync(info, deadline.Token).ConfigureAwait(false);
             _info = info;
             var versionNotice = info.ServerVersion == Protocol.ProductVersion.Current ? string.Empty :
-                $" Host version: {info.ServerVersion ?? "unknown"}; desktop: {Protocol.ProductVersion.Current}. Use Update / reconnect for an owned server; update a reused host at its source.";
+                $" Host version: {info.ServerVersion ?? "unknown"}; desktop: {Protocol.ProductVersion.Current}. Update the running host from its owner.";
             _progress?.Report((info.StartedByConnection ? "SSH connected. This connection owns the host." :
                 $"SSH connected to the running {info.HostKind}. Its owner controls its lifetime.") + versionNotice);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_lifetime.IsCancellationRequested)
         {
             await CleanupFailedAttemptAsync(repairingForward).ConfigureAwait(false);
-            throw new TimeoutException("The SSH host did not become ready in time. Check the remote executable, Pi installation and port-forwarding permissions.");
+            throw new TimeoutException("The SSH host did not become ready in time. Start PiStation under the SSH account on the remote computer, check the host data directory and port-forwarding permissions, then retry.");
         }
         catch { await CleanupFailedAttemptAsync(repairingForward).ConfigureAwait(false); throw; }
         finally { _gate.Release(); }
@@ -123,14 +129,17 @@ public sealed class ManagedSshConnection : IAsyncDisposable
 
     private Task<SshHostInfo> StartControlAsync(CancellationToken cancellationToken) => WithAuthenticationAsync(async () =>
     {
-        _control = _spawn(SshCommands.Control(_profile, _authSecret));
+        // Read local helpers before starting SSH, so a missing helper cannot leave the
+        // remote session waiting on stdin while failure handling waits for its stderr.
+        var script = _allowHostStartup ? _bundle?.EncodedBootstrap(_profile) : SshRunningHostDiscovery.EncodedScript(_profile);
+        _control = _spawn(SshCommands.Control(_profile, _authSecret, _allowHostStartup));
         try
         {
-            if (_bundle is not null)
+            if (script is not null)
             {
                 try
                 {
-                    await _control.Input.WriteLineAsync(_bundle.EncodedBootstrap(_profile).AsMemory(), cancellationToken).ConfigureAwait(false);
+                    await _control.Input.WriteLineAsync(script.AsMemory(), cancellationToken).ConfigureAwait(false);
                     await _control.Input.FlushAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (IOException) { throw await FailureAsync(_control, cancellationToken).ConfigureAwait(false); }

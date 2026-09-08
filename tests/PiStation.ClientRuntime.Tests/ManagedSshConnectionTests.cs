@@ -13,7 +13,7 @@ public sealed class ManagedSshConnectionTests
     private static SshConnectionProfile Profile() => new(Guid.NewGuid(), "Windows workstation", "user@workstation",
         @"C:\Host's folder\PiStation.Server.exe", @"C:\PiStation data", null, null, ClientId.New());
     private static SshHostInfo Info() => new(SshHostInfo.CurrentBootstrapVersion, Protocol.ProtocolVersion.Current,
-        EnvironmentId.New(), "Host", 52742, new string('A', 64), new string('B', 64), true);
+        EnvironmentId.New(), "Host", 52742, new string('A', 64), new string('B', 64), false);
 
     [Theory]
     [InlineData("-oProxyCommand=bad")]
@@ -36,8 +36,10 @@ public sealed class ManagedSshConnectionTests
         Assert.Contains("StrictHostKeyChecking=yes", control.ArgumentList);
         Assert.Contains("ForwardAgent=no", control.ArgumentList);
         var script = Encoding.Unicode.GetString(Convert.FromBase64String(control.ArgumentList[^1]));
-        Assert.Contains(@"& 'C:\Host''s folder\PiStation.Server.exe' 'attach'", script, StringComparison.Ordinal);
-        Assert.Contains(@"'--data-root' 'C:\PiStation data'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain(profile.ServerPath, script, StringComparison.Ordinal);
+        var discovery = Encoding.UTF8.GetString(Convert.FromBase64String(SshRunningHostDiscovery.EncodedScript(profile)));
+        Assert.Contains(@"$dataRoot='C:\PiStation data'", discovery, StringComparison.Ordinal);
+        Assert.DoesNotContain("'attach'", discovery, StringComparison.Ordinal);
         var forward = SshCommands.Forward(profile, 32123, 52742);
         Assert.Contains("127.0.0.1:32123:127.0.0.1:52742", forward.ArgumentList);
         Assert.Contains("ExitOnForwardFailure=yes", forward.ArgumentList);
@@ -83,6 +85,36 @@ public sealed class ManagedSshConnectionTests
         Assert.Equal(commands[1].ArgumentList, commands[2].ArgumentList);
         await connection.DisposeAsync();
         Assert.All(spawned, process => Assert.True(process.Disposed));
+    }
+
+    [Fact]
+    public async Task EmptyServerPathUsesDiscoveryWithoutAHostBundleAndRejectsPackageRequests()
+    {
+        var process = new FakeProcess("PISTATION_PACKAGE " + new string('A', 64) + "\n");
+        var spawned = 0;
+        var prompts = 0;
+        await using var connection = new ManagedSshConnection(Profile() with { ServerPath = string.Empty },
+            _ => { spawned++; return process; }, (_, _, _) => Task.CompletedTask,
+            requestPassword: (_, _) => { prompts++; return Task.FromResult<string?>("unused"); });
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => connection.EnsureConnectedAsync());
+        Assert.Contains("Unexpected SSH package request", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(1, spawned);
+        Assert.Equal(0, prompts);
+        Assert.True(process.Disposed);
+        // Only the discovery script was written; no archive was transferred.
+        Assert.Single(process.Input.ToString()!.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task RejectsHostOwnershipInCurrentConnectionFlow()
+    {
+        var process = new FakeProcess(Handshake(Info() with { StartedByConnection = true }));
+        var spawned = 0;
+        await using var connection = new ManagedSshConnection(Profile(), _ => { spawned++; return process; }, (_, _, _) => Task.CompletedTask);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => connection.EnsureConnectedAsync());
+        Assert.Contains("already-running", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(1, spawned);
+        Assert.True(process.Disposed);
     }
 
     [Fact]
@@ -237,6 +269,7 @@ public sealed class ManagedSshConnectionTests
 
     private sealed class FakeProcess(string output) : ISshProcess
     {
+        public TextWriter Input { get; } = new StringWriter();
         public TextReader Output { get; } = new StringReader(output);
         public bool HasExited { get; set; }
         public bool HostKeyVerificationFailed { get; init; }

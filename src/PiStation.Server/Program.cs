@@ -30,7 +30,7 @@ internal static class Program
             if (args[0] == "update-manifest")
             {
                 Console.WriteLine(JsonSerializer.Serialize(new { version = typeof(EnvironmentService).Assembly.GetName().Version!.ToString(),
-                    protocolVersion = PiStation.Protocol.ProtocolVersion.Current, platform = "win-x64", databaseCompatibilityVersion = 1 }));
+                    protocolVersion = PiStation.Protocol.ProtocolVersion.Current, platform = "win-x64", databaseCompatibilityVersion = 1, startupWriteGateVersion = 1 }));
                 return 0;
             }
             if (args[0] == "supervise") return await ServerUpdateLauncher.RunAsync(args, lifetime.Token).ConfigureAwait(false);

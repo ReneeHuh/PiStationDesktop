@@ -148,7 +148,7 @@ public sealed class SshSetupTests
         var store = new SshConnectionStore(path);
         var migrated = Assert.Single(store.Load());
         Assert.Equal(@"%LOCALAPPDATA%\PiStation\ssh-host", migrated.DataRoot);
-        var script = Encoding.Unicode.GetString(Convert.FromBase64String(SshCommands.Control(migrated).ArgumentList[^1]));
+        var script = Encoding.UTF8.GetString(Convert.FromBase64String(SshRunningHostDiscovery.EncodedScript(migrated)));
         Assert.Contains("ExpandEnvironmentVariables", script, StringComparison.Ordinal);
         var added = Profile() with { Id = Guid.NewGuid(), ServerPath = string.Empty, Port = 2222 };
         store.Save(added);
@@ -157,11 +157,12 @@ public sealed class SshSetupTests
     }
 
     private static SshConnectionProfile Profile() => new(Guid.NewGuid(), "Test", "alias", "PiStation.Server.exe", null, null, null, ClientId.New());
-    private static SshHostInfo Info() => new(1, Protocol.ProtocolVersion.Current, EnvironmentId.New(), "Test", 23456, new string('A', 64), new string('B', 64), true);
+    private static SshHostInfo Info() => new(1, Protocol.ProtocolVersion.Current, EnvironmentId.New(), "Test", 23456, new string('A', 64), new string('B', 64), false);
     private static string Handshake(SshHostInfo info) => "PISTATION_SSH " + JsonSerializer.Serialize(info, ProtocolJsonContext.Default.SshHostInfo) + "\n";
 
     private sealed class AuthProcess(string output, bool denied) : ISshProcess
     {
+        public TextWriter Input { get; } = new StringWriter();
         public TextReader Output { get; } = new StringReader(output);
         public bool HasExited => denied || Disposed;
         public bool AuthenticationFailed => denied;

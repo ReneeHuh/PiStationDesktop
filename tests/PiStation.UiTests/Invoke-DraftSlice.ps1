@@ -146,6 +146,37 @@ try {
     Wait-UiValue -Selector 'DraftStatusText' -Value 'Saved'
     Wait-UiValue -Selector 'PromptInput' -Value 'Draft for thread two' -Property 'Value'
 
+    Invoke-Ui 'invoke' 'ToggleWorkbenchButton' | Out-Null
+    Invoke-Ui 'invoke' 'FilesPanelTab' | Out-Null
+    Invoke-Ui 'set-value' 'WorkbenchFileSearchInput' 'SearchTarget' | Out-Null
+    Wait-UiValue -Selector 'WorkbenchFileStatusText' -Value '1 project file'
+    Invoke-Ui 'invoke' 'SearchTarget.cs' | Out-Null
+    Wait-UiValue -Selector 'WorkbenchFilePreviewPathText' -Value 'src/SearchTarget.cs'
+    Invoke-Ui 'set-value' 'WorkbenchFileEditor' 'class RecoveredLocalEdits;' | Out-Null
+    Invoke-Ui 'invoke' 'SettingsButton' | Out-Null
+    Invoke-Ui 'invoke' 'SimulateTransportDropButton' | Out-Null
+    Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Disconnected'
+    Invoke-Ui 'set-value' 'PromptInput' 'Offline draft recovered after closing' | Out-Null
+
+    # Exercise the normal window-close path while the host cannot acknowledge either edit.
+    $closing = [Diagnostics.Process]::GetProcessById($script:launchedProcessId)
+    try {
+        if (-not $closing.CloseMainWindow()) { throw 'The fixture window did not accept Close.' }
+        if (-not $closing.WaitForExit(15000)) { throw 'The fixture did not close after preserving local edits.' }
+    } finally { $closing.Dispose() }
+    $script:launchedProcessId = $null
+    if ([IO.File]::ReadAllText((Join-Path $sourcePath 'SearchTarget.cs')).Trim() -ne 'class SearchTarget;') {
+        throw 'Unsaved recovery text was incorrectly written into the host workspace.'
+    }
+    Start-TestApp
+    Wait-UiValue -Selector 'ConnectionStatusText' -Value 'Local • Ready'
+    Invoke-Ui 'invoke' 'fixture-project' | Out-Null
+    Invoke-Ui 'wait-for' 'Thread 2' '--timeout' '10000' | Out-Null
+    Invoke-Ui 'invoke' 'Thread 2' | Out-Null
+    Wait-UiValue -Selector 'PromptInput' -Value 'Offline draft recovered after closing' -Property 'Value'
+    Invoke-Ui 'invoke' 'FilesPanelTab' | Out-Null
+    Wait-UiValue -Selector 'WorkbenchFileEditor' -Value 'class RecoveredLocalEdits;' -Property 'Value'
+
     $tree = Invoke-Ui 'inspect' '--depth' '10'
     Set-Content -LiteralPath (Join-Path $runRoot 'ui-tree.json') -Value $tree -Encoding utf8NoBOM
     Invoke-Ui 'screenshot' '--output' (Join-Path $runRoot 'draft-slice.png') '--focus' | Out-Null
