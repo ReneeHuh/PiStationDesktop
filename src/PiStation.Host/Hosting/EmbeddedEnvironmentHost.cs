@@ -79,6 +79,9 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
         application.UseWebSockets();
         application.Use((context, next) => LoopbackAuthentication.InvokeAsync(context, credential, next));
         application.MapPost(DraftAttachmentEndpoint.Route, DraftAttachmentEndpoint.HandleAsync);
+        application.MapGet(AttachmentDownloadEndpoint.Route, AttachmentDownloadEndpoint.HandleAsync);
+        SessionTransferEndpoints.Map(application, environment);
+        RemoteUpdateEndpoints.Map(application, environment);
         application.MapHub<EnvironmentHub>(HubPath, hub => hub.ApplicationMaxBufferSize = EnvironmentTransportLimits.MaximumHubMessageBytes);
         application.MapGet("/previews/{lease}/tunnel", environment.PreviewLeases.TunnelAsync);
         application.MapPost("/updates/{request}/package", environment.Updates.UploadAsync);

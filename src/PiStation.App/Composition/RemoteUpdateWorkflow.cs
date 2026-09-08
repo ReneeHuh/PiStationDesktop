@@ -11,11 +11,17 @@ internal static class RemoteUpdateWorkflow
     internal static async Task RunAsync(EnvironmentClient client, XamlRoot root, IProgress<string> progress,
         bool historyOnly, CancellationToken cancellationToken)
     {
-        if (client.ConnectionState != EnvironmentConnectionState.Connected) await client.ConnectAsync(cancellationToken);
-        var descriptor = await client.GetRemoteUpdateDescriptorAsync(cancellationToken);
+        await using var updates = client.CreateRemoteUpdateClient();
+        await RunAsync(updates, root, progress, historyOnly, cancellationToken);
+    }
+
+    internal static async Task RunAsync(RemoteUpdateClient client, XamlRoot root, IProgress<string> progress,
+        bool historyOnly, CancellationToken cancellationToken)
+    {
+        var descriptor = await client.GetDescriptorAsync(cancellationToken);
         if (historyOnly)
         {
-            var history = await client.GetRemoteUpdateHistoryAsync(cancellationToken);
+            var history = await client.GetHistoryAsync(cancellationToken);
             if (history.Length == 0) { progress.Report("No update requests for this device."); return; }
             var latest = history[0];
             progress.Report(Describe(latest));
@@ -27,7 +33,7 @@ internal static class RemoteUpdateWorkflow
                 using var registration = cancellationToken.Register(() => root.Content.DispatcherQueue.TryEnqueue(cancel.Hide));
                 var choice = await ((App)Application.Current).ShowConnectionDialogAsync(cancel, cancellationToken);
                 if (choice == ContentDialogResult.Primary)
-                    progress.Report(Describe(await client.CancelRemoteUpdateAsync(latest.RequestId, cancellationToken)));
+                    progress.Report(Describe(await client.CancelAsync(latest.RequestId, cancellationToken)));
                 else if (choice == ContentDialogResult.Secondary)
                     await FollowAsync(client, latest.RequestId, root, progress, cancellationToken);
             }
@@ -49,7 +55,7 @@ internal static class RemoteUpdateWorkflow
         RemoteUpdateReceipt receipt;
         try
         {
-            receipt = await client.StageRemoteUpdateAsync(file.Path, id,
+            receipt = await client.StageAsync(file.Path, id,
                 new Progress<long>(bytes => progress.Report($"Uploading {bytes / (1024 * 1024)} MiB · {id:D}")), cancellationToken);
         }
         catch
@@ -69,11 +75,11 @@ internal static class RemoteUpdateWorkflow
         if (await ((App)Application.Current).ShowConnectionDialogAsync(dialog, cancellationToken) != ContentDialogResult.Primary || cancellationToken.IsCancellationRequested)
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await client.CancelRemoteUpdateAsync(id, cleanup.Token);
+            await client.CancelAsync(id, cleanup.Token);
             progress.Report("Update canceled before activation.");
             return;
         }
-        try { receipt = await client.CommitRemoteUpdateAsync(new(id, interrupt.IsChecked == true), cancellationToken); }
+        try { receipt = await client.CommitAsync(new(id, interrupt.IsChecked == true), cancellationToken); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             progress.Report($"Stopped checking. Activation may already have been accepted; check request {id:D} before retrying.");
@@ -86,7 +92,7 @@ internal static class RemoteUpdateWorkflow
         await FollowAsync(client, id, root, progress, cancellationToken);
     }
 
-    private static async Task FollowAsync(EnvironmentClient client, Guid id, XamlRoot root,
+    private static async Task FollowAsync(RemoteUpdateClient client, Guid id, XamlRoot root,
         IProgress<string> progress, CancellationToken cancellationToken)
     {
         var text = new TextBlock { Text = $"Checking update {id:D}…", TextWrapping = TextWrapping.Wrap };
@@ -103,11 +109,10 @@ internal static class RemoteUpdateWorkflow
         {
             try
             {
-                if (client.ConnectionState != EnvironmentConnectionState.Connected) await client.ConnectAsync(token);
-                return await client.GetRemoteUpdateReceiptAsync(id, token);
+                return await client.GetReceiptAsync(id, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch when (client.ConnectionState is not (EnvironmentConnectionState.AuthenticationRequired or EnvironmentConnectionState.TrustRequired or EnvironmentConnectionState.Incompatible))
+            catch (Exception error) when (error is HttpRequestException { StatusCode: null or System.Net.HttpStatusCode.BadGateway or System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.GatewayTimeout } or TimeoutException)
             {
                 return null;
             }
@@ -128,7 +133,7 @@ internal static class RemoteUpdateWorkflow
                 dialog.Hide();
             }
             else if (await shown == ContentDialogResult.Primary)
-                progress.Report(Describe(await client.CancelRemoteUpdateAsync(id, cancellationToken)));
+                progress.Report(Describe(await client.CancelAsync(id, cancellationToken)));
             else progress.Report($"Stopped checking update {id:D}. The host keeps processing it; use Check update status to resume.");
         }
         catch (OperationCanceledException) when (monitor.IsCancellationRequested)

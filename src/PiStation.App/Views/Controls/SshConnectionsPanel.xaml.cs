@@ -12,12 +12,17 @@ public sealed partial class SshConnectionsPanel : UserControl
     private CancellationTokenSource? _operation;
     private bool _active;
     private IReadOnlyList<DiscoveredSshHost> _discovered = [];
+    private readonly Dictionary<SshSetupStep, SshSetupCheck> _setupChecks = [];
+    private int _setupGeneration;
     private static App? CurrentApp => Application.Current as App;
     public SshConnectionsPanel() => InitializeComponent();
 
     public async void Activate()
     {
         _active = true;
+        _setupGeneration++;
+        SetupResults.Visibility = Visibility.Collapsed;
+        _setupChecks.Clear();
         try { RefreshSaved(); await DiscoverAsync(); }
         catch (Exception exception) { Status.Text = exception.Message; }
     }
@@ -25,6 +30,7 @@ public sealed partial class SshConnectionsPanel : UserControl
     public void Deactivate()
     {
         _active = false;
+        _setupGeneration++;
         if (CurrentApp?.IsReplacingWindow(XamlRoot) != true) _operation?.Cancel();
     }
 
@@ -41,9 +47,11 @@ public sealed partial class SshConnectionsPanel : UserControl
     private void SetBusy(bool busy)
     {
         AddConnection.IsEnabled = !busy;
+        CheckSetup.IsEnabled = !busy;
         CancelConnection.IsEnabled = busy;
         var selected = SavedConnections.SelectedItem is SshConnectionProfile;
         OpenConnection.IsEnabled = DisconnectConnection.IsEnabled = ForgetConnection.IsEnabled = !busy && selected;
+        CheckSavedSetup.IsEnabled = !busy && selected;
         UpdateConnection.IsEnabled = false; // Automatic setup is deferred.
         ConnectionName.IsEnabled = Target.IsEnabled = ServerPath.IsEnabled = DataRoot.IsEnabled = PiExecutable.IsEnabled = !busy;
         SshPort.IsEnabled = DiscoveredHosts.IsEnabled = DiscoverHosts.IsEnabled = !busy;
@@ -77,14 +85,60 @@ public sealed partial class SshConnectionsPanel : UserControl
         return CurrentApp?.OpenSshEnvironmentAsync(profile, progress, cancellationToken, XamlRoot) ?? Task.CompletedTask;
     }
 
-    private async void OnAddConnection(object sender, RoutedEventArgs e) => await RunAsync(cancellationToken =>
+    private SshConnectionProfile ReadProfile()
     {
         var profile = new SshConnectionProfile(Guid.NewGuid(),
             string.IsNullOrWhiteSpace(ConnectionName.Text) ? Target.Text.Trim() : ConnectionName.Text.Trim(),
             Target.Text.Trim(), ServerPath.Text.Trim(), EmptyToNull(DataRoot.Text), EmptyToNull(PiExecutable.Text), null, ClientId.New(), ReadPort());
         profile.Validate();
-        return OpenAsync(profile, cancellationToken);
-    });
+        return profile;
+    }
+
+    private async void OnAddConnection(object sender, RoutedEventArgs e) => await RunAsync(token => OpenAsync(ReadProfile(), token));
+
+    private async void OnCheckSetup(object sender, RoutedEventArgs e) => await RunAsync(token => CheckSetupAsync(ReadProfile(), token));
+
+    private async void OnCheckSavedSetup(object sender, RoutedEventArgs e) => await RunAsync(token =>
+        SavedConnections.SelectedItem is SshConnectionProfile profile ? CheckSetupAsync(profile, token) : Task.CompletedTask);
+
+    private async Task CheckSetupAsync(SshConnectionProfile profile, CancellationToken cancellationToken)
+    {
+        if (CurrentApp is not { } app) return;
+        var generation = ++_setupGeneration;
+        _setupChecks.Clear();
+        foreach (var step in Enum.GetValues<SshSetupStep>()) _setupChecks[step] = new(step, SshSetupState.NotChecked, string.Empty);
+        SetupTarget.Text = $"Setup check · {profile.Target}{(profile.Port is { } port ? $" · port {port}" : string.Empty)}\nHost data: {profile.DataRoot ?? "remote desktop's default directory"}";
+        SetupResults.Visibility = Visibility.Visible;
+        RefreshSetupChecks();
+        // Dispatch synchronously on the UI thread when already there. A posted callback
+        // must still belong to this check and settings visit before it can update results.
+        var checks = new SetupProgress(check =>
+        {
+            void Apply()
+            {
+                if (!_active || generation != _setupGeneration) return;
+                _setupChecks[check.Step] = check;
+                RefreshSetupChecks();
+            }
+            if (DispatcherQueue.HasThreadAccess) Apply();
+            else DispatcherQueue.TryEnqueue(Apply);
+        });
+        var finished = false;
+        var progress = new Progress<string>(message => { if (_active && generation == _setupGeneration && !finished) Status.Text = message; });
+        await using var connection = new ManagedSshConnection(profile, progress,
+            (request, token) => app.RequestSshPasswordAsync(profile.Id, request, XamlRoot, token), checks);
+        try { await connection.EnsureConnectedAsync(cancellationToken); }
+        finally { finished = true; }
+        if (_active && generation == _setupGeneration)
+            Status.Text = "SSH setup passed. The temporary check connection is closing; the remote PiStation host stays running.";
+    }
+
+    private void RefreshSetupChecks() => SetupChecks.ItemsSource = _setupChecks.OrderBy(pair => pair.Key).Select(pair => pair.Value.DisplayText).ToArray();
+
+    private sealed class SetupProgress(Action<SshSetupCheck> report) : IProgress<SshSetupCheck>
+    {
+        public void Report(SshSetupCheck value) => report(value);
+    }
 
     private async void OnOpenConnection(object sender, RoutedEventArgs e) => await RunAsync(token =>
         SavedConnections.SelectedItem is SshConnectionProfile profile ? OpenAsync(profile, token) : Task.CompletedTask);
@@ -134,13 +188,15 @@ public sealed partial class SshConnectionsPanel : UserControl
 
     private async void OnInstallOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(false, token));
     private async void OnCheckOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(true, token));
-    private Task RunOwnerUpdateAsync(bool historyOnly, CancellationToken cancellationToken)
+    private async Task RunOwnerUpdateAsync(bool historyOnly, CancellationToken cancellationToken)
     {
-        if (SavedConnections.SelectedItem is not SshConnectionProfile profile) return Task.CompletedTask;
-        var client = CurrentApp?.FindRemoteClient("ssh:" + profile.Id)
-            ?? throw new InvalidOperationException("Open this SSH environment first, then manage its host update.");
-        return PiStation.App.Composition.RemoteUpdateWorkflow.RunAsync(client, XamlRoot,
-            new Progress<string>(message => Status.Text = message), historyOnly, cancellationToken);
+        if (SavedConnections.SelectedItem is not SshConnectionProfile profile || CurrentApp is not { } app) return;
+        var progress = new Progress<string>(message => { if (_active) Status.Text = message; });
+        await using var connection = ManagedSshConnection.ForHostUpdate(profile, progress,
+            (request, token) => app.RequestSshPasswordAsync(profile.Id, request, XamlRoot, token));
+        await connection.EnsureConnectedAsync(cancellationToken);
+        await using var updates = new PiStation.ClientRuntime.RemoteUpdateClient(connection.CreateOptions());
+        await PiStation.App.Composition.RemoteUpdateWorkflow.RunAsync(updates, XamlRoot, progress, historyOnly, cancellationToken);
     }
 
     private async void OnDiscoverHosts(object sender, RoutedEventArgs e) => await RunAsync(async _ =>

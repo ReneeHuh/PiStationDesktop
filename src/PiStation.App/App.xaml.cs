@@ -232,7 +232,7 @@ public partial class App : Application
 
     internal bool IsReplacingWindow(XamlRoot root) => _remoteReplacementCloses.Any(window => window.Content?.XamlRoot == root);
 
-    private Task<string?> RequestSshPasswordAsync(Guid profileId, SshPasswordRequest request,
+    internal Task<string?> RequestSshPasswordAsync(Guid profileId, SshPasswordRequest request,
         XamlRoot? preferredRoot, CancellationToken cancellationToken)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);

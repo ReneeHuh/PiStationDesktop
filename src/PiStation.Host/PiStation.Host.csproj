@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PiStation.Host.Tests" />
+    <InternalsVisibleTo Include="PiStation.ClientRuntime.Tests" />
   </ItemGroup>
 
 </Project>

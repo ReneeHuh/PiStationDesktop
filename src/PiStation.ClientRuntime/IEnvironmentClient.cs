@@ -7,6 +7,11 @@ namespace PiStation.ClientRuntime;
 
 public interface IEnvironmentClient : IAsyncDisposable
 {
+    Task<BrowserAutomationSession> OpenBrowserAutomationAsync(OpenBrowserAutomationRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This host does not support browser automation transport.");
+    Task<string> GetAttachmentFileAsync(DraftAttachment attachment, string cacheRoot, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This host does not support attachment downloads.");
+
     Task<SourceControlWritingSettings> GetSourceControlWritingSettingsAsync(CancellationToken cancellationToken = default);
     Task<ReadArtifactFileResult> ReadArtifactFileAsync(ReadArtifactFileRequest request, CancellationToken cancellationToken = default);
     Task<SourceControlWritingSettings> SaveSourceControlWritingSettingsAsync(SourceControlWritingSettings settings, CancellationToken cancellationToken = default);
@@ -127,6 +132,11 @@ public interface IEnvironmentClient : IAsyncDisposable
         throw new NotSupportedException("Session pagination is unavailable in this client.");
     Task<ThreadDescriptor> CopyPiSessionAsync(CopyPiSessionRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default);
+    Task<ThreadDescriptor> ImportPiSessionFileAsync(PiSessionImportFile import, IProgress<long>? progress = null, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This client does not support session file transfers.");
+    Task<PiSessionExportResult> DownloadPiSessionAsync(ThreadId threadId, string destinationPath, PiSessionExportFormat format,
+        IProgress<long>? progress = null, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This client does not support session file transfers.");
     Task<PiSetupTerminalResult> StartPiSetupAsync(StartPiSetupRequest request, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<HostingOperation>> ListHostingOperationsAsync(CancellationToken cancellationToken = default);

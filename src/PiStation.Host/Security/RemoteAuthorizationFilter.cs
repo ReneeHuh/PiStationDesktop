@@ -26,6 +26,10 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
             [nameof(EnvironmentHub.CancelRemoteUpdate)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.DiscoverProjectPreviewServers)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.OpenPreview)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.OpenBrowserAutomation)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.PollBrowserAutomation)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CompleteBrowserAutomation)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CloseBrowserAutomation)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.RenewPreview)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.ClosePreview)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.SearchProjectFiles)] = RemoteAccessLevel.ReadOnly,
@@ -131,7 +135,7 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
             var capabilities = descriptor.Capabilities.Where(c => c != "editor.open");
             if (authorization.Device.AccessLevel == RemoteAccessLevel.ReadOnly)
                 capabilities = capabilities.Where(c => c.EndsWith(".read", StringComparison.Ordinal) ||
-                    c.Contains("search", StringComparison.Ordinal) || c is "file.artifacts" or "file.assets" or "git.refs" or "git.worktrees");
+                    c.Contains("search", StringComparison.Ordinal) || c is "file.artifacts" or "file.assets" or "git.refs" or "git.worktrees" or "attachment.download");
             return descriptor with { Capabilities = capabilities.Append("remote.access").ToArray() };
         }
         return result;

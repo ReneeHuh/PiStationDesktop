@@ -11,7 +11,7 @@ public sealed class RemoteUpdateDrainFilter(EnvironmentService environment) : IH
     {
         var context = invocationContext;
         var allowed = RemoteAuthorizationFilter.MethodAccess.TryGetValue(context.HubMethodName, out var access) && access == RemoteAccessLevel.ReadOnly ||
-            context.HubMethodName is nameof(EnvironmentHub.CommitRemoteUpdate) or nameof(EnvironmentHub.CancelRemoteUpdate) or nameof(EnvironmentHub.ClosePreview);
+            context.HubMethodName is nameof(EnvironmentHub.CommitRemoteUpdate) or nameof(EnvironmentHub.CancelRemoteUpdate) or nameof(EnvironmentHub.ClosePreview) or nameof(EnvironmentHub.CloseBrowserAutomation);
         RemoteUpdateCoordinator.OperationLease? lease;
         try { lease = environment.Updates.EnterOperation(allowed); }
         catch (InvalidOperationException)

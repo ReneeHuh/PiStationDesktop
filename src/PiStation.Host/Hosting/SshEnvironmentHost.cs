@@ -140,7 +140,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
                 { await next(context).ConfigureAwait(false); return; }
                 var authorization = access.Authenticate(credential);
                 if (authorization is null) { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
-                if ((context.Request.Path.StartsWithSegments("/threads") || context.Request.Path.StartsWithSegments("/previews") || context.Request.Path.StartsWithSegments("/updates")) && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
+                if ((context.Request.Path.StartsWithSegments("/session-transfers") || context.Request.Path.StartsWithSegments("/threads") || context.Request.Path.StartsWithSegments("/previews") || context.Request.Path.StartsWithSegments("/updates")) && authorization.Device.AccessLevel != RemoteAccessLevel.Operate)
                 { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
                 context.Items[RemoteAuthorizationFilter.AuthorizationItem] = authorization;
                 using var revoked = authorization.Revoked.Register(context.Abort);
@@ -148,6 +148,9 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
             });
             app.MapGet("/ssh/health", () => "ready");
             app.MapPost(DraftAttachmentEndpoint.Route, (Microsoft.AspNetCore.Http.HttpContext context) => DraftAttachmentEndpoint.HandleAsync(context, environment));
+            app.MapGet(AttachmentDownloadEndpoint.Route, (Microsoft.AspNetCore.Http.HttpContext context) => AttachmentDownloadEndpoint.HandleAsync(context, environment));
+            SessionTransferEndpoints.Map(app, environment);
+            RemoteUpdateEndpoints.Map(app, environment);
             app.MapHub<EnvironmentHub>(EmbeddedEnvironmentHost.HubPath, hub => hub.ApplicationMaxBufferSize = EnvironmentTransportLimits.MaximumHubMessageBytes);
             app.MapGet("/previews/{lease}/tunnel", environment.PreviewLeases.TunnelAsync);
             app.MapPost("/updates/{request}/package", environment.Updates.UploadAsync);

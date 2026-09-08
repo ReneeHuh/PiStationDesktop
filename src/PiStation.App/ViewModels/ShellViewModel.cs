@@ -37,6 +37,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private long _threadSearchVersion;
     private readonly bool _uiTestFaultControlsEnabled;
     private readonly string _previewCaptureRoot;
+    private readonly string _attachmentCacheRoot;
     private readonly string _browserAutomationRoot;
     private ThreadRuntimeState? _lastProjectionRuntimeState;
     private readonly EditingRecoveryStore? _editingRecovery;
@@ -50,6 +51,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
         _uiTestFaultControlsEnabled = enableUiTestFaultControls;
+        _attachmentCacheRoot = Path.Combine(layoutSettingsPath is null
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PiStationDesktop")
+            : Path.GetDirectoryName(Path.GetFullPath(layoutSettingsPath))!, "attachment-cache");
         _previewCaptureRoot = Path.GetFullPath(previewCaptureRoot ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PiStationDesktop",
@@ -237,7 +241,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
         !_commandPending;
 
-    public bool IsConnected => _client?.ConnectionState == EnvironmentConnectionState.Connected;
+    public bool IsConnected => !_runtimeStopped && _client?.ConnectionState == EnvironmentConnectionState.Connected;
 
     public bool CanAddProject =>
         CanOperate &&
@@ -336,6 +340,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_client.Catalog is { } catalog) catalog.Changed += OnCatalogChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;
         _client.ThreadMetadata.Changed += OnThreadMetadataChanged;
+        PiSessions.AllowOperations = CanOperate && IsConnected;
+        _ = RestorePendingSessionImportAsync();
+        OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
     }
 
     public async Task LoadProjectsAsync(CancellationToken cancellationToken = default)
@@ -3461,10 +3468,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         await RunOnUiThreadAsync(() =>
         {
             _runtimeStopped = true;
+            _sessionTransferCancellation?.Cancel();
             SetWindowActive(false);
             WorkbenchFiles.SetWriteAccess(false);
             OnPropertyChanged(nameof(CanOperate));
             OnPropertyChanged(nameof(IsReadOnly));
+            OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(IsComposerReadOnly));
             RaiseCommandStateChanged();
         }).ConfigureAwait(false);
@@ -3612,6 +3621,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Connection.Status = $"{EnvironmentLabel} • {state}";
             if (args.Diagnostics is { State: EnvironmentConnectionState.Retrying } diagnostics)
                 Connection.Status += $" · attempt {diagnostics.Attempt} · {diagnostics.Failure}";
+            OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(CanOperate));
             OnPropertyChanged(nameof(IsReadOnly));
             OnPropertyChanged(nameof(IsComposerReadOnly));
@@ -3623,6 +3633,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 ClearTransportError();
                 UpdateThreadSynchronizationStatus();
                 _ = RefreshRemoteWorkspaceAsync();
+                _ = RestorePendingSessionImportAsync();
             }
             else if (IsRemote && args.State == EnvironmentConnectionState.AuthenticationRequired && args.Error is PiStation.ClientRuntime.ConnectionValidationException)
             {
@@ -3811,6 +3822,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RaiseCommandStateChanged()
     {
+        OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
+        PiSessions.AllowOperations = CanOperate && IsConnected;
         OnPropertyChanged(nameof(CanStartBackgroundTask));
         Plan.SetCommandsAvailable(CanOperate && _client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);
         Agents.SetCommandsAvailable(CanOperate && _client?.ConnectionState == EnvironmentConnectionState.Connected && !_commandPending && !Connection.HasUncertainCommand);

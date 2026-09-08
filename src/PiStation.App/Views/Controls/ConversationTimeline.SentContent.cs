@@ -13,39 +13,14 @@ namespace PiStation.App.Views.Controls;
 public sealed partial class ConversationTimeline
 {
     private bool _sentAttachmentActionBusy;
+    private CancellationTokenSource? _sentAttachmentCancellation;
 
-    private void OnSentVideoContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
-    {
-        OnSentVideoUnloaded(sender, new RoutedEventArgs());
-        if (sender.IsLoaded) OnSentVideoLoaded(sender, new RoutedEventArgs());
-    }
+    private void OnSentMediaContextChanged(FrameworkElement sender, DataContextChangedEventArgs args) =>
+        AttachmentMediaLoader.Start(sender, ViewModel);
 
-    private async void OnSentVideoLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MediaPlayerElement { DataContext: DraftAttachmentViewModel { IsVideo: true } attachment } player) return;
-        var request = new object();
-        player.Tag = request;
-        try
-        {
-            await PiStation.ClientRuntime.SentAttachmentAccess.VerifyAsync(attachment.Attachment);
-            var file = await StorageFile.GetFileFromPathAsync(attachment.Attachment.ServerPath);
-            if (!player.IsLoaded || player.DataContext != attachment || !ReferenceEquals(player.Tag, request)) return;
-            var previous = player.Source;
-            player.Source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-            (previous as IDisposable)?.Dispose();
-        }
-        catch (Exception error) { ViewModel.ComposerPower.Status = $"Video unavailable: {error.Message}"; }
-    }
+    private void OnSentMediaLoaded(object sender, RoutedEventArgs e) => AttachmentMediaLoader.Start(sender, ViewModel);
 
-    private void OnSentVideoUnloaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MediaPlayerElement player) return;
-        player.Tag = null;
-        player.MediaPlayer?.Pause();
-        var source = player.Source;
-        player.Source = null;
-        (source as IDisposable)?.Dispose();
-    }
+    private void OnSentMediaUnloaded(object sender, RoutedEventArgs e) => AttachmentMediaLoader.Stop(sender);
 
     private async void OnOpenSentCitation(object sender, RoutedEventArgs e)
     {
@@ -53,15 +28,20 @@ public sealed partial class ConversationTimeline
             await ViewModel.RevealComposerContextAsync(citation);
     }
 
-    private async Task WithSentAttachmentAsync(object sender, Func<DraftAttachmentViewModel, Task> action)
+    private async Task WithSentAttachmentAsync(object sender, Func<DraftAttachmentViewModel, string, Task> action)
     {
         if (_sentAttachmentActionBusy || sender is not FrameworkElement { DataContext: DraftAttachmentViewModel attachment }) return;
         _sentAttachmentActionBusy = true;
+        using var request = new CancellationTokenSource();
+        _sentAttachmentCancellation = request;
         try
         {
-            await PiStation.ClientRuntime.SentAttachmentAccess.VerifyAsync(attachment.Attachment);
-            await action(attachment);
+            var path = await ViewModel.GetAttachmentFileAsync(attachment.Attachment, request.Token);
+            request.Token.ThrowIfCancellationRequested();
+            if (!IsLoaded || sender is not FrameworkElement element || !ReferenceEquals(element.DataContext, attachment)) return;
+            await action(attachment, path);
         }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (Exception exception)
         {
             ViewModel.ComposerPower.Status = $"Attachment unavailable: {exception.Message}";
@@ -75,35 +55,35 @@ public sealed partial class ConversationTimeline
                 catch (Exception) { /* A different window-level dialog may already be open; status remains available. */ }
             }
         }
-        finally { _sentAttachmentActionBusy = false; }
+        finally { _sentAttachmentActionBusy = false; _sentAttachmentCancellation = null; }
     }
 
     private async void OnOpenSentAttachment(object sender, RoutedEventArgs e) =>
-        await WithSentAttachmentAsync(sender, async attachment =>
+        await WithSentAttachmentAsync(sender, async (attachment, path) =>
         {
             // Opening arbitrary attachments can launch programs; make this an explicit action.
             var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Open attachment?",
                 Content = $"Open {attachment.FileName} with its Windows application? Only open files you trust.",
                 PrimaryButtonText = "Open", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
             if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
-            var file = await StorageFile.GetFileFromPathAsync(attachment.Attachment.ServerPath);
+            var file = await StorageFile.GetFileFromPathAsync(path);
             if (!await Launcher.LaunchFileAsync(file)) throw new IOException("Windows could not open this file. Try Save as instead.");
         });
 
     private async void OnCopySentAttachmentPath(object sender, RoutedEventArgs e) =>
-        await WithSentAttachmentAsync(sender, attachment =>
+        await WithSentAttachmentAsync(sender, (attachment, path) =>
         {
             var data = new DataPackage();
-            data.SetText(attachment.Attachment.ServerPath);
+            data.SetText(path);
             Clipboard.SetContent(data);
             return Task.CompletedTask;
         });
 
     private async void OnSaveSentAttachment(object sender, RoutedEventArgs e) =>
-        await WithSentAttachmentAsync(sender, async attachment =>
+        await WithSentAttachmentAsync(sender, async (attachment, path) =>
         {
-            if ((Application.Current as App)?.MainWindow is not { } window) return;
-            var source = await StorageFile.GetFileFromPathAsync(attachment.Attachment.ServerPath);
+            if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window) return;
+            var source = await StorageFile.GetFileFromPathAsync(path);
             var picker = new FileSavePicker { SuggestedFileName = attachment.FileName };
             var extension = Path.GetExtension(attachment.FileName);
             picker.FileTypeChoices.Add("Attachment", [string.IsNullOrEmpty(extension) ? ".bin" : extension]);
@@ -114,10 +94,10 @@ public sealed partial class ConversationTimeline
         });
 
     private async void OnPreviewSentAttachment(object sender, RoutedEventArgs e) =>
-        await WithSentAttachmentAsync(sender, async attachment =>
+        await WithSentAttachmentAsync(sender, async (attachment, path) =>
         {
             if (!attachment.IsImage) return;
-            var file = await StorageFile.GetFileFromPathAsync(attachment.Attachment.ServerPath);
+            var file = await StorageFile.GetFileFromPathAsync(path);
             using var stream = await file.OpenReadAsync();
             var bitmap = new BitmapImage { DecodePixelWidth = 1600 };
             await bitmap.SetSourceAsync(stream);

@@ -1,5 +1,7 @@
 # Read the running host's discovery pipe over SSH. This script never starts a host.
 $ErrorActionPreference = 'Stop'
+[Console]::Out.WriteLine('PISTATION_SSH_AUTHENTICATED')
+[Console]::Out.Flush()
 $pipe = $null
 $reader = $null
 try {

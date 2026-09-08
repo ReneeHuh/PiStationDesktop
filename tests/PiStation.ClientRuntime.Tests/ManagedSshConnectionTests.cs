@@ -207,6 +207,49 @@ public sealed class ManagedSshConnectionTests
         Assert.True(process.Disposed);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnlyMaintenanceTunnelsAllowWorkspaceProtocolMismatch(bool maintenance)
+    {
+        var info = Info() with { ProtocolVersion = 999 };
+        var processes = new List<FakeProcess>();
+        await using var connection = new ManagedSshConnection(Profile() with { ExpectedEnvironmentId = info.EnvironmentId }, start =>
+        {
+            var process = new FakeProcess(start.ArgumentList.Contains("-N") ? "" : Handshake(info));
+            processes.Add(process);
+            return process;
+        }, (_, _, _) => Task.CompletedTask, maintenanceOnly: maintenance);
+        if (maintenance)
+        {
+            await connection.EnsureConnectedAsync();
+            Assert.Equal(2, processes.Count);
+            Assert.Equal(info.EnvironmentId, connection.CreateOptions().ExpectedEnvironmentId);
+            Assert.False(connection.Info.StartedByConnection);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<ConnectionValidationException>(() => connection.EnsureConnectedAsync());
+            Assert.Single(processes);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MaintenanceStillRejectsBootstrapAndEnvironmentIdentityMismatch(bool bootstrap)
+    {
+        var info = Info() with { ProtocolVersion = 999, BootstrapVersion = bootstrap ? 999 : 1 };
+        var process = new FakeProcess(Handshake(info));
+        var spawned = 0;
+        await using var connection = new ManagedSshConnection(Profile() with { ExpectedEnvironmentId = EnvironmentId.New() }, _ =>
+        { spawned++; return process; }, (_, _, _) => Task.CompletedTask, maintenanceOnly: true);
+        var error = await Assert.ThrowsAsync<ConnectionValidationException>(() => connection.EnsureConnectedAsync());
+        Assert.Equal(bootstrap ? ConnectionFailure.Protocol : ConnectionFailure.Identity, error.Failure);
+        Assert.Equal(1, spawned);
+        Assert.True(process.Disposed);
+    }
+
     [Fact]
     public async Task CancellationDuringReadinessCleansBothProcesses()
     {

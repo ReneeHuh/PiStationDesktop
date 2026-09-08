@@ -14,8 +14,13 @@ public sealed class ManagedSshConnection : IAsyncDisposable
     private readonly Func<ProcessStartInfo, ISshProcess> _spawn;
     private readonly Func<Uri, SshHostInfo, CancellationToken, Task> _probe;
     private readonly IProgress<string>? _progress;
+    private readonly IProgress<SshSetupCheck>? _setupProgress;
+    private SshSetupStep _setupStep;
+    private SshSetupFailure? _setupFailure;
+    private readonly Dictionary<SshSetupStep, SshSetupState> _setupStates = [];
     private readonly Func<SshPasswordRequest, CancellationToken, Task<string?>>? _requestPassword;
     private readonly bool _allowHostStartup;
+    private readonly bool _maintenanceOnly;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private ISshProcess? _control;
@@ -28,12 +33,17 @@ public sealed class ManagedSshConnection : IAsyncDisposable
     private SshHostBundle? _bundle;
 
     public ManagedSshConnection(SshConnectionProfile profile, IProgress<string>? progress = null,
-        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null)
-        : this(profile, start => new SshProcess(start), ProbeAsync, progress, requestPassword) { }
+        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null, IProgress<SshSetupCheck>? setupProgress = null)
+        : this(profile, start => new SshProcess(start), ProbeAsync, progress, requestPassword, setupProgress: setupProgress) { }
+
+    public static ManagedSshConnection ForHostUpdate(SshConnectionProfile profile, IProgress<string>? progress = null,
+        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null) =>
+        new(profile, start => new SshProcess(start), ProbeAsync, progress, requestPassword, maintenanceOnly: true);
 
     internal ManagedSshConnection(SshConnectionProfile profile, Func<ProcessStartInfo, ISshProcess> spawn,
         Func<Uri, SshHostInfo, CancellationToken, Task> probe, IProgress<string>? progress = null,
-        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null, bool allowHostStartup = false)
+        Func<SshPasswordRequest, CancellationToken, Task<string?>>? requestPassword = null, bool allowHostStartup = false, bool maintenanceOnly = false,
+        IProgress<SshSetupCheck>? setupProgress = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         profile.Validate();
@@ -41,10 +51,12 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         _spawn = spawn;
         _probe = probe;
         _progress = progress;
+        _setupProgress = setupProgress;
         _requestPassword = requestPassword;
         // Automatic installation/startup is deferred. The public connection path always
         // discovers an already-running host; retain the internal implementation for later.
         _allowHostStartup = allowHostStartup;
+        _maintenanceOnly = maintenanceOnly;
         using var reservation = new TcpListener(IPAddress.Loopback, 0);
         reservation.Server.ExclusiveAddressUse = true;
         reservation.Start();
@@ -73,6 +85,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            _setupFailure = null;
             if (_control is { HasExited: false } && _forward is { HasExited: false } && _info is not null)
             {
                 try { await _probe(Address, _info, deadline.Token).ConfigureAwait(false); return; }
@@ -96,12 +109,17 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             // If the forward is alive but health is gone, rediscover instead of retrying a
             // stale port forever. Ending this non-owning control does not stop the host.
             await StopProcessesAsync().ConfigureAwait(false);
+            foreach (var step in Enum.GetValues<SshSetupStep>()) ReportSetup(step, SshSetupState.NotChecked);
+            ReportSetup(SshSetupStep.Client, SshSetupState.Checking, "Starting the local OpenSSH client…");
             if (_allowHostStartup && string.IsNullOrWhiteSpace(_profile.ServerPath))
                 _bundle ??= await SshHostBundle.LoadAsync(deadline.Token).ConfigureAwait(false);
             var info = await StartControlAsync(deadline.Token).ConfigureAwait(false);
-            if (info.ProtocolVersion != Protocol.ProtocolVersion.Current || info.BootstrapVersion != SshHostInfo.CurrentBootstrapVersion)
+            Authenticated();
+            ReportSetup(SshSetupStep.Host, SshSetupState.Passed, "A running PiStation host responded under this SSH account.");
+            ReportSetup(SshSetupStep.Compatibility, SshSetupState.Checking, "Checking the host version and saved environment identity…");
+            if (!_maintenanceOnly && info.ProtocolVersion != Protocol.ProtocolVersion.Current || info.BootstrapVersion != SshHostInfo.CurrentBootstrapVersion)
                 throw new ConnectionValidationException(ConnectionFailure.Protocol, "The SSH host protocol is incompatible. Update its owning desktop or server.");
-            info.Validate();
+            info.Validate(requireCompatibleVersion: !_maintenanceOnly);
             if (!_allowHostStartup && info.StartedByConnection)
                 throw new InvalidOperationException("SSH requires an already-running PiStation host. Start PiStation on the remote computer and retry.");
             if ((_profile.ExpectedEnvironmentId is { } expected && expected != info.EnvironmentId) ||
@@ -109,6 +127,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
                 throw new ConnectionValidationException(ConnectionFailure.Identity, "The SSH host environment identity changed. Check the host and data directory before connecting.");
             if (_info is not null && (_info.BearerCredential != info.BearerCredential || _info.CertificateFingerprint != info.CertificateFingerprint))
                 throw new ConnectionValidationException(ConnectionFailure.Identity, "The SSH host security identity changed. Close and reopen the connection to obtain its new credentials over SSH.");
+            ReportSetup(SshSetupStep.Compatibility, SshSetupState.Passed, "The host protocol and environment identity are compatible.");
             _controlOutput = DrainAsync(_control!.Output);
             _progress?.Report(info.StartedByConnection ? "Started Windows host; opening the encrypted tunnel…" : "Reusing running Windows host; opening the encrypted tunnel…");
             await StartForwardAsync(info, deadline.Token).ConfigureAwait(false);
@@ -120,10 +139,11 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_lifetime.IsCancellationRequested)
         {
+            ReportSetupFailure(new TimeoutException());
             await CleanupFailedAttemptAsync(repairingForward).ConfigureAwait(false);
             throw new TimeoutException("The SSH host did not become ready in time. Start PiStation under the SSH account on the remote computer, check the host data directory and port-forwarding permissions, then retry.");
         }
-        catch { await CleanupFailedAttemptAsync(repairingForward).ConfigureAwait(false); throw; }
+        catch (Exception error) { ReportSetupFailure(error); await CleanupFailedAttemptAsync(repairingForward).ConfigureAwait(false); throw; }
         finally { _gate.Release(); }
     }
 
@@ -133,6 +153,8 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         // remote session waiting on stdin while failure handling waits for its stderr.
         var script = _allowHostStartup ? _bundle?.EncodedBootstrap(_profile) : SshRunningHostDiscovery.EncodedScript(_profile);
         _control = _spawn(SshCommands.Control(_profile, _authSecret, _allowHostStartup));
+        ReportSetup(SshSetupStep.Client, SshSetupState.Passed, "The local OpenSSH client started.");
+        ReportSetup(SshSetupStep.HostKey, SshSetupState.Checking, "Connecting with strict host-key verification…");
         try
         {
             if (script is not null)
@@ -150,7 +172,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
                 _progress?.Report("Installing the matching Windows host over SSH…");
                 await _bundle.SendAsync(_control.Input, token).ConfigureAwait(false);
                 _progress?.Report("Host transferred; verifying and starting or reusing the environment…");
-            }).ConfigureAwait(false);
+            }, Authenticated).ConfigureAwait(false);
             return info ?? throw await FailureAsync(_control, cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -165,21 +187,41 @@ public sealed class ManagedSshConnection : IAsyncDisposable
     {
         await WithAuthenticationAsync(async () =>
         {
+            ReportSetup(SshSetupStep.Tunnel, SshSetupState.Checking, "Opening a local forward and checking the pinned HTTPS host response…");
             _forward = _spawn(SshCommands.Forward(_profile, Address.Port, info.Port, _authSecret));
             _forwardOutput = DrainAsync(_forward.Output);
+            using var readiness = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            readiness.CancelAfter(TimeSpan.FromSeconds(30));
+            var readyToken = readiness.Token;
             try
             {
                 while (true)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    readyToken.ThrowIfCancellationRequested();
                     if (_control is null) throw new InvalidOperationException("The SSH control session ended.");
                     if (_control.HasExited || _forward.HasExited)
-                        throw await FailureAsync(_control.HasExited ? _control : _forward, cancellationToken).ConfigureAwait(false);
-                    try { await _probe(Address, info, cancellationToken).ConfigureAwait(false); return true; }
+                        throw await FailureAsync(_control.HasExited ? _control : _forward, readyToken).ConfigureAwait(false);
+                    if (_forward.ForwardingFailed)
+                    {
+                        _setupFailure = _forward.SetupFailure;
+                        throw new InvalidOperationException(_forward.FailureMessage);
+                    }
+                    try
+                    {
+                        await _probe(Address, info, readyToken).ConfigureAwait(false);
+                        ReportSetup(SshSetupStep.Authentication, SshSetupState.Passed, "SSH account authentication completed.");
+                        ReportSetup(SshSetupStep.Tunnel, SshSetupState.Passed, "The encrypted forward returned an authenticated host response with the expected certificate.");
+                        return true;
+                    }
                     catch (HttpRequestException) { }
                     catch (TimeoutException) { }
-                    await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(200, readyToken).ConfigureAwait(false);
                 }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                await StopForwardAsync().ConfigureAwait(false);
+                throw new TimeoutException("The SSH tunnel did not respond within 30 seconds. Check forwarding permissions and the running host, then retry.");
             }
             catch { await StopForwardAsync().ConfigureAwait(false); throw; }
         }, cancellationToken).ConfigureAwait(false);
@@ -192,6 +234,9 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             try { return await action().ConfigureAwait(false); }
             catch (SshAuthenticationException) when (_requestPassword is not null && attempt < 2)
             {
+                _setupFailure = null;
+                ReportSetup(SshSetupStep.HostKey, SshSetupState.Passed, "OpenSSH accepted the saved host key.");
+                ReportSetup(SshSetupStep.Authentication, SshSetupState.Checking, "Waiting for a password or key passphrase…");
                 _authSecret = null;
                 _progress?.Report("SSH needs a password or key passphrase…");
                 _authSecret = await _requestPassword(new(_profile.Target, attempt + 1), cancellationToken).ConfigureAwait(false);
@@ -205,10 +250,21 @@ public sealed class ManagedSshConnection : IAsyncDisposable
         }
     }
 
-    private static async Task<Exception> FailureAsync(ISshProcess process, CancellationToken cancellationToken)
+    private async Task<Exception> FailureAsync(ISshProcess process, CancellationToken cancellationToken)
     {
         await process.WaitForOutputAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
-        if (process.HostKeyVerificationFailed) return new ConnectionValidationException(ConnectionFailure.Identity, process.FailureMessage);
+        _setupFailure = process.SetupFailure;
+        if (_setupFailure is { IsSpecific: false }) _setupFailure = _setupFailure with { Step = _setupStep };
+        if (process.HostKeyVerificationFailed)
+        {
+            _setupFailure ??= new(SshSetupStep.HostKey, "SSH could not verify this host key. Verify the fingerprint with the host owner using a terminal, then retry.");
+            return new ConnectionValidationException(ConnectionFailure.Identity, process.FailureMessage);
+        }
+        if (process.AuthenticationFailed)
+        {
+            ReportSetup(SshSetupStep.HostKey, SshSetupState.Passed, "OpenSSH accepted the saved host key.");
+            _setupFailure ??= new(SshSetupStep.Authentication, "SSH authentication failed. Check the account, key/agent or password, then retry.");
+        }
         return process.AuthenticationFailed ? new SshAuthenticationException(process.FailureMessage) : new InvalidOperationException(process.FailureMessage);
     }
 
@@ -217,7 +273,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             ? StopForwardAsync() : StopProcessesAsync();
 
     internal static async Task<SshHostInfo?> ReadHandshakeAsync(TextReader reader, CancellationToken cancellationToken,
-        Func<string, CancellationToken, Task>? sendPackage = null)
+        Func<string, CancellationToken, Task>? sendPackage = null, Action? authenticated = null)
     {
         const string prefix = "PISTATION_SSH ";
         var line = new System.Text.StringBuilder();
@@ -229,6 +285,7 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             if (buffer[0] == '\n')
             {
                 var value = line.ToString().TrimEnd('\r');
+                if (value == "PISTATION_SSH_AUTHENTICATED") authenticated?.Invoke();
                 if (value.StartsWith("PISTATION_PACKAGE ", StringComparison.Ordinal))
                 {
                     if (sendPackage is null || packageSent) throw new InvalidOperationException("Unexpected or repeated SSH package request.");
@@ -242,6 +299,29 @@ public sealed class ManagedSshConnection : IAsyncDisposable
             else line.Append(buffer[0]);
         }
         throw new InvalidOperationException("The SSH host returned an oversized startup response.");
+    }
+
+    private void Authenticated()
+    {
+        ReportSetup(SshSetupStep.HostKey, SshSetupState.Passed, "OpenSSH accepted the saved host key.");
+        ReportSetup(SshSetupStep.Authentication, SshSetupState.Passed, "The SSH account can run the Windows host discovery command.");
+        ReportSetup(SshSetupStep.Host, SshSetupState.Checking, "Looking for PiStation under this account and data directory…");
+    }
+
+    private void ReportSetup(SshSetupStep step, SshSetupState state, string message = "")
+    {
+        _setupStates[step] = state;
+        if (state == SshSetupState.Checking) _setupStep = step;
+        _setupProgress?.Report(new(step, state, message));
+    }
+
+    private void ReportSetupFailure(Exception error)
+    {
+        var failure = error is OperationCanceledException ? SshSetupDiagnostics.FromException(error, _setupStep)
+            : _setupFailure ?? SshSetupDiagnostics.FromException(error, _setupStep);
+        foreach (var step in _setupStates.Where(pair => pair.Key != failure.Step && pair.Value == SshSetupState.Checking).Select(pair => pair.Key).ToArray())
+            ReportSetup(step, SshSetupState.NotChecked, "Stopped before this check finished.");
+        ReportSetup(failure.Step, error is OperationCanceledException ? SshSetupState.Canceled : SshSetupState.Failed, failure.Message);
     }
 
     private static async Task DrainAsync(TextReader reader)

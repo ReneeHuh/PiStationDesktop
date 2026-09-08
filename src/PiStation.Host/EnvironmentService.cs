@@ -90,12 +90,21 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         _diagnostics = diagnostics;
         _threads = threads;
         _terminals = terminals;
+        BrowserAutomation = new(options.BrowserAutomationRoot);
         Updates = new(options.CanonicalDataRoot, () => _threads.HasActiveWork || _terminals.HasActiveWork);
     }
 
     public EnvironmentId EnvironmentId => _environment.EnvironmentId;
 
     public PreviewLeaseRegistry PreviewLeases { get; } = new();
+    public BrowserAutomationBridge BrowserAutomation { get; }
+
+    public async Task<BrowserAutomationLease> OpenBrowserAutomationAsync(OpenBrowserAutomationRequest request, string principal, string connection, CancellationToken token)
+    {
+        if (await _database.GetThreadAsync(request.ThreadId, token).ConfigureAwait(false) is null)
+            throw new HostOperationException(ProtocolErrorCodes.ThreadNotFound, "The browser thread no longer exists.");
+        return await BrowserAutomation.OpenAsync(request, principal, connection, token).ConfigureAwait(false);
+    }
 
     public PiStation.Host.Updates.RemoteUpdateCoordinator Updates { get; }
 
@@ -206,7 +215,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         ProtocolVersion.Current,
         _options.PiInstallation is not null,
         _options.PiInstallation?.PiVersion.ToString(),
-        ["catalog.read", "project.read", "project.write", "project.remove", "project.defaults", "project.scripts", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "file.artifacts", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "source-control.hosting", "source-control.text-generation", "source-control.pull-requests", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.queue", "thread.agents", "thread.draft", "thread.composer", "thread.compaction", "thread.inbox", "thread.titles", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload", "diagnostics.read", "diagnostics.export", "usage.read"]);
+        ["catalog.read", "project.read", "project.write", "project.remove", "project.defaults", "project.scripts", "file.search", "file.content-search", "file.read", "file.write", "file.assets", "file.artifacts", "editor.open", "git.read", "git.write", "git.refs", "git.worktrees", "source-control.hosting", "source-control.text-generation", "source-control.pull-requests", "checkpoint.read", "checkpoint.revert", "preview.discover", "search.global", "terminal.operate", "thread.read", "thread.operate", "thread.interact", "thread.queue", "thread.agents", "thread.draft", "thread.composer", "thread.compaction", "thread.inbox", "thread.titles", "thread.configure", "thread.lifecycle", "thread.search", "attachment.upload", "attachment.download", "session.transfer", "browser.automation", "diagnostics.read", "diagnostics.export", "usage.read"]);
 
     public Task<IReadOnlyList<ProjectDescriptor>> ListProjectsAsync(CancellationToken cancellationToken = default) =>
         _projects.ListAsync(cancellationToken);
@@ -1374,6 +1383,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         _catalogStopping.Dispose();
         _preview.Dispose();
         PreviewLeases.Dispose();
+        await BrowserAutomation.DisposeAsync().ConfigureAwait(false);
         await _terminals.DisposeAsync().ConfigureAwait(false);
         await _threads.DisposeAsync().ConfigureAwait(false);
         _sourceControl.Dispose();

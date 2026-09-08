@@ -57,6 +57,7 @@ public sealed partial class ConversationTimeline : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _sentAttachmentCancellation?.Cancel();
         RememberPosition();
         if (_scrollViewer is not null) _scrollViewer.ViewChanged -= OnViewChanged;
         ViewModel.Workspace.PropertyChanged -= OnWorkspaceChanged;

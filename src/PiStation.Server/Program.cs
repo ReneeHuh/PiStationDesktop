@@ -148,6 +148,8 @@ internal static class Program
         PlanExtensionPath = Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-plan.ts"),
         AgentExtensionPath = Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-agents.ts"),
         ManagementExtensionPath = Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-resources.ts"),
+        BrowserAutomationExtensionPath = Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-browser.ts"),
+        BrowserAutomationRoot = Path.Combine(root, "browser-automation"),
     };
 
     private static async Task WriteInfoAsync(SshHostInfo info)

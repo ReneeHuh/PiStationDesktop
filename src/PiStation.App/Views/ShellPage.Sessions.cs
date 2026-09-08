@@ -21,33 +21,39 @@ public sealed partial class ShellPage
     private async void OnImportSelectedPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync();
     private async void OnCopyPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(copyCurrent: true);
     private async void OnForkPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(forkAtSelection: true);
+    private async void OnRetryPiSessionImportClicked(object sender, RoutedEventArgs e) => await ViewModel.RetryPiSessionImportAsync();
+    private void OnCancelPiSessionTransferClicked(object sender, RoutedEventArgs e) => ViewModel.CancelSessionTransfer();
+
+    private async void OnUseDefaultPiSessionFolderClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PiSessions.Directory = string.Empty;
+        await ViewModel.BrowsePiSessionsAsync();
+    }
 
     private async void OnChoosePiSessionFolderClicked(object sender, RoutedEventArgs e)
     {
-        if ((Application.Current as App)?.MainWindow is not { } window) return;
+        if (ViewModel.IsRemote || (Application.Current as App)?.FindWindow(XamlRoot) is not { } window) return;
         var picker = new FolderPicker();
         picker.FileTypeFilter.Add("*");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-        if (await picker.PickSingleFolderAsync() is { } folder)
-        {
-            ViewModel.PiSessions.Directory = folder.Path;
-            await ViewModel.BrowsePiSessionsAsync();
-        }
+        if (await picker.PickSingleFolderAsync() is not { } folder) return;
+        ViewModel.PiSessions.Directory = folder.Path;
+        await ViewModel.BrowsePiSessionsAsync();
     }
 
     private async void OnChoosePiSessionFileClicked(object sender, RoutedEventArgs e)
     {
-        if ((Application.Current as App)?.MainWindow is not { } window) return;
+        if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window) return;
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".jsonl");
         picker.FileTypeFilter.Add(".zip");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-        if (await picker.PickSingleFileAsync() is { } file) await ViewModel.CopyPiSessionAsync(file.Path);
+        if (await picker.PickSingleFileAsync() is { } file) await ViewModel.ImportLocalPiSessionAsync(file.Path);
     }
 
     private async void OnExportPiSessionClicked(object sender, RoutedEventArgs e)
     {
-        if ((Application.Current as App)?.MainWindow is not { } window || ViewModel.Workspace.SelectedThread is null) return;
+        if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window || ViewModel.Workspace.SelectedThread is null) return;
         var format = ((sender as FrameworkElement)?.Tag as string) switch { "html" => PiSessionExportFormat.Html, "bundle" => PiSessionExportFormat.Bundle, _ => PiSessionExportFormat.Jsonl };
         var picker = new FileSavePicker { SuggestedFileName = "pistation-session-" + DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) };
         picker.FileTypeChoices.Add("Pi session export", [format switch { PiSessionExportFormat.Html => ".html", PiSessionExportFormat.Bundle => ".zip", _ => ".jsonl" }]);

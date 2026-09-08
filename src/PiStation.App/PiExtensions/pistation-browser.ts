@@ -49,20 +49,28 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
   const threadId = process.env.PISTATION_BROWSER_THREAD_ID;
 
   const request = async (params: BrowserParameters, signal: AbortSignal) => {
-    if (!root || !threadId || !/^[A-Za-z0-9._-]{1,160}$/.test(threadId)) {
+    if (!root || !threadId || threadId === "." || threadId === ".." || !/^[A-Za-z0-9._-]{1,160}$/.test(threadId)) {
       throw new Error("Pi Station browser automation is unavailable for this session.");
     }
 
     const directory = join(root, threadId);
     let permission: Permission;
+    let controllerId: string | undefined;
     try {
       const parsed = JSON.parse(await readFile(join(directory, "permission.json"), "utf8")) as {
         mode?: unknown;
+        expiresUtc?: unknown;
+        controllerId?: unknown;
       };
       if (parsed.mode !== "inspect" && parsed.mode !== "interact") {
         throw new Error("invalid permission");
       }
+      if (parsed.expiresUtc !== undefined && (typeof parsed.expiresUtc !== "string" ||
+          !Number.isFinite(Date.parse(parsed.expiresUtc)) || Date.parse(parsed.expiresUtc) <= Date.now())) {
+        throw new Error("browser controller disconnected");
+      }
       permission = parsed.mode;
+      controllerId = typeof parsed.controllerId === "string" ? parsed.controllerId : undefined;
     } catch {
       throw new Error("Browser automation is off. Ask the user to enable it in Preview.");
     }
@@ -81,7 +89,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     const responsePath = join(responseDirectory, `${id}.json`);
     await writeFile(
       temporaryPath,
-      JSON.stringify({ id, operation: params.action, input: params, createdUtc: new Date().toISOString() }),
+      JSON.stringify({ id, operation: params.action, input: params, createdUtc: new Date().toISOString(), controllerId }),
       "utf8",
     );
     await rename(temporaryPath, requestPath);
@@ -95,10 +103,11 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
             success?: boolean;
             data?: unknown;
             error?: string;
+            screenshotPng?: string;
           };
           await unlink(responsePath).catch(() => undefined);
           if (!response.success) throw new Error(response.error || "Browser operation failed.");
-          return response.data;
+          return response;
         } catch (cause) {
           const code = (cause as { code?: string }).code;
           if (code !== "ENOENT") throw cause;
@@ -123,9 +132,18 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     parameters: PARAMETERS,
     async execute(_toolCallId, params, signal) {
       try {
-        const data = await request(params, signal);
+        const response = await request(params, signal);
+        const data = response.data;
+        const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> =
+          [{ type: "text", text: JSON.stringify(data ?? {}, null, 2) }];
+        if (params.action === "screenshot" && response.screenshotPng) {
+          const png = Buffer.from(response.screenshotPng, "base64");
+          if (png.length > 4 * 1024 * 1024 || png.length < 8 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+            throw new Error("The browser returned an invalid or oversized screenshot.");
+          content.push({ type: "image", data: response.screenshotPng, mimeType: "image/png" });
+        }
         return {
-          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+          content,
           details: { data },
         };
       } catch (cause) {

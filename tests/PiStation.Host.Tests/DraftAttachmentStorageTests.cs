@@ -77,6 +77,32 @@ public sealed class DraftAttachmentStorageTests
         Assert.Equal(ProtocolErrorCodes.AttachmentIntegrityFailed, changed.Code);
     }
 
+    [Fact]
+    public async Task VerifiedDownloadsRejectOutsideStorageAndKeepPromptMissingFileErrorsStable()
+    {
+        using var directory = new HostTestDirectory();
+        var options = directory.CreateOptions();
+        var storage = new DraftAttachmentStorage(options);
+        var bytes = "owned attachment"u8.ToArray();
+        using var input = new MemoryStream(bytes);
+        var stored = await storage.StoreAsync(CreateRequest("notes.txt", "text/plain", bytes.Length), input);
+        await using (var file = await storage.OpenVerifiedReadAsync(stored.Attachment))
+        {
+            Assert.Equal(0, file.Position);
+            using var copy = new MemoryStream();
+            await file.CopyToAsync(copy);
+            Assert.Equal(bytes, copy.ToArray());
+        }
+        var outside = Path.Combine(directory.CreateDirectory("outside"), "notes.txt");
+        await File.WriteAllBytesAsync(outside, bytes);
+        var denied = await Assert.ThrowsAsync<HostOperationException>(() => storage.OpenVerifiedReadAsync(
+            stored.Attachment with { ServerPath = outside }));
+        Assert.Equal(ProtocolErrorCodes.AttachmentInvalid, denied.Code);
+        File.Delete(stored.Attachment.ServerPath);
+        var missing = await Assert.ThrowsAsync<HostOperationException>(() => storage.ValidateForPromptAsync(stored.Attachment));
+        Assert.Equal(ProtocolErrorCodes.AttachmentIntegrityFailed, missing.Code);
+    }
+
     private static UploadDraftAttachmentRequest CreateRequest(
         string fileName,
         string mediaType,

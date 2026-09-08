@@ -8,6 +8,8 @@ namespace PiStation.ClientRuntime;
 
 public sealed partial class EnvironmentClient
 {
+    public RemoteUpdateClient CreateRemoteUpdateClient() => new(_options with
+        { ExpectedEnvironmentId = _options.ExpectedEnvironmentId ?? Descriptor?.EnvironmentId }, _stopping.Token);
     public Task<RemoteUpdateDescriptor> GetRemoteUpdateDescriptorAsync(CancellationToken cancellationToken = default) =>
         InvokeAsync<RemoteUpdateDescriptor>("GetRemoteUpdateDescriptor", cancellationToken);
 
@@ -47,7 +49,7 @@ public sealed partial class EnvironmentClient
             ?? throw new InvalidDataException("The host returned an empty update receipt.");
     }
 
-    private sealed class UpdateUploadContent(FileStream source, IProgress<long>? progress) : HttpContent
+    internal sealed class UpdateUploadContent(FileStream source, IProgress<long>? progress) : HttpContent
     {
         protected override bool TryComputeLength(out long length) { length = source.Length; return true; }
         protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => CopyAsync(stream, CancellationToken.None);
