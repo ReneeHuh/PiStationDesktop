@@ -7,6 +7,6 @@ public sealed class ProtocolVersionTests
     [Fact]
     public void DesktopAndRemoteProtocolIncludesDurableTerminalsAndSharedIcons()
     {
-        Assert.Equal(48, ProtocolVersion.Current);
+        Assert.Equal(49, ProtocolVersion.Current);
     }
 }

@@ -1237,6 +1237,7 @@
                                 <x:String>Desktop 1440 × 900</x:String>
                                 <x:String>Tablet 768 × 1024</x:String>
                                 <x:String>Phone 390 × 844</x:String>
+                                <x:String>Freeform</x:String>
                             </ComboBox>
                             <Button
                                 x:Name="RotatePreviewViewportButton"
@@ -1385,39 +1386,8 @@
                                 VerticalScrollBarVisibility="Auto"
                                 Visibility="{x:Bind ViewModel.WorkbenchPreview.BrowserVisibility, Mode=OneWay}"
                                 ZoomMode="Disabled">
-                                <ItemsControl ItemsSource="{x:Bind ViewModel.WorkbenchPreview.Tabs, Mode=OneWay}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <Grid />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemContainerStyle>
-                                        <Style TargetType="ContentPresenter">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
-                                        </Style>
-                                    </ItemsControl.ItemContainerStyle>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="viewModels:WorkbenchPreviewTabViewModel">
-                                            <Border
-                                                Width="{x:Bind SurfaceWidth, Mode=OneWay}"
-                                                Height="{x:Bind SurfaceHeight, Mode=OneWay}"
-                                                MinWidth="240"
-                                                MinHeight="240"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Top"
-                                                Background="{ThemeResource PiCanvasBrush}"
-                                                BorderBrush="{ThemeResource PiBorderStrongBrush}"
-                                                BorderThickness="1"
-                                                Visibility="{x:Bind SurfaceVisibility, Mode=OneWay}">
-                                                <local:PreviewWebViewSurface
-                                                    Tag="{x:Bind TabId}"
-                                                    Loaded="OnPreviewBrowserLoaded"
-                                                    Unloaded="OnPreviewBrowserUnloaded" />
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <Border x:Name="PreviewSurfacePresenter" HorizontalAlignment="Center" VerticalAlignment="Top"
+                                    Background="{ThemeResource PiCanvasBrush}" BorderBrush="{ThemeResource PiBorderStrongBrush}" BorderThickness="1" />
                             </ScrollViewer>
 
                             <ScrollViewer

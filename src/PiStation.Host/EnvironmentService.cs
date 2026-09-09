@@ -326,6 +326,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                 .ConfigureAwait(false);
         }
         await _projects.RemoveAsync(request, cancellationToken).ConfigureAwait(false);
+        foreach (var thread in threads) await BrowserAutomation.CloseThreadAsync(thread.ThreadId).ConfigureAwait(false);
         foreach (var attachment in attachments)
         {
             await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
@@ -586,6 +587,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         {
         }
         await _database.DeleteThreadAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+        await BrowserAutomation.CloseThreadAsync(thread.ThreadId).ConfigureAwait(false);
         foreach (var attachment in attachments) await DeleteUnreferencedAttachmentAsync(attachment).ConfigureAwait(false);
     }
 

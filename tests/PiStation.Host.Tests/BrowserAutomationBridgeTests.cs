@@ -35,6 +35,9 @@ public sealed class BrowserAutomationBridgeTests
     [InlineData("type")]
     [InlineData("press_key")]
     [InlineData("scroll")]
+    [InlineData("open")]
+    [InlineData("resize")]
+    [InlineData("set_appearance")]
     public async Task InspectAccessRejectsEveryInteraction(string operation)
     {
         using var directory = new HostTestDirectory();
@@ -44,6 +47,28 @@ public sealed class BrowserAutomationBridgeTests
         var request = WriteRequest(directory.Path, thread, lease.Id, operation);
         Assert.Null((await bridge.PollAsync(lease.Id, "d", "c", CancellationToken.None)).Request);
         Assert.False(ReadResult(directory.Path, thread, request.Id).Success);
+    }
+
+    [Fact]
+    public async Task ThreadsOnOneConnectionKeepIndependentPermissionsAndPendingWork()
+    {
+        using var directory = new HostTestDirectory();
+        await using var bridge = new BrowserAutomationBridge(directory.Path);
+        var first = ThreadId.New();
+        var second = ThreadId.New();
+        var a = await bridge.OpenAsync(new(first, BrowserAutomationAccess.Interact), "device", "connection", CancellationToken.None);
+        var request = WriteRequest(directory.Path, first, a.Id, "resize");
+        await bridge.PollAsync(a.Id, "device", "connection", CancellationToken.None);
+        var b = await bridge.OpenAsync(new(second, BrowserAutomationAccess.Inspect), "device", "connection", CancellationToken.None);
+        Assert.Equal(request.Id, (await bridge.PollAsync(a.Id, "device", "connection", CancellationToken.None)).ActiveRequestId);
+        var forbidden = WriteRequest(directory.Path, second, b.Id, "open");
+        Assert.Null((await bridge.PollAsync(b.Id, "device", "connection", CancellationToken.None)).Request);
+        Assert.False(ReadResult(directory.Path, second, forbidden.Id).Success);
+        await bridge.CloseThreadAsync(second);
+        Assert.False(File.Exists(Path.Combine(directory.Path, second.Value, "permission.json")));
+        Assert.Equal(request.Id, (await bridge.PollAsync(a.Id, "device", "connection", CancellationToken.None)).ActiveRequestId);
+        await bridge.CompleteAsync(a.Id, request.Id, new(true), "device", "connection", CancellationToken.None);
+        Assert.True(ReadResult(directory.Path, first, request.Id).Success);
     }
 
     [Fact]

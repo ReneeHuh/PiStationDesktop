@@ -5,6 +5,35 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class PreviewWebViewSurface
 {
+    public async Task<object> WaitForRenderedBrowserStateAsync(int timeoutMs, Action validate,
+        Func<(double Width, double Height)>? expectedSize, string? colorScheme, CancellationToken cancellationToken)
+    {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var stableSamples = 0;
+        while (elapsed.ElapsedMilliseconds < timeoutMs)
+        {
+            validate();
+            var raw = await Browser.CoreWebView2.ExecuteScriptAsync("({width:innerWidth,height:innerHeight,dark:matchMedia('(prefers-color-scheme: dark)').matches,light:matchMedia('(prefers-color-scheme: light)').matches})")
+                .AsTask().WaitAsync(TimeSpan.FromMilliseconds(Math.Max(1, timeoutMs - elapsed.ElapsedMilliseconds)), cancellationToken);
+            validate();
+            using var document = JsonDocument.Parse(raw);
+            var value = document.RootElement;
+            if (value.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("The browser could not report its rendered state.");
+            var width = value.GetProperty("width").GetInt32();
+            var height = value.GetProperty("height").GetInt32();
+            var dark = value.GetProperty("dark").GetBoolean();
+            var light = value.GetProperty("light").GetBoolean();
+            var expected = expectedSize?.Invoke();
+            var matches = width > 0 && height > 0 &&
+                (expected is null || Math.Abs(width - expected.Value.Width) <= 1 && Math.Abs(height - expected.Value.Height) <= 1) &&
+                (colorScheme == "dark" ? dark : colorScheme == "light" ? light : dark || light);
+            stableSamples = matches ? stableSamples + 1 : 0;
+            if (stableSamples >= 2) return new { width, height, colorScheme = dark ? "dark" : "light" };
+            await Task.Delay(50, cancellationToken);
+        }
+        throw new TimeoutException($"The browser did not render the requested state within {timeoutMs} ms.");
+    }
+
     public async Task<object> PressAutomationKeyAsync(BrowserAutomationCommand command, Action validate)
     {
         await InitializeAsync();

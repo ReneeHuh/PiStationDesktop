@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Serialization;
 
@@ -38,7 +39,7 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
             Prune();
             if (_sessions.Values.Any(s => s.Thread == thread && s.Connection != connection))
                 throw new InvalidOperationException("Another desktop controls this thread's browser. Turn off its browser access first.");
-            foreach (var prior in _sessions.Values.Where(s => s.Connection == connection).ToArray()) End(prior);
+            foreach (var prior in _sessions.Values.Where(s => s.Connection == connection && s.Thread == thread).ToArray()) End(prior, "Browser controller was replaced");
             if (_sessions.Count >= 64) throw new InvalidOperationException("Too many browser controllers are active.");
             var directory = Path.Combine(_root, thread);
             SafeDirectory(directory);
@@ -54,6 +55,16 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
             Renew(session);
             _sessions.Add(session.Id, session);
             return new(session.Id);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task CloseThreadAsync(ThreadId threadId)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            foreach (var session in _sessions.Values.Where(session => session.Thread == threadId.Value).ToArray()) End(session, "The browser thread was deleted");
         }
         finally { _gate.Release(); }
     }
@@ -129,7 +140,7 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
     public async Task CloseAsync(string id, string principal, string connection)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
-        try { if (_sessions.TryGetValue(id, out var session) && session.Principal == principal && session.Connection == connection) End(session); }
+        try { if (_sessions.TryGetValue(id, out var session) && session.Principal == principal && session.Connection == connection) End(session, "Browser access was closed by its desktop"); }
         finally { _gate.Release(); }
     }
 
@@ -202,15 +213,16 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
 
     private void Prune()
     {
-        foreach (var session in _sessions.Values.Where(s => s.Disconnected.IsCancellationRequested || s.Expires <= DateTimeOffset.UtcNow).ToArray()) End(session);
+        foreach (var session in _sessions.Values.Where(s => s.Disconnected.IsCancellationRequested || s.Expires <= DateTimeOffset.UtcNow).ToArray())
+            End(session, session.Disconnected.IsCancellationRequested ? "Browser connection disconnected" : "Browser controller heartbeat expired");
     }
 
-    private void End(Session session)
+    private void End(Session session, string reason = "Browser host stopped")
     {
         _sessions.Remove(session.Id);
         SafeDirectory(session.Directory);
         File.Delete(Path.Combine(session.Directory, "permission.json"));
-        if (session.Active is { } active) WriteResult(session, active.Id, new(false, Error: "Browser controller disconnected or permission was revoked; the command was not replayed."));
+        if (session.Active is { } active) WriteResult(session, active.Id, new(false, Error: reason + "; the command was not replayed."));
     }
 
     private async Task CleanupAsync()

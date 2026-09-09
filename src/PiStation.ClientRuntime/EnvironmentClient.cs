@@ -1398,6 +1398,7 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
 
         _disposed = true;
         await _stopping.CancelAsync().ConfigureAwait(false);
+        await CloseBrowserChannelAsync().ConfigureAwait(false);
         try { await _catalogTask.ConfigureAwait(false); }
         catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { }
         _stopping.Dispose();
@@ -1646,6 +1647,7 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
 
     private void OnStateChanged(object? sender, ConnectionStateChangedEventArgs args)
     {
+        if (args.State != EnvironmentConnectionState.Connected) StopBrowserChannel();
         if (args.State != EnvironmentConnectionState.Connected) Catalog.SetDisconnected();
         ConnectionStateChanged?.Invoke(this, args);
         if (args.State == EnvironmentConnectionState.Connected)

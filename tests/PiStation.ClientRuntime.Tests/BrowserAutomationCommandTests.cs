@@ -13,6 +13,9 @@ public sealed class BrowserAutomationCommandTests
     [InlineData("wait", "{\"condition\":\"loaded\"}", false)]
     [InlineData("wait", "{\"selector\":\"#ready\"}", false)]
     [InlineData("status", "{}", false)]
+    [InlineData("open", "{}", true)]
+    [InlineData("resize", "{\"mode\":\"fill\"}", true)]
+    [InlineData("set_appearance", "{\"colorScheme\":\"dark\"}", true)]
     public void ValidCommandsHaveExplicitPermissionClassification(string operation, string json, bool interacts) =>
         Assert.Equal(interacts, Parse(operation, json).RequiresInteraction);
 
@@ -26,6 +29,16 @@ public sealed class BrowserAutomationCommandTests
     [InlineData("wait", "{\"selector\":\"body\",\"timeoutMs\":20001}")]
     [InlineData("status", "{\"tabId\":null}")]
     [InlineData("evaluate", "{}")]
+    [InlineData("open", "{\"tabId\":\"existing\",\"reuseExistingTab\":false}")]
+    [InlineData("open", "{\"open\":\"false\"}")]
+    [InlineData("resize", "{\"mode\":\"fill\",\"width\":800}")]
+    [InlineData("resize", "{\"mode\":\"freeform\",\"width\":800}")]
+    [InlineData("resize", "{\"mode\":\"freeform\",\"width\":3840,\"height\":3840}")]
+    [InlineData("resize", "{\"mode\":\"freeform\",\"width\":239,\"height\":768}")]
+    [InlineData("resize", "{\"mode\":\"preset\",\"preset\":\"phone\",\"orientation\":\"upside-down\"}")]
+    [InlineData("resize", "{\"mode\":\"preset\",\"preset\":\"unknown\"}")]
+    [InlineData("set_appearance", "{\"colorScheme\":\"automatic\"}")]
+    [InlineData("set_appearance", "{}")]
     public void InvalidCommandsAreRejected(string operation, string json) =>
         Assert.Throws<ArgumentException>(() => Parse(operation, json));
 
@@ -36,5 +49,16 @@ public sealed class BrowserAutomationCommandTests
         Assert.Equal("other-tab", command.TabId);
         Assert.Equal(1500, command.TimeoutMs);
         Assert.Equal("done", command.Value);
+    }
+
+    [Fact]
+    public void OpenAndViewportContractsPreserveIntent()
+    {
+        var open = Parse("open", "{\"open\":false,\"reuseExistingTab\":false,\"url\":\"http://localhost:5173\"}");
+        Assert.False(open.Open);
+        Assert.False(open.ReuseExistingTab);
+        Assert.Equal("http://localhost:5173", open.Url);
+        Assert.Equal(new("freeform", 1024, 768), Parse("resize", "{\"mode\":\"freeform\",\"width\":1024,\"height\":768}").Viewport);
+        Assert.Equal(new("preset", 844, 390, "phone"), Parse("resize", "{\"mode\":\"preset\",\"preset\":\"phone\",\"orientation\":\"landscape\"}").Viewport);
     }
 }

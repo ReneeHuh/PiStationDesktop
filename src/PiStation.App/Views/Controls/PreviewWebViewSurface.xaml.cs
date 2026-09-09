@@ -520,6 +520,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             {
                 Directory.CreateDirectory(profileDataPath);
                 var environment = await GetProfileEnvironmentAsync(profileDataPath);
+                ObjectDisposedException.ThrowIf(_disposed, this);
                 var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
                 controllerOptions.IsInPrivateModeEnabled = _inPrivate;
                 await Browser.EnsureCoreWebView2Async(environment, controllerOptions);
@@ -530,6 +531,11 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             }
             var core = Browser.CoreWebView2 ??
                 throw new InvalidOperationException("WebView2 did not create its core instance.");
+            if (_disposed)
+            {
+                Browser.Close();
+                throw new ObjectDisposedException(nameof(PreviewWebViewSurface));
+            }
 
             core.Settings.AreDefaultContextMenusEnabled = true;
             core.Settings.AreDevToolsEnabled = _allowDevTools;

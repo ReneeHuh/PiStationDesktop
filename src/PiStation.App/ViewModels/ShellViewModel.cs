@@ -75,13 +75,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         ExternalEditor = new ExternalPromptEditor(Path.Combine(Path.GetDirectoryName(_attachmentCacheRoot)!, "external-prompts"));
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
-        WorkbenchPreview = new WorkbenchPreviewViewModel();
+        Browsers = new BrowserWorkspaceRegistry(Layout);
         Layout.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(ShellLayoutViewModel.BrowserDefaults))
-                WorkbenchPreview.SetDefaults(Layout.BrowserDefaults);
-            if (args.PropertyName is nameof(ShellLayoutViewModel.BrowserProfiles) or nameof(ShellLayoutViewModel.DefaultBrowserProfileId))
-                WorkbenchPreview.ReplaceProfiles(Layout.BrowserProfiles, Layout.DefaultBrowserProfileId);
+            if (args.PropertyName is nameof(ShellLayoutViewModel.BrowserDefaults) or nameof(ShellLayoutViewModel.BrowserProfiles) or nameof(ShellLayoutViewModel.DefaultBrowserProfileId))
+                Browsers.UpdateSettings();
         };
         WorkbenchAgents = new WorkbenchAgentsViewModel(_dispatcherQueue);
         Composer = new ComposerViewModel(
@@ -141,7 +139,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public WorkbenchTerminalViewModel WorkbenchTerminal { get; }
 
-    public WorkbenchPreviewViewModel WorkbenchPreview { get; }
+    private WorkbenchPreviewViewModel _workbenchPreview = new();
+    public WorkbenchPreviewViewModel WorkbenchPreview { get => _workbenchPreview; private set => SetProperty(ref _workbenchPreview, value); }
+    internal BrowserWorkspaceRegistry Browsers { get; }
 
     public WorkbenchAgentsViewModel WorkbenchAgents { get; }
 
@@ -615,6 +615,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             await SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
             await RequireClient().RemoveProjectAsync(new RemoveProjectRequest(project.ProjectId), cancellationToken)
                 .ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                foreach (var workspace in Browsers.Workspaces.Where(item => item.ProjectId == project.ProjectId).ToArray()) Browsers.Remove(workspace);
+            }).ConfigureAwait(false);
             await LoadProjectsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.Status = $"Removed {project.DisplayName}. Project files were not deleted.");
         }
@@ -1182,6 +1186,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         return await client.OpenRemotePreviewAsync(new(project.ProjectId, address)).ConfigureAwait(false);
     }
 
+    internal async Task<RemotePreviewProxy?> OpenPreviewRouteAsync(BrowserWorkspace workspace, Uri address)
+    {
+        if (!IsRemote || !address.IsLoopback) return null;
+        if (!CanOperate || !Browsers.Contains(workspace) || _client is not EnvironmentClient client)
+            throw new InvalidOperationException("Host-local previews require a connected environment with operate access.");
+        return await client.OpenRemotePreviewAsync(new(workspace.ProjectId, address)).ConfigureAwait(false);
+    }
+
     public WorkbenchPreviewTabViewModel AddWorkbenchPreviewTab()
     {
         var tab = WorkbenchPreview.AddTab();
@@ -1268,7 +1280,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public void RestoreWorkbenchPreviewAddress() => WorkbenchPreview.RestoreAddressDraft();
 
     public void ReportWorkbenchPreviewNavigationStarted(string? tabId, Uri uri) =>
-        WorkbenchPreview.ReportNavigationStarted(tabId, uri);
+        Browsers.Find(tabId)?.Model.ReportNavigationStarted(tabId, uri);
 
     public void ReportWorkbenchPreviewBrowserState(
         string? tabId,
@@ -1277,27 +1289,30 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         bool canGoBack,
         bool canGoForward)
     {
-        WorkbenchPreview.ReportBrowserState(tabId, source, title, canGoBack, canGoForward);
-        PersistWorkbenchPreview();
+        if (Browsers.Find(tabId) is { } workspace)
+        {
+            workspace.Model.ReportBrowserState(tabId, source, title, canGoBack, canGoForward);
+            Browsers.Persist(workspace);
+        }
     }
 
     public void ReportWorkbenchPreviewNavigationCompleted(
         string? tabId,
         bool succeeded,
         string? message) =>
-        WorkbenchPreview.ReportNavigationCompleted(tabId, succeeded, message);
+        Browsers.Find(tabId)?.Model.ReportNavigationCompleted(tabId, succeeded, message);
 
     public void ReportWorkbenchPreviewBrowserFailure(
         string? tabId,
         PreviewFailureKind kind,
         string message) =>
-        WorkbenchPreview.ReportBrowserFailure(tabId, kind, message);
+        Browsers.Find(tabId)?.Model.ReportBrowserFailure(tabId, kind, message);
 
     public void SetWorkbenchPreviewCaptureStatus(
         string? tabId,
         string status,
         string? capturePath = null) =>
-        WorkbenchPreview.SetCaptureStatus(tabId, status, capturePath);
+        Browsers.Find(tabId)?.Model.SetCaptureStatus(tabId, status, capturePath);
 
     public void ReturnWorkbenchPreviewToServers()
     {
@@ -2536,6 +2551,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             await RequireClient().DeleteThreadAsync(new DeleteThreadRequest(thread.ThreadId), cancellationToken)
                 .ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                foreach (var workspace in Browsers.Workspaces.Where(item => item.ThreadId == thread.ThreadId).ToArray()) Browsers.Remove(workspace);
+            }).ConfigureAwait(false);
             if (SelectedThread?.ThreadId == thread.ThreadId)
             {
                 await SelectThreadAsync(null, cancellationToken).ConfigureAwait(false);
@@ -3596,6 +3615,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void ApplyCatalog()
     {
         if (_client?.Catalog is not { } catalog) return;
+        if (catalog.IsSynchronized)
+            Browsers.SynchronizeCatalog(catalog.Projects.Select(project => project.ProjectId), catalog.Threads.Select(thread => (thread.ProjectId, thread.ThreadId)));
         UpdateCatalogCollection(Projects, catalog.Projects, project => project.ProjectId);
         ApplyProjectGroups(catalog.Projects, catalog.Projects.SelectMany(project => _client.ThreadMetadata.GetProjectThreads(project.ProjectId, includeArchived: true)).ToArray());
         if (SelectedProject is not { } selected) return;
@@ -4869,17 +4890,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void ResetWorkbenchPreview(ProjectDescriptor? project)
     {
         CancelWorkbenchPreview();
-        var contextKey = GetWorkbenchPreviewContextKey();
-        WorkbenchPreview.Reset(
-            project is not null,
-            contextKey is null ? null : Layout.GetPreviewWorkspace(contextKey),
-            project is null ? null : Layout.GetPreviewUrl(project.ProjectId.Value),
-            Layout.BrowserProfiles,
-            Layout.DefaultBrowserProfileId,
-            contextKey is null
-                ? PreviewAutomationAccess.Off
-                : Layout.GetPreviewAutomationPermission(contextKey),
-            Layout.BrowserDefaults);
+        WorkbenchPreview = project is null ? new WorkbenchPreviewViewModel() :
+            Browsers.GetOrAdd(project.ProjectId, SelectedThread?.ProjectId == project.ProjectId ? SelectedThread.ThreadId : null).Model;
         if (project is not null &&
             Layout.SelectedPanel == WorkbenchPanelKind.Preview &&
             string.IsNullOrWhiteSpace(WorkbenchPreview.CurrentUrl))
@@ -4924,10 +4936,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void PersistWorkbenchPreview()
     {
-        if (GetWorkbenchPreviewContextKey() is { } contextKey)
-        {
-            Layout.SavePreviewWorkspace(contextKey, WorkbenchPreview.CreatePreference());
-        }
+        var workspace = Browsers.Workspaces.FirstOrDefault(item => ReferenceEquals(item.Model, WorkbenchPreview));
+        if (workspace is not null) Browsers.Persist(workspace);
     }
 
     private static string EscapePreviewAnnotation(string? value) =>

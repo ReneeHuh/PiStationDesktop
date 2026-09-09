@@ -23,7 +23,7 @@ Browser preferences are client-local and shared by the desktop's local and remot
 
 Clear/remove uses WebView2 `AllProfile` clearing across the selected profile's existing local and saved remote-environment directories under this desktop data root. It clears cookies, logins, cache, history and site storage, including profiles with no current tab. Other profile IDs are untouched. Open tabs remain open and can recreate data. Remote preview reload renews its app-issued connection cookie after clearing. No environment directories are recursively deleted. Old remote tabs may require signing in again after the storage isolation correction.
 
-Agent-created tabs, additional agent browser operations, and 30/60 FPS recording remain separately tracked as WEB-14 through WEB-17 and WEB-09.
+The subsequent protocol-49 slice implements agent tab creation, retained thread ownership, viewport changes and appearance in [WEB-13/14/15](BROWSER-AUTOMATION-LIFETIME-2026-09-09.md). JavaScript evaluation, agent recording/artifact delivery and 30/60 FPS recording remain WEB-16/17 and WEB-09.
 
 ## Verification
 

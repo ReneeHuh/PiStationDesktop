@@ -7,6 +7,9 @@ import { Type } from "typebox";
 const PARAMETERS = Type.Object({
   action: Type.Union([
     Type.Literal("status"),
+    Type.Literal("open"),
+    Type.Literal("resize"),
+    Type.Literal("set_appearance"),
     Type.Literal("navigate"),
     Type.Literal("snapshot"),
     Type.Literal("click"),
@@ -16,7 +19,15 @@ const PARAMETERS = Type.Object({
     Type.Literal("scroll"),
     Type.Literal("wait"),
   ]),
-  tabId: Type.Optional(Type.String({ minLength: 1, maxLength: 160, description: "Stable tab ID from status. Omit to capture the selected tab when the request starts." })),
+  tabId: Type.Optional(Type.String({ minLength: 1, maxLength: 160, description: "Stable tab ID from status/open. Omit to use this agent thread's pinned tab; before the first operation, use its selected tab." })),
+  open: Type.Optional(Type.Boolean({ description: "Reveal the preview for this thread (default true); false keeps background work hidden." })),
+  reuseExistingTab: Type.Optional(Type.Boolean({ description: "Default true. Set false to create another tab; cannot combine with tabId." })),
+  mode: Type.Optional(Type.Union([Type.Literal("fill"), Type.Literal("freeform"), Type.Literal("preset")])),
+  width: Type.Optional(Type.Integer({ minimum: 240, maximum: 3840 })),
+  height: Type.Optional(Type.Integer({ minimum: 240, maximum: 3840 })),
+  preset: Type.Optional(Type.Union([Type.Literal("desktop"), Type.Literal("tablet"), Type.Literal("phone")])),
+  orientation: Type.Optional(Type.Union([Type.Literal("portrait"), Type.Literal("landscape")])),
+  colorScheme: Type.Optional(Type.Union([Type.Literal("system"), Type.Literal("light"), Type.Literal("dark")])),
   url: Type.Optional(Type.String({ maxLength: 2048 })),
   selector: Type.Optional(Type.String({ maxLength: 1024 })),
   value: Type.Optional(Type.String({ maxLength: 8192 })),
@@ -29,7 +40,7 @@ const PARAMETERS = Type.Object({
 });
 
 type BrowserParameters = {
-  readonly action: "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
+  readonly action: "open" | "resize" | "set_appearance" | "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
   readonly url?: string;
   readonly selector?: string;
   readonly value?: string;
@@ -75,7 +86,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
       throw new Error("Browser automation is off. Ask the user to enable it in Preview.");
     }
 
-    if (["navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
+    if (["open", "resize", "set_appearance", "navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
       throw new Error("This browser permission is inspect-only. Ask the user to enable interaction.");
     }
 
@@ -124,8 +135,8 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     name: "pistation_browser",
     label: "Pi Station Browser",
     description:
-      "Inspect or interact with existing Pi Station Preview tabs in the selected thread when the user has granted access. status lists stable tab IDs; use tabId to target a tab without selecting it. press_key uses the focused element or optional selector. scroll uses deltaX/deltaY pixels and an optional container selector. wait supports visible/hidden selectors, text containing value, URL containing value, or document loaded; timeoutMs defaults to 5000 (max 20000). Thread changes, closed tabs and revoked permissions cancel pending work.",
-    promptSnippet: "Target a permissioned Preview tab; inspect, navigate, click, type, press keys, scroll, wait or capture it",
+      "Inspect or interact with permissioned Pi Station Preview tabs in this agent's thread, including while the human views another thread. status lists stable tab IDs. open creates/reuses a tab with optional url; reuseExistingTab=false creates another; open=false keeps it in the background. Omitted tabId uses this agent thread's pinned tab, independent of human tab selection. resize accepts mode fill, freeform with width/height (240..3840, max 8294400 pixels), or preset desktop/tablet/phone with optional portrait/landscape orientation. It confirms rendered CSS dimensions without changing the user agent. set_appearance accepts colorScheme system/light/dark. wait supports visible/hidden selectors, text containing value, URL containing value, or document loaded; timeoutMs defaults to 5000 (max 20000). Closing tabs, disconnecting or revoking permission cancels work; switching the viewed thread does not.",
+    promptSnippet: "Open or target a permissioned browser tab; resize, set appearance, inspect, navigate, interact, wait or capture it",
     promptGuidelines: [
       "Use pistation_browser only for browser work the user requested; respect inspect-only permission and never ask to broaden it unnecessarily.",
     ],

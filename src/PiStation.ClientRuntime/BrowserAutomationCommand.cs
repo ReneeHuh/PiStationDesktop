@@ -1,18 +1,20 @@
 using System.Text.Json;
+using PiStation.Protocol.Models;
 
 namespace PiStation.ClientRuntime;
 
 /// <summary>Validated, bounded input shared by the desktop browser dispatcher and tests.</summary>
 public sealed record BrowserAutomationCommand(string Operation, string? TabId, string? Selector,
     string? Value, string? Url, string? Key, int Modifiers, int DeltaX, int DeltaY,
-    string Condition, int TimeoutMs)
+    string Condition, int TimeoutMs, bool Open = true, bool ReuseExistingTab = true,
+    BrowserViewportSetting? Viewport = null, string? ColorScheme = null)
 {
-    public bool RequiresInteraction => Operation is "navigate" or "click" or "type" or "press_key" or "scroll";
+    public bool RequiresInteraction => BrowserAutomationLimits.RequiresInteraction(Operation);
 
     public static BrowserAutomationCommand Parse(string operation, JsonElement input)
     {
         if (input.ValueKind != JsonValueKind.Object) throw new ArgumentException("Browser input must be an object.");
-        if (operation is not ("status" or "navigate" or "snapshot" or "click" or "type" or "screenshot" or "press_key" or "scroll" or "wait"))
+        if (!BrowserAutomationLimits.IsOperation(operation))
             throw new ArgumentException("Unknown browser operation.");
         string? Read(string name, int limit, bool required = false, bool allowEmpty = false)
         {
@@ -33,17 +35,31 @@ public sealed record BrowserAutomationCommand(string Operation, string? TabId, s
                 throw new ArgumentException($"Invalid '{name}' (expected {min}..{max}).");
             return value;
         }
+        bool Boolean(string name, bool fallback)
+        {
+            if (!input.TryGetProperty(name, out var element)) return fallback;
+            if (element.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw new ArgumentException($"Invalid '{name}'.");
+            return element.GetBoolean();
+        }
+        var tabId = Read("tabId", 160);
+        var reuse = Boolean("reuseExistingTab", true);
+        if (operation == "open" && tabId is not null && !reuse)
+            throw new ArgumentException("tabId cannot be combined with reuseExistingTab=false.");
+        var appearance = Read("colorScheme", 16, operation == "set_appearance");
+        if (appearance is not null && appearance is not ("system" or "light" or "dark"))
+            throw new ArgumentException("colorScheme must be system, light or dark.");
         var condition = Read("condition", 32) ?? "visible";
         if (operation == "wait" && condition is not ("visible" or "hidden" or "text" or "url" or "loaded"))
             throw new ArgumentException("Unknown wait condition.");
         var selector = Read("selector", 1024, operation is "click" or "type" || operation == "wait" && condition is "visible" or "hidden" or "text");
         var key = Read("key", 32, operation == "press_key");
         if (key is not null) _ = VirtualKey(key);
-        return new(operation, Read("tabId", 160), selector,
+        return new(operation, tabId, selector,
             Read("value", 8192, operation == "type" || operation == "wait" && condition is "text" or "url", operation == "type"),
             Read("url", 2048, operation == "navigate"), key, Number("modifiers", 0, 0, 15),
             Number("deltaX", 0, -10000, 10000), Number("deltaY", 0, -10000, 10000),
-            condition, Number("timeoutMs", 5000, 100, 20000));
+            condition, Number("timeoutMs", 5000, 100, 20000), Boolean("open", true), reuse,
+            operation == "resize" ? BrowserViewportSetting.Parse(input) : null, appearance);
     }
 
     public static int VirtualKey(string key) => key switch

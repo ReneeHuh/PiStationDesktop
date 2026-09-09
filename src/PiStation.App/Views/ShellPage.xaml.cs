@@ -56,7 +56,10 @@ public sealed partial class ShellPage : Page
         _sidebar.AddProjectRequested += OnAddProjectRequested;
         _sidebar.SettingsRequested += OnSettingsRequested;
         _sidebar.CollapsedChanged += OnSidebarCollapsedChanged;
-        _rightPanel = new RightPanelHost(ViewModel);
+        // Owned by the page so closing/collapsing the workbench does not unload background browsers.
+        var browserRuntimeHost = new Canvas { Opacity = 0, IsHitTestVisible = false };
+        PageLayoutGrid.Children.Insert(0, browserRuntimeHost);
+        _rightPanel = new RightPanelHost(ViewModel, browserRuntimeHost);
         _rightPanel.HostingReviewRequested += OnHostingReviewRequested;
         _conversationTimeline = new ConversationTimeline(ViewModel);
         _composerSurface = new ComposerSurface(ViewModel);

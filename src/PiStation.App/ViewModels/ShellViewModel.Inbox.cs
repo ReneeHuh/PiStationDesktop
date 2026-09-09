@@ -43,6 +43,8 @@ public sealed partial class ShellViewModel
             }
 
             var group = ProjectGroups.FirstOrDefault(item => item.Members.Any(project => project.ProjectId == args.ProjectId));
+            if (args.Thread is null)
+                foreach (var workspace in Browsers.Workspaces.Where(item => item.ThreadId == args.ThreadId).ToArray()) Browsers.Remove(workspace);
             group?.Apply(group.Members.SelectMany(project => store.GetProjectThreads(project.ProjectId, includeArchived: true)).ToArray(), InboxShelf, Layout.Sidebar);
             if (store.GetCurrent(args.ThreadId) is { } readMetadata) ApplyReadMetadata(readMetadata);
 

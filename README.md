@@ -64,14 +64,18 @@ the T3-derived Ghostty WebAssembly canvas renderer in a locked-down WebView2 sur
 tab discovers browser-ready loopback development servers and opens HTTP/HTTPS addresses in a
 separately locked-down WebView2 surface with address, back/forward, reload/stop, external-open,
 loading, and recoverable failure controls. Preview sessions are scoped per project/thread and retain multiple
-live WebView2 tabs with independent history plus responsive, desktop, tablet, and phone viewports.
+live WebView2 tabs with independent history plus responsive, desktop, tablet, phone, and freeform viewports.
 Each tab persists a zoom level, system/light/dark page-color emulation, recent addresses, and an
 isolated browser profile. Cookie import is explicit and bounded. Human-triggered screenshot,
 recording, picture-in-picture, and element-annotation actions produce local artifacts; annotations
 append bounded DOM context and upload their screenshot through the normal attachment path. DevTools
 remain disabled until the user enables the explicit policy. Pi receives browser tools through a
-trusted explicit extension, but every request is brokered by the visible desktop client and rejected
-unless the current thread has been granted inspect-only or inspect-and-interact access. Web messages
+trusted explicit extension. Each thread requires inspect-only or inspect-and-interact access;
+its controller and browser documents remain available while another thread is selected. Pi can
+create/reuse tabs, resize their CSS viewport, and set system/light/dark appearance. New tabs use
+the shared defaults; agent targets stay pinned independently of human tab selection. Resize and
+appearance operations confirm rendered state. Closing a tab, revoking permission, deleting its
+thread or disconnecting cancels pending work. See [agent browser behavior](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md). Web messages
 remain limited to one-use element-picker tokens; page permissions, downloads, host objects, and
 implicit browser access stay blocked. The Agents tab now projects Pi structured-subagent
 and workflow tools as a persisted hierarchy with live state, current activity, elapsed time,
@@ -301,7 +305,7 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 48, including preview-server terminal ownership alongside saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md) and [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+Remote access uses protocol 49, including independent thread browser controllers, agent open/resize/appearance operations, preview-server terminal ownership, saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md), [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md), and [browser automation](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:

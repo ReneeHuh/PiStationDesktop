@@ -21,6 +21,7 @@ public enum PreviewViewportPreset
     Desktop,
     Tablet,
     Phone,
+    Freeform,
 }
 
 public sealed class WorkbenchPreviewViewModel : ObservableObject
@@ -340,8 +341,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     {
         if (Tabs.Count >= MaximumTabs)
         {
-            ActiveTab = Tabs.LastOrDefault();
-            return ActiveTab ?? throw new InvalidOperationException("The preview tab limit was reached.");
+            throw new InvalidOperationException("The preview tab limit was reached.");
         }
 
         var tab = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"), _defaultProfileId);
@@ -734,6 +734,12 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
 
     public string TabId { get; }
     internal bool HasNavigated { get; private set; }
+    internal void MarkBrowserStarted()
+    {
+        if (HasNavigated) return;
+        HasNavigated = true;
+        OnPropertyChanged(nameof(HasNavigated));
+    }
 
     public string AddressText
     {
@@ -1021,6 +1027,18 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         ApplyViewport(preset, 0, 0);
     }
 
+    internal PiStation.ClientRuntime.BrowserViewportSetting ViewportSetting => _viewportPreset switch
+    {
+        PreviewViewportPreset.Responsive => new("fill"),
+        PreviewViewportPreset.Freeform => new("freeform", _viewportWidth, _viewportHeight),
+        _ => new("preset", _viewportWidth, _viewportHeight, _viewportPreset.ToString().ToLowerInvariant()),
+    };
+    internal long ViewportRevision { get; private set; }
+    internal long AppearanceRevision { get; private set; }
+    internal void ApplyAutomationViewport(PiStation.ClientRuntime.BrowserViewportSetting setting) =>
+        ApplyViewport(setting.Mode == "fill" ? PreviewViewportPreset.Responsive : setting.Mode == "freeform" ? PreviewViewportPreset.Freeform :
+            Enum.Parse<PreviewViewportPreset>(setting.Preset!, true), setting.Width, setting.Height);
+
     internal void RotateViewport()
     {
         if (_viewportPreset == PreviewViewportPreset.Responsive)
@@ -1029,6 +1047,7 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         }
 
         (_viewportWidth, _viewportHeight) = (_viewportHeight, _viewportWidth);
+        ViewportRevision++;
         RaiseViewportProperties();
     }
 
@@ -1041,11 +1060,13 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         }
     }
 
-    internal void SetColorScheme(PreviewColorScheme value) =>
-        SetProperty(
+    internal void SetColorScheme(PreviewColorScheme value)
+    {
+        if (SetProperty(
             ref _colorScheme,
             Enum.IsDefined(value) ? value : PreviewColorScheme.System,
-            nameof(ColorScheme));
+            nameof(ColorScheme))) AppearanceRevision++;
+    }
 
     internal void SetProfile(string profileId)
     {
@@ -1075,12 +1096,14 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
 
     private void ApplyViewport(PreviewViewportPreset preset, int width, int height)
     {
+        ViewportRevision++;
         _viewportPreset = preset;
         (_viewportWidth, _viewportHeight) = preset switch
         {
             PreviewViewportPreset.Desktop => NormalizeFixedSize(width, height, 1440, 900),
             PreviewViewportPreset.Tablet => NormalizeFixedSize(width, height, 768, 1024),
             PreviewViewportPreset.Phone => NormalizeFixedSize(width, height, 390, 844),
+            PreviewViewportPreset.Freeform => NormalizeFixedSize(width, height, 1024, 768),
             _ => (0, 0),
         };
         RaiseViewportProperties();

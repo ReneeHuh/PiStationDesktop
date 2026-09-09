@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using PiStation.Host.Hosting;
 using PiStation.Host.Security;
+using PiStation.Host.Threads;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Serialization;
@@ -18,6 +19,82 @@ public sealed class BrowserAutomationTransportTests
     [InlineData("local")]
     [InlineData("https")]
     [InlineData("ssh")]
+    public async Task SlowThreadStartupDoesNotStarveBrowserHeartbeatsOrCancellation(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var project = (await host.Client.GetThreadAsync(host.Thread, timeout.Token)).ProjectId;
+        await using var session = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
+        var first = host.WriteRequest("wait");
+        var active = await NextAsync(session, timeout.Token);
+        var second = await host.Client.CreateThreadAsync(new(project), timeout.Token);
+        host.Factory.Pause = true;
+        var starting = host.Client.GetComposerDiscoveryAsync(second.ThreadId, timeout.Token);
+        Task? queued = null;
+        try
+        {
+            await host.Factory.Started.Task.WaitAsync(timeout.Token);
+            queued = host.Client.ListProjectsAsync(timeout.Token);
+            // Exceed both the three-second client deadline and five-second host heartbeat.
+            await Task.Delay(TimeSpan.FromSeconds(6), timeout.Token);
+            Assert.False(starting.IsCompleted);
+            Assert.True(session.IsActive, session.Error);
+            Assert.False(active.CancellationToken.IsCancellationRequested);
+            File.Delete(host.RequestPath(first.Id));
+            await UntilAsync(() => active.CancellationToken.IsCancellationRequested, timeout.Token);
+            var fresh = host.WriteRequest("status");
+            var work = await NextAsync(session, timeout.Token);
+            Assert.Equal(fresh.Id, work.Request.Id);
+            await session.CompleteAsync(work, new(true));
+            Assert.True((await host.ReadResultAsync(fresh.Id, timeout.Token)).Success);
+            await session.DisposeAsync();
+            Assert.False(File.Exists(Path.Combine(host.ThreadDirectory, "permission.json")));
+            Assert.False(starting.IsCompleted);
+            Assert.False(queued.IsCompleted);
+        }
+        finally
+        {
+            host.Factory.Release.TrySetResult();
+            await starting;
+            if (queued is not null) await queued;
+        }
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task OneConnectionControlsTwoThreadsAndDeletingOneCancelsOnlyItsWork(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var first = await host.Client.GetThreadAsync(host.Thread, timeout.Token);
+        var second = await host.Client.CreateThreadAsync(new(first.ProjectId), timeout.Token);
+        await using var a = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
+        var requestA = host.WriteRequest("resize");
+        var workA = await NextAsync(a, timeout.Token);
+        await using var b = await host.Client.OpenBrowserAutomationAsync(new(second.ThreadId, BrowserAutomationAccess.Inspect), timeout.Token);
+        var requestB = host.WriteRequest("snapshot", second.ThreadId);
+        var workB = await NextAsync(b, timeout.Token);
+        Assert.Equal(requestB.Id, workB.Request.Id);
+        Assert.False(workA.CancellationToken.IsCancellationRequested);
+        await host.Client.DeleteThreadAsync(new(second.ThreadId), timeout.Token);
+        await UntilAsync(() => workB.CancellationToken.IsCancellationRequested, timeout.Token);
+        Assert.True(a.IsActive, a.Error);
+        Assert.False(workA.CancellationToken.IsCancellationRequested);
+        await a.CompleteAsync(workA, new(true));
+        Assert.True((await host.ReadResultAsync(requestA.Id, timeout.Token)).Success);
+        Assert.False((await host.ReadResultAsync(requestB.Id, second.ThreadId, timeout.Token)).Success);
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
     public async Task AllOperationsAndLargeScreenshotsCrossAuthenticatedListeners(string transport)
     {
         if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
@@ -25,7 +102,7 @@ public sealed class BrowserAutomationTransportTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
         await using var session = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
-        foreach (var operation in new[] { "status", "snapshot", "navigate", "click", "type", "press_key", "scroll", "wait", "screenshot" })
+        foreach (var operation in new[] { "status", "open", "resize", "set_appearance", "snapshot", "navigate", "click", "type", "press_key", "scroll", "wait", "screenshot" })
         {
             var request = host.WriteRequest(operation);
             var work = await NextAsync(session, timeout.Token);
@@ -105,7 +182,7 @@ public sealed class BrowserAutomationTransportTests
     }
 
     [Fact]
-    public async Task ASecondDesktopCannotTakeOverAndChangingThreadsReleasesAccess()
+    public async Task ASecondDesktopCannotTakeOverUntilTheThreadControllerIsClosed()
     {
         using var directory = new ClientTestDirectory();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -120,11 +197,16 @@ public sealed class BrowserAutomationTransportTests
         var project = (await host.Client.ListProjectsAsync(timeout.Token)).Single();
         var thread = await host.Client.CreateThreadAsync(new(project.ProjectId), timeout.Token);
         await using var next = await host.Client.OpenBrowserAutomationAsync(new(thread.ThreadId, BrowserAutomationAccess.Inspect), timeout.Token);
+        Assert.True(session.IsActive, session.Error);
+        Assert.False(work.CancellationToken.IsCancellationRequested);
+        await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => other.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token));
+        await session.DisposeAsync();
         await UntilAsync(() => work.CancellationToken.IsCancellationRequested, timeout.Token);
         Assert.False((await host.ReadResultAsync(request.Id, timeout.Token)).Success);
         Assert.False(File.Exists(Path.Combine(host.ThreadDirectory, "permission.json")));
         await using var takeover = await other.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Inspect), timeout.Token);
         Assert.True(takeover.IsActive);
+        Assert.True(next.IsActive, next.Error);
     }
 
     private static async Task<BrowserAutomationWork> NextAsync(BrowserAutomationSession session, CancellationToken token)
@@ -155,22 +237,24 @@ public sealed class BrowserAutomationTransportTests
         internal ClientRuntimeOptions Options { get; private set; } = null!;
         internal ThreadId Thread { get; private set; }
         internal string ThreadDirectory { get; private set; } = null!;
+        internal PausingProcessFactory Factory { get; private set; } = null!;
 
         internal static async Task<BrowserHost> StartAsync(ClientTestDirectory directory, string transport, CancellationToken token)
         {
             var host = new BrowserHost();
             var options = directory.CreateHostOptions() with { BrowserAutomationRoot = directory.CreateDirectory("host-inbox") };
+            host.Factory = new(new PiProcessFactory(options));
             try
             {
                 if (transport == "ssh")
                 {
                     if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-                    host._ssh = await SshEnvironmentHost.StartAsync(options, cancellationToken: token);
+                    host._ssh = await SshEnvironmentHost.StartAsync(options, host.Factory, cancellationToken: token);
                     host.Options = new() { HubAddress = new($"https://127.0.0.1:{host._ssh.Info.Port}/environment"), BearerCredential = host._ssh.Info.BearerCredential, CertificateFingerprint = host._ssh.Info.CertificateFingerprint };
                 }
                 else
                 {
-                    host._local = await EmbeddedEnvironmentHost.StartAsync(options, cancellationToken: token);
+                    host._local = await EmbeddedEnvironmentHost.StartAsync(options, host.Factory, cancellationToken: token);
                     host.Options = new() { HubAddress = host._local.HubAddress, BearerCredential = host._local.BearerCredential };
                     if (transport == "https")
                     {
@@ -196,20 +280,25 @@ public sealed class BrowserAutomationTransportTests
         }
 
         internal string RequestPath(string id) => Path.Combine(ThreadDirectory, "requests", id + ".json");
-        internal BrowserAutomationRequest WriteRequest(string operation)
+        internal BrowserAutomationRequest WriteRequest(string operation, ThreadId? threadId = null)
         {
-            using var permission = JsonDocument.Parse(File.ReadAllText(Path.Combine(ThreadDirectory, "permission.json")));
+            var threadDirectory = threadId is null ? ThreadDirectory : Path.Combine(Path.GetDirectoryName(ThreadDirectory)!, threadId.Value.Value);
+            using var permission = JsonDocument.Parse(File.ReadAllText(Path.Combine(threadDirectory, "permission.json")));
             var request = new BrowserAutomationRequest(Guid.NewGuid().ToString("D"), operation,
-                JsonSerializer.SerializeToElement(new { tabId = "background-tab", selector = "button", value = "hello", key = "Enter", url = "http://localhost:5173", condition = "loaded" }),
+                JsonSerializer.SerializeToElement(new { tabId = "background-tab", selector = "button", value = "hello", key = "Enter", url = "http://localhost:5173", condition = "loaded", mode = "fill", colorScheme = "dark" }),
                 DateTimeOffset.UtcNow, permission.RootElement.GetProperty("controllerId").GetString());
-            File.WriteAllText(RequestPath(request.Id) + ".tmp", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.BrowserAutomationRequest));
-            File.Move(RequestPath(request.Id) + ".tmp", RequestPath(request.Id));
+            var path = Path.Combine(threadDirectory, "requests", request.Id + ".json");
+            File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(request, ProtocolJsonContext.Default.BrowserAutomationRequest));
+            File.Move(path + ".tmp", path);
             return request;
         }
 
-        internal async Task<BrowserAutomationResult> ReadResultAsync(string id, CancellationToken token)
+        internal Task<BrowserAutomationResult> ReadResultAsync(string id, CancellationToken token) => ReadResultAsync(id, null, token);
+
+        internal async Task<BrowserAutomationResult> ReadResultAsync(string id, ThreadId? threadId, CancellationToken token)
         {
-            var path = Path.Combine(ThreadDirectory, "responses", id + ".json");
+            var threadDirectory = threadId is null ? ThreadDirectory : Path.Combine(Path.GetDirectoryName(ThreadDirectory)!, threadId.Value.Value);
+            var path = Path.Combine(threadDirectory, "responses", id + ".json");
             await UntilAsync(() => File.Exists(path), token);
             return JsonSerializer.Deserialize(await File.ReadAllTextAsync(path, token), ProtocolJsonContext.Default.BrowserAutomationResult)!;
         }
@@ -222,6 +311,23 @@ public sealed class BrowserAutomationTransportTests
             if (OperatingSystem.IsWindows() && _ssh is not null) await _ssh.DisposeAsync();
             Access?.Dispose();
             _certificate?.Dispose();
+        }
+    }
+
+    private sealed class PausingProcessFactory(IPiProcessFactory inner) : IPiProcessFactory
+    {
+        internal bool Pause { get; set; }
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<PiStation.PiRpc.Process.PiProcess> StartAsync(ProjectDescriptor project,
+            PiStation.Host.Persistence.HostThreadRecord thread, CancellationToken cancellationToken = default)
+        {
+            if (Pause)
+            {
+                Started.TrySetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            return await inner.StartAsync(project, thread, cancellationToken);
         }
     }
 }

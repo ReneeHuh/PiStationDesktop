@@ -30,11 +30,11 @@ public sealed class RealPiBrowserBridgeTests
         };
         await using var process = await PiProcessLauncher.StartAsync(options, timeout.Token);
         Assert.Contains(await process.Connection.GetCommandsAsync(timeout.Token), c => c.Name == "browser-probe");
-        foreach (var action in new[] { "press_key", "scroll", "wait", "screenshot" })
+        foreach (var action in new[] { "open", "resize", "set_appearance", "press_key", "scroll", "wait", "screenshot" })
         {
             var invocation = process.Connection.PromptAsync("/browser-probe " + JsonSerializer.Serialize(new
             {
-                action, tabId = "background-tab", key = "Enter", deltaY = 500, condition = "loaded", timeoutMs = 1000,
+                action, tabId = "background-tab", key = "Enter", deltaY = 500, condition = "loaded", timeoutMs = 1000, mode = "fill", colorScheme = "dark",
             }), timeout.Token);
             var requestDirectory = Path.Combine(thread, "requests");
             string? requestPath;
@@ -65,7 +65,7 @@ public sealed class RealPiBrowserBridgeTests
         Assert.True(expired.RootElement.GetProperty("isError").GetBoolean());
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(thread, "requests"), "*.json"));
         await File.WriteAllTextAsync(permission, "{\"mode\":\"inspect\"}", timeout.Token);
-        foreach (var action in new[] { "press_key", "scroll" })
+        foreach (var action in new[] { "open", "resize", "set_appearance", "press_key", "scroll" })
         {
             await process.Connection.PromptAsync("/browser-probe " + JsonSerializer.Serialize(new { action, key = "Enter" }), timeout.Token);
             using var result = JsonDocument.Parse(await File.ReadAllTextAsync(resultPath, timeout.Token));
