@@ -1,6 +1,6 @@
 # PiStation master feature and issue tracker
 
-Last reconciled: 2026-09-08. Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
+Last updated: 2026-09-09 (PI-18/PI-19); inventory baseline reconciled 2026-09-08. Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
 
 This is the current tracking index for T3 parity, Pi integration, PiStation additions, defects, and delivery work. Keep completed features here so they are not repeatedly rediscovered as missing. Older documents are supporting history; their old scope decisions and missing-feature labels do not override this tracker.
 
@@ -65,7 +65,7 @@ Inclusion and phase are recorded by the scope decisions and section placement: t
 
 **Deferred** is a delivery phase, not an implementation status. A deferred feature can still be Not started, Partial, or Review needed. Keep its actual progress and evidence; do not mark it Done when the core app becomes usable.
 
-**Evidence:** `S` = source-reviewed assessment, without a fresh end-to-end run for this row; `H` = linked historical milestone records relevant validation, with its stated limits; `P` = acceptance or investigation pending; `N/A` = excluded. Evidence links appear immediately before each group's table. H does not mean every subfeature was independently tested, and old results do not certify later changes.
+**Evidence:** `S` = source-reviewed assessment, without a fresh end-to-end run for this row; `H` = linked historical milestone records relevant validation, with its stated limits; `V` = current focused verification described beside the table; `P` = acceptance or investigation pending; `N/A` = excluded. Evidence links appear immediately before each group's table. H does not mean every subfeature was independently tested, and old results do not certify later changes.
 
 Maintain stable IDs. Split a row when subfeatures have different statuses, origins, or scope. Update its remaining-work cell, evidence, and reconciliation date with the implementation. A checkbox or protocol enum alone is not completion. A release claim also requires the applicable DEL checks. Keep defects in the issue register and link them to feature IDs rather than duplicating the feature backlog. Do not calculate a parity percentage across differently sized features or count deferred work against the first working milestone. Keep the deferred section last when adding new material.
 
@@ -124,6 +124,8 @@ Evidence: [composer](src/PiStation.App/ViewModels/ComposerViewModel.cs), [power 
 
 Evidence: [runtime configuration](src/PiStation.App/ViewModels/ShellViewModel.Setup.cs), [host setup](src/PiStation.Host/EnvironmentService.Runtime.cs), [models](src/PiStation.App/ViewModels/PiConfigurationViewModel.cs), [resources extension](src/PiStation.App/PiExtensions/pistation-resources.ts), [resource/setup milestone](Docs/PI-RESOURCES-AND-SETUP-2026-09-06.md), [automation milestone](Docs/PI-AUTOMATION-SETTINGS-2026-09-07.md), [Pi RPC](<../Pi Agent/packages/coding-agent/docs/rpc.md>), [T3 provider maintenance](../t3code/apps/server/src/provider/providerMaintenance.ts).
 
+PI-18/PI-19 verification, 2026-09-09: [host execution/recovery tests](tests/PiStation.Host.Tests/PiShellTests.cs), [real Pi offline shell/context test](tests/PiStation.PiRpc.Tests/PiShellTests.cs), [projection replay](tests/PiStation.ClientRuntime.Tests/ProjectionStoreTests.cs), [wire serialization](tests/PiStation.Protocol.Tests/ProtocolSerializationTests.cs), and [native WinUI acceptance](tests/PiStation.UiTests/Invoke-PiShellSlice.ps1). The x64 solution builds without warnings; 106 focused protocol, projection, host/lifecycle/authorization, transport, and shell tests passed, including the installed-Pi test. Native UI Automation verified streaming, context selection, closing/reopening the dialog, cancellation, nonzero exit, preserved prompt draft, and app restart recovery. Screenshot capture and its fallback produced blank images, so visual review remains pending under DEL-04. Protocol version is 42; clients and hosts must use matching builds.
+
 | ID | Feature / subfeature | Origin | Status | Evidence | Remaining work / completion boundary |
 | --- | --- | --- | --- | --- | --- |
 | PI-01 | Discover/configure Pi executable; startup health, retry, idle restart | Pi | Done | H | Existing installation workflow; clean-machine checks are DEL-06. |
@@ -143,8 +145,8 @@ Evidence: [runtime configuration](src/PiStation.App/ViewModels/ShellViewModel.Se
 | PI-15 | Manual compaction with optional instructions | Both | Done | H | Preserve useful failure/progress information. |
 | PI-16 | Automatic compaction/retry and retry cancellation | Pi | Done | S | Runtime behavior and events are integrated. |
 | PI-17 | Persist/manage auto-compaction and auto-retry overrides | Pi | Done | H | Saved/applied revisions and unmanaged defaults are explicit; native qualification is pending. |
-| PI-18 | Direct user shell through Pi `bash` RPC | Pi | Not started | S | Stream output, preserve exit/truncation state, and include/exclude output from model context. Agent tool execution already exists in TOOL-04. |
-| PI-19 | Cancel a direct Pi shell command with `abort_bash` | Pi | Not started | S | Target the shell request independently and settle its result. Depends on PI-18. |
+| PI-18 | Direct user shell through Pi `bash` RPC | Pi | Done | V | Composer's Pi shell dialog runs in the thread workspace while Pi is idle and plan mode is off. Streams correlated output, preserves exit/truncation/full-output path, includes/excludes model context, and keeps the prompt draft separate. Displays at most 64K output characters; Pi session history and the latest result survive restart. Session entry advances before the next turn's checkpoint. Agent tool execution remains TOOL-04. |
+| PI-19 | Cancel a direct Pi shell command with `abort_bash` | Pi | Done | V | Cancels the selected active shell execution independently of agent stop. Cancellation remains pending until Pi confirms its final result. Accepted execution belongs to the host; reconnect/retry does not rerun it. Unfinished saved commands become Interrupted after host restart and are never automatically replayed. |
 | PI-20 | Additional provider-specific Pi options/service tiers | Pi | Review needed | P | Inventory stable Pi controls and applicable providers before specifying native settings. Do not copy Codex-only knobs. |
 | PI-21 | Pi startup telemetry, offline, and version-check preferences | Pi | Partial | S | General arguments/environment support exists; dedicated discoverable preferences and effective-state verification are not established. |
 

@@ -139,6 +139,13 @@ internal sealed partial class FakePiServer : IDisposable
 
         switch (type)
         {
+            case "bash":
+                _ = HandleBashAsync(id, command, cancellationToken);
+                break;
+            case "abort_bash":
+                _bashCancelled?.TrySetResult();
+                await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
             case "prompt":
                 if (_arguments.Scenario == "agent-workflow" && command["message"]?.ToString() is { } agentPrompt)
                 {

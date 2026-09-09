@@ -14,6 +14,22 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolSerializationTests
 {
     [Fact]
+    public void PiShellCommandsAndStreamEventsRoundTrip()
+    {
+        var execution = new PiShellExecution(CommandId.New(), ClientId.New(), "echo hello", true,
+            PiShellExecutionState.CancelRequested, "hello 😀", true, null, "C:\\output.txt", null, DateTimeOffset.UtcNow);
+        ThreadCommand[] commands = [new ThreadRunPiShellCommand(execution.Command, true), new ThreadCancelPiShellCommand(execution.CommandId)];
+        foreach (var command in commands)
+        {
+            var json = JsonSerializer.Serialize(command, ProtocolJsonContext.Default.ThreadCommand);
+            Assert.Equal(command, JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.ThreadCommand));
+        }
+        ThreadEvent changed = new PiShellChangedEvent(execution, "shell-entry");
+        var eventJson = JsonSerializer.Serialize(changed, ProtocolJsonContext.Default.ThreadEvent);
+        Assert.Equal(changed, JsonSerializer.Deserialize(eventJson, ProtocolJsonContext.Default.ThreadEvent));
+    }
+
+    [Fact]
     public void PullRequestManagementDraftRoundTripsExpectedTextAndPendingPayload()
     {
         var request = new ManagePullRequestRequest(new(new(ProjectId.New()), "github.com/owner/repo", "42", "head"),

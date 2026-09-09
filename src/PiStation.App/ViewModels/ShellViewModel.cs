@@ -252,6 +252,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public bool CanSend =>
         CanOperate &&
+        Thread.Projection?.ShellExecution?.IsActive != true &&
         !Composer.HasRecoveryConflict &&
         Composer.HasDraft &&
         Workspace.SelectedThread is not null &&
@@ -285,16 +286,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public bool CanClearQueue =>
         CanManageQueue && (Thread.Projection?.Queue?.PendingMessageCount ?? 0) > 0;
 
-    public Visibility FollowUpButtonVisibility => Thread.Projection?.RuntimeState == ThreadRuntimeState.Running
+    public Visibility FollowUpButtonVisibility => Thread.Projection is { RuntimeState: ThreadRuntimeState.Running, CurrentTurnId: not null }
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public string PrimarySendLabel => Thread.Projection?.RuntimeState == ThreadRuntimeState.Running
+    public string PrimarySendLabel => Thread.Projection is { RuntimeState: ThreadRuntimeState.Running, CurrentTurnId: not null }
         ? "Steer current turn"
         : "Send prompt";
 
     public bool CanStop =>
         CanOperate &&
+        Thread.Projection?.ShellExecution?.IsActive != true &&
         Workspace.SelectedThread is not null &&
         Thread.Projection?.RuntimeState == ThreadRuntimeState.Running &&
         _client?.ConnectionState == EnvironmentConnectionState.Connected &&
@@ -340,9 +342,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (_client.Catalog is { } catalog) catalog.Changed += OnCatalogChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;
         _client.ThreadMetadata.Changed += OnThreadMetadataChanged;
-        PiSessions.AllowOperations = CanOperate && IsConnected;
+        RunOnUiThread(() =>
+        {
+            PiSessions.AllowOperations = CanOperate && IsConnected;
+            OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
+        });
         _ = RestorePendingSessionImportAsync();
-        OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
     }
 
     public async Task LoadProjectsAsync(CancellationToken cancellationToken = default)
@@ -3797,6 +3802,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Thread.ApplyProjection(projection, SelectedThread is not null);
         _ = ReadDisplayedCompletionAsync(projection);
         ExtensionUi.Apply(projection);
+        PiShell.Apply(projection);
         Plan.Apply(projection);
         WorkbenchAgents.Apply(projection?.AgentActivities);
         Agents.Apply(projection);
@@ -3822,6 +3828,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RaiseCommandStateChanged()
     {
+        PiShell.SetAvailable(CanOperate && IsConnected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
         PiSessions.AllowOperations = CanOperate && IsConnected;
         OnPropertyChanged(nameof(CanStartBackgroundTask));

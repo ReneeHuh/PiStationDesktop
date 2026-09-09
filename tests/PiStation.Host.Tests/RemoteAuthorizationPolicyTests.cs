@@ -25,6 +25,7 @@ public sealed class RemoteAuthorizationPolicyTests
     [InlineData(nameof(EnvironmentHub.SubmitBackgroundTask))]
     [InlineData(nameof(EnvironmentHub.SubmitPullRequestReview))]
     [InlineData(nameof(EnvironmentHub.GenerateSourceControlText))]
+    [InlineData(nameof(EnvironmentHub.ExecuteThreadCommand))]
     public void PiStartupAndMutationsRequireOperateAccess(string method) =>
         Assert.Equal(RemoteAccessLevel.Operate, RemoteAuthorizationFilter.MethodAccess[method]);
 }

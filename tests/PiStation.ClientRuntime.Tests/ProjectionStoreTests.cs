@@ -11,6 +11,28 @@ namespace PiStation.ClientRuntime.Tests;
 public sealed class ProjectionStoreTests
 {
     [Fact]
+    public void PiShellOutputReplaysWithoutChangingTurnOrAppendingDuplicateOutput()
+    {
+        var initial = CreateProjection(EnvironmentId.New(), ThreadId.New(), ProjectionEpoch.New());
+        var store = new ProjectionStore(initial.ThreadId);
+        store.Apply(new ThreadSnapshotEnvelope(initial));
+        var shell = new PiShellExecution(CommandId.New(), ClientId.New(), "echo hello", false,
+            PiShellExecutionState.Running, "hello", false, null, null, null, DateTimeOffset.UtcNow);
+        var envelope = new ThreadEventEnvelope(initial.EnvironmentId, initial.ThreadId, initial.ProjectionEpoch, new Sequence(1), new PiShellChangedEvent(shell, "shell-entry"));
+        Assert.Equal(ProjectionApplyResult.Applied, store.Apply(envelope));
+        Assert.Equal(ProjectionApplyResult.Ignored, store.Apply(envelope));
+        Assert.Equal(shell, store.Current!.ShellExecution);
+        Assert.Equal("shell-entry", store.Current.LastEntryId);
+        Assert.Null(store.Current.CurrentTurnId);
+        Assert.Empty(store.Current.Timeline);
+        var completed = shell with { State = PiShellExecutionState.Completed, ExitCode = 0, CompletedUtc = DateTimeOffset.UtcNow };
+        var restored = initial with { ProjectionEpoch = ProjectionEpoch.New(), ShellExecution = completed };
+        store.Apply(new ThreadSnapshotEnvelope(restored));
+        Assert.Equal(completed, store.Current.ShellExecution);
+        Assert.Equal(ThreadProjectionReducer.Apply(initial, new PiShellChangedEvent(completed)).ShellExecution, store.Current.ShellExecution);
+    }
+
+    [Fact]
     public void AppliesOrderedEventsAndIgnoresDuplicates()
     {
         var environmentId = EnvironmentId.New();

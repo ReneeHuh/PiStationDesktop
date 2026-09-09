@@ -440,6 +440,10 @@
                             ToolTipService.ToolTip="Controls Pi tool approvals, including bundled child agents. Trusted extensions run in the Pi process; this is not an operating-system sandbox." />
                     </StackPanel>
 
+                    <Button Content="Pi shell" Click="OnPiShellClicked"
+                        automation:AutomationProperties.AutomationId="PiShellButton"
+                        IsEnabled="{x:Bind ViewModel.IsConnected, Mode=OneWay}"
+                        Style="{StaticResource PiToolbarButtonStyle}" />
                     <Button
                         automation:AutomationProperties.AutomationId="CompactContextButton"
                         automation:AutomationProperties.Name="Compact Pi context"

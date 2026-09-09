@@ -1126,6 +1126,13 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         .ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
+                case ThreadRunPiShellCommand shell:
+                    await controller!.StartShellAsync(shell.Command, shell.ExcludeFromContext, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadCancelPiShellCommand cancelShell:
+                    await controller!.CancelShellAsync(cancelShell.ExecutionId, cancellationToken).ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
                 case ThreadCompactContextCommand compact:
                     await controller!.CompactContextAsync(compact.CustomInstructions, cancellationToken)
                         .ConfigureAwait(false);

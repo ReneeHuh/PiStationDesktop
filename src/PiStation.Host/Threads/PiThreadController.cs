@@ -150,6 +150,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 return;
             }
 
+            await RestoreShellAsync(cancellationToken).ConfigureAwait(false);
             var path = _thread.PiSessionFile;
             if (string.IsNullOrWhiteSpace(path) || !TryGetContainedSessionFile(path, out var sessionFile) ||
                 !File.Exists(sessionFile))
@@ -222,6 +223,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             }
 
             await DisposePreviousProcessAsync().ConfigureAwait(false);
+            await RestoreShellAsync(cancellationToken).ConfigureAwait(false);
             if (!Directory.Exists(_project.CanonicalPath))
             {
                 throw new DirectoryNotFoundException($"Project directory no longer exists: {_project.CanonicalPath}");
@@ -754,7 +756,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var process = _process;
-        if (process is null || Journal.Projection.RuntimeState != ThreadRuntimeState.Running)
+        if (process is null || Journal.Projection.RuntimeState != ThreadRuntimeState.Running || Journal.Projection.ShellExecution is { IsActive: true })
         {
             throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread has no running turn to stop.");
         }
@@ -1189,6 +1191,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             }
         }
 
+        if (_shellTask is not null) await _shellTask.ConfigureAwait(false);
         _shutdown.Dispose();
         _interactionGate.Dispose();
         _lifecycle.Dispose();
@@ -1257,6 +1260,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             return;
         }
 
+        await InterruptShellAsync(previous).ConfigureAwait(false);
         Interlocked.Increment(ref _generation);
         await previous.DisposeAsync().ConfigureAwait(false);
         var previousPump = Interlocked.Exchange(ref _eventPump, null);
@@ -1470,6 +1474,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
 
     private async Task SettleAsync()
     {
+        if (Journal.Projection.ShellExecution is { IsActive: true }) return;
         await FinalizeActiveAgentActivitiesAsync(
             AgentActivityState.Interrupted,
             "The parent Pi turn ended before this activity reported completion.").ConfigureAwait(false);
@@ -1843,7 +1848,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        if (_process is null || Journal.Projection.RuntimeState is not
+        if (_process is null || Journal.Projection.ShellExecution?.IsActive == true || Journal.Projection.RuntimeState is not
             (ThreadRuntimeState.Ready or ThreadRuntimeState.Running))
         {
             throw new HostOperationException(

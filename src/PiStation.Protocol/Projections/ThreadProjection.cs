@@ -291,7 +291,8 @@ public sealed record ThreadProjection(
     PiExtensionUiState? ExtensionUi = null,
     PiPlanState? Plan = null,
     PiAgentSetup? AgentSetup = null,
-    long CompletionSequence = 0)
+    long CompletionSequence = 0,
+    PiShellExecution? ShellExecution = null)
 {
     [JsonIgnore]
     public IReadOnlyList<MessageProjection> Messages

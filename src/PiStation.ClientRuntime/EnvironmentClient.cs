@@ -1227,6 +1227,14 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         new ThreadSetQueueDeliveryModeCommand(kind, mode),
         cancellationToken);
 
+    public Task<CommandReceipt> RunPiShellAsync(ThreadId threadId, string command, bool excludeFromContext,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default) => ExecuteAsync(
+            threadId, expectedProjectionEpoch, null, new ThreadRunPiShellCommand(command, excludeFromContext), cancellationToken);
+
+    public Task<CommandReceipt> CancelPiShellAsync(ThreadId threadId, CommandId executionId,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default) => ExecuteAsync(
+            threadId, expectedProjectionEpoch, null, new ThreadCancelPiShellCommand(executionId), cancellationToken);
+
     public Task<CommandReceipt> CompactThreadContextAsync(
         ThreadId threadId,
         string? customInstructions = null,

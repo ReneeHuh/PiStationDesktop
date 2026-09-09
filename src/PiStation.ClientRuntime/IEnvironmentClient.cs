@@ -309,6 +309,12 @@ public interface IEnvironmentClient : IAsyncDisposable
         long expectedRevision,
         CancellationToken cancellationToken = default);
 
+    Task<CommandReceipt> RunPiShellAsync(ThreadId threadId, string command, bool excludeFromContext,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> CancelPiShellAsync(ThreadId threadId, CommandId executionId,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default);
+
     Task<CommandReceipt> CompactThreadContextAsync(
         ThreadId threadId,
         string? customInstructions = null,
