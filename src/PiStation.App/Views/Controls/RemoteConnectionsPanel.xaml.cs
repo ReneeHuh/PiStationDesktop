@@ -27,6 +27,7 @@ public sealed partial class RemoteConnectionsPanel : UserControl
     private IReadOnlyList<RemoteDevice> _deviceSnapshot = [];
     private string? _displayedPairingUrl;
     private int _qrGeneration;
+    private TailscaleNetwork? _tailscale;
     private static RemoteAccessController? Controller => (Application.Current as App)?.RemoteAccess;
     private RemoteAccessController? HostController => _remoteWindow ? null : Controller;
 
@@ -36,6 +37,7 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         InitializeComponent();
         GotFocus += OnChildGotFocus;
         HostControls.Visibility = remoteWindow ? Visibility.Collapsed : Visibility.Visible;
+        UseTailscaleAdapter.Visibility = remoteWindow ? Visibility.Collapsed : Visibility.Visible;
         DeviceName.Text = Environment.MachineName;
         _refresh = DispatcherQueue.CreateTimer();
         _refresh.Interval = TimeSpan.FromSeconds(2);
@@ -105,6 +107,7 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         CreatePairingLink.IsEnabled = !_busy && controller?.IsSharing == true;
         PairingLabel.IsEnabled = PairingLifetime.IsEnabled = PairingAccess.IsEnabled = CreatePairingLink.IsEnabled;
         ListenAddress.IsEnabled = ListenPort.IsEnabled = controller?.IsSharing != true && !_busy;
+        UseTailscaleAdapter.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false } && _tailscale?.Self is not null;
         UpdateApprovalState();
         SharingState.Text = controller?.NeedsAddress == true ? "Sharing needs an address. The selected network address is unavailable. Stop sharing, then choose an active address."
             : controller?.IsSharing == true
@@ -196,7 +199,9 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         var label = RemotePairingPageState.NormalizeLabel(PairingLabel.Text);
         var generation = _pageState.Generation;
         var pairing = await controller.CreateInvitationAsync(
-            PairingAccess.SelectedIndex == 1 ? RemoteAccessLevel.ReadOnly : RemoteAccessLevel.Operate, lifetime, label);
+            PairingAccess.SelectedIndex == 1 ? RemoteAccessLevel.ReadOnly : RemoteAccessLevel.Operate, lifetime, label,
+            useTailscaleDns: TailscaleMagicDns.IsChecked == true && _tailscale?.Self is { } self &&
+                Uri.TryCreate(controller.Address, UriKind.Absolute, out var address) && self.Address == address.Host);
         if (!_active || !_pageState.Remember(pairing, generation)) return;
         RefreshHost();
         PairingInvitations.SelectedItem = (PairingInvitations.ItemsSource as IEnumerable<RemoteInvitationRow>)?

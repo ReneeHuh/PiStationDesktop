@@ -60,6 +60,7 @@ internal static class AppBootstrapper
             ApplicationDataRoot = launchOptions.DataRoot,
             EnvironmentName = Environment.MachineName,
             PiInstallation = piInstallation,
+            ConfiguredPiExecutablePath = configuredPath,
             LaunchConfiguration = configuration.Launch ?? new(),
             Extensions = launchOptions.FakePiScenario is null ? configuration.Extensions : new(),
             PlanExtensionPath = launchOptions.FakePiScenario is null or "plan-workflow"
@@ -133,6 +134,7 @@ internal static class AppBootstrapper
         PiStation.Protocol.Models.SshHostInfo info, AppLaunchOptions launchOptions, CancellationToken cancellationToken)
     {
         info.Validate();
+        viewModel.PrepareToLoadHostRuntimeConfiguration();
         var client = new EnvironmentClient(new ClientRuntimeOptions
         {
             HubAddress = new Uri($"https://127.0.0.1:{info.Port}/environment"),

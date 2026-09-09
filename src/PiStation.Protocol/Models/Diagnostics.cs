@@ -58,3 +58,5 @@ public sealed record DiagnosticsSnapshot(
 public sealed record ExportDiagnosticsRequest(string DestinationPath);
 
 public sealed record ExportDiagnosticsResult(string Path, long ByteLength, DateTimeOffset CreatedUtc);
+
+public sealed record DiagnosticsDownload(byte[] Content, DateTimeOffset CreatedUtc);

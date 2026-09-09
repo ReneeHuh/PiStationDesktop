@@ -33,7 +33,38 @@ public sealed class ProjectGroupViewModel : ObservableObject
     public string CanonicalPath => Project.CanonicalPath;
     public string? Icon => Project.Icon;
     public string Emoji => Project.Icon?.StartsWith("emoji:", StringComparison.Ordinal) == true ? Project.Icon[6..] : "";
-    public string? ImageIcon => string.IsNullOrEmpty(Emoji) ? Project.Icon : null;
+    private bool _remoteIcon;
+    private byte[]? _imageContent;
+    private string? _requestedIcon;
+    private bool _iconLoadPending;
+    private int _iconGeneration;
+    public object? ImageIcon => string.IsNullOrEmpty(Emoji) ? _remoteIcon ? _imageContent : Project.Icon : null;
+    internal async Task LoadRemoteIconAsync(IEnvironmentClient client)
+    {
+        _remoteIcon = true;
+        if (_requestedIcon == Project.Icon && (_imageContent is not null || _iconLoadPending)) return;
+        var generation = ++_iconGeneration;
+        _requestedIcon = Project.Icon;
+        _imageContent = null;
+        _iconLoadPending = false;
+        OnPropertyChanged(nameof(ImageIcon));
+        if (string.IsNullOrEmpty(Project.Icon) || !string.IsNullOrEmpty(Emoji)) return;
+        _iconLoadPending = true;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var content = await client.ReadProjectIconAsync(Project.ProjectId, timeout.Token);
+            if (generation != _iconGeneration) return;
+            if (content?.Length <= ProjectIconLimits.MaximumBytes) _imageContent = content;
+            OnPropertyChanged(nameof(ImageIcon));
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // Leave the image empty when the host icon is missing or inaccessible.
+            if (generation == _iconGeneration) _requestedIcon = null;
+        }
+        finally { if (generation == _iconGeneration) _iconLoadPending = false; }
+    }
     public ObservableCollection<ThreadDescriptor> Threads { get; } = [];
     public IReadOnlyList<ThreadDescriptor> AllThreads { get; private set; } = [];
     public string Summary => Threads.Count < _visibleCount ? $"{Threads.Count} of {_visibleCount} tasks" : $"{Threads.Count} tasks";

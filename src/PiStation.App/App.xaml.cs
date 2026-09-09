@@ -409,7 +409,11 @@ public partial class App : Application
         try
         {
             await client.ConnectAsync(cancellationToken);
-            if (_remoteWindows.ContainsKey(window) && !_remoteClosingWindows.Contains(window)) await viewModel.LoadProjectsAsync(cancellationToken);
+            if (_remoteWindows.ContainsKey(window) && !_remoteClosingWindows.Contains(window))
+            {
+                await viewModel.LoadPiRuntimeConfigurationAsync(cancellationToken);
+                await viewModel.LoadProjectsAsync(cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

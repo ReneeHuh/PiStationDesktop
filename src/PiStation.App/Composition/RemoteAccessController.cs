@@ -125,15 +125,24 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
         finally { _gate.Release(); }
     }
 
-    public async Task<CreatedRemotePairing> CreateInvitationAsync(RemoteAccessLevel level, TimeSpan lifetime, string? label)
+    public async Task<CreatedRemotePairing> CreateInvitationAsync(RemoteAccessLevel level, TimeSpan lifetime, string? label,
+        bool useTailscaleDns = false, CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync();
+        var tailscale = useTailscaleDns ? await TailscaleDiscovery.DiscoverAsync(cancellationToken) : null;
+        await _gate.WaitAsync(cancellationToken);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_listener is null || _access is null) throw new InvalidOperationException("Start sharing first.");
+            var address = _listener.Address;
+            if (useTailscaleDns)
+            {
+                if (tailscale is not { Running: true, Self: { DnsName: not null } self } || self.Address != address.Host)
+                    throw new InvalidOperationException("Refresh Tailscale and share on its adapter, or turn off MagicDNS to use the IP address.");
+                address = self.GetHttpsAddress(address.Port);
+            }
             var issued = _access.IssueInvitation(level, lifetime, label);
-            return new(issued.Invitation, new RemoteInvitation(_listener.Address, Fingerprint, issued.Token).Encode());
+            return new(issued.Invitation, new RemoteInvitation(address, Fingerprint, issued.Token).Encode());
         }
         finally { _gate.Release(); }
     }

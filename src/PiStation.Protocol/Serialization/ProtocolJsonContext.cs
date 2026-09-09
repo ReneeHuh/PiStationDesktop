@@ -280,4 +280,8 @@ namespace PiStation.Protocol.Serialization;
 [JsonSerializable(typeof(PiRuntimeSetupResult))]
 [JsonSerializable(typeof(ExportDiagnosticsRequest))]
 [JsonSerializable(typeof(ExportDiagnosticsResult))]
+[JsonSerializable(typeof(DiagnosticsDownload))]
+[JsonSerializable(typeof(BrowseHostPathRequest))]
+[JsonSerializable(typeof(HostPathPage))]
+[JsonSerializable(typeof(ProjectIconUpload))]
 public sealed partial class ProtocolJsonContext : JsonSerializerContext;

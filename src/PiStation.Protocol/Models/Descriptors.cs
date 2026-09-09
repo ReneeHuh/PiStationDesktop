@@ -154,7 +154,8 @@ public sealed record UpdateProjectDefaultsRequest(
     bool AutoPullDefaultBranch,
     IReadOnlyList<ProjectScript>? Scripts = null,
     string? Icon = null,
-    bool UpdateCustomization = false);
+    bool UpdateCustomization = false,
+    ProjectIconUpload? UploadedIcon = null);
 
 public sealed record ProjectSetupScriptResult(
     SetupScriptState State,

@@ -9,6 +9,17 @@ public sealed partial class EnvironmentService
 {
     private readonly SemaphoreSlim _runtimeConfigurationGate = new(1, 1);
 
+    public async Task<PiRuntimeConfiguration> GetPiRuntimeConfigurationAsync(CancellationToken cancellationToken = default)
+    {
+        await _runtimeConfigurationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Include startup overrides and preserve an empty PATH discovery choice.
+            return new(_options.ConfiguredPiExecutablePath, _options.Extensions, _options.LaunchConfiguration);
+        }
+        finally { _runtimeConfigurationGate.Release(); }
+    }
+
     public async Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default)
     {
         await _runtimeConfigurationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -56,6 +67,7 @@ public sealed partial class EnvironmentService
             var installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = path }, cancellationToken).ConfigureAwait(false);
             await PiRuntimeSettingsStore.SaveAsync(_options.CanonicalDataRoot, new(path, extensions, launch), cancellationToken).ConfigureAwait(false);
             _options.PiInstallation = installation;
+            _options.ConfiguredPiExecutablePath = path;
             _options.Extensions = extensions;
             _options.LaunchConfiguration = launch;
             return new PiRuntimeSetupResult(true, path, installation.PiVersion.ToString(),

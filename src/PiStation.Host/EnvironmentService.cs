@@ -273,9 +273,20 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         RunProjectScriptRequest request,
         CancellationToken cancellationToken = default) => _setupScripts.RunNamedAsync(request, cancellationToken);
 
-    public Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
+    public async Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
         UpdateProjectDefaultsRequest request,
-        CancellationToken cancellationToken = default) => _projects.UpdateDefaultsAsync(request, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (request.UploadedIcon is { } upload)
+        {
+            if (!request.UpdateCustomization) throw new ArgumentException("An icon upload requires project customization.");
+            _ = await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new HostOperationException(ProtocolErrorCodes.ProjectNotFound, "The project was not found.");
+            var icon = await Projects.ProjectIconStorage.SaveAsync(_options.CanonicalDataRoot, upload, cancellationToken).ConfigureAwait(false);
+            request = request with { Icon = icon, UploadedIcon = null };
+        }
+        return await _projects.UpdateDefaultsAsync(request, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task RemoveProjectAsync(
         RemoveProjectRequest request,

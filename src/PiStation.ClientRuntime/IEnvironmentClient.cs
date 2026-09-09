@@ -124,6 +124,10 @@ public interface IEnvironmentClient : IAsyncDisposable
 
     Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default);
 
+    Task<PiRuntimeConfiguration> GetPiRuntimeConfigurationAsync(CancellationToken cancellationToken = default);
+    Task<HostPathPage> BrowseHostPathAsync(BrowseHostPathRequest request, CancellationToken cancellationToken = default);
+    Task<byte[]?> ReadProjectIconAsync(ProjectId projectId, CancellationToken cancellationToken = default);
+
     Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default);
     Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default);

@@ -14,6 +14,9 @@ public sealed record HostOptions
 
     public PiInstallation? PiInstallation { get; set; }
 
+    // Keep the user's discovery choice, which can differ from the resolved node/launcher executable.
+    public string? ConfiguredPiExecutablePath { get; set; }
+
     public PiExtensionConfiguration Extensions { get; set; } = new();
 
     public IReadOnlyList<string> AdditionalPiArguments { get; init; } = [];

@@ -84,7 +84,8 @@ internal static class Program
             using var startup = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             startup.CancelAfter(TimeSpan.FromSeconds(60));
             var configuration = PiRuntimeSettingsStore.Load(root);
-            var pi = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = piPath ?? configuration.ExecutablePath }, startup.Token).ConfigureAwait(false);
+            configuration = configuration with { ExecutablePath = piPath ?? configuration.ExecutablePath };
+            var pi = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = configuration.ExecutablePath }, startup.Token).ConfigureAwait(false);
             SshEnvironmentHost? host = null;
             try
             {
@@ -143,6 +144,7 @@ internal static class Program
         ApplicationDataRoot = root,
         EnvironmentName = Environment.MachineName,
         PiInstallation = pi,
+        ConfiguredPiExecutablePath = configuration.ExecutablePath,
         Extensions = configuration.Extensions,
         LaunchConfiguration = configuration.Launch ?? new(),
         PlanExtensionPath = Path.Combine(AppContext.BaseDirectory, "PiExtensions", "pistation-plan.ts"),

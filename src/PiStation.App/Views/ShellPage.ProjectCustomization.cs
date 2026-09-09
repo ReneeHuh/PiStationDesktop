@@ -12,15 +12,30 @@ public sealed partial class ShellPage
         var project = ViewModel.Workspace.SelectedProject;
         if (project is null) return;
         var scripts = (project.Scripts ?? []).ToList();
-        var icon = new TextBox { Header = "Icon: emoji:🚀 or image path (empty uses repository icon)", Text = project.Icon ?? "" };
-        var browse = new Button { Content = "Choose image…" };
+        var icon = new TextBox { Header = ViewModel.IsRemote ? "Icon: emoji:🚀 or image path on the host" : "Icon: emoji:🚀 or image path (empty uses repository icon)", Text = project.Icon ?? "" };
+        ProjectIconUpload? upload = null;
+        var uploadStatus = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        icon.TextChanged += (_, _) => { upload = null; uploadStatus.Text = ""; };
+        var browse = new Button { Content = ViewModel.IsRemote ? "Upload image from this computer…" : "Choose image…" };
         browse.Click += async (_, _) =>
         {
             if ((Application.Current as App)?.MainWindow is not { } window) return;
             var picker = new FileOpenPicker();
             foreach (var extension in new[] { ".png", ".jpg", ".jpeg", ".ico", ".webp", ".gif" }) picker.FileTypeFilter.Add(extension);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-            if (await picker.PickSingleFileAsync() is { } file) icon.Text = file.Path;
+            if (await picker.PickSingleFileAsync() is not { } file) return;
+            if (!ViewModel.IsRemote) { icon.Text = file.Path; return; }
+            try
+            {
+                using var stream = await file.OpenStreamForReadAsync();
+                if (stream.Length is <= 0 or > ProjectIconLimits.MaximumBytes) throw new IOException("Choose an image no larger than 512 KiB.");
+                var content = new byte[checked((int)stream.Length)];
+                await stream.ReadExactlyAsync(content);
+                icon.Text = "";
+                upload = new(file.Name, content);
+                uploadStatus.Text = file.Name + " will be uploaded when you save.";
+            }
+            catch (Exception error) { uploadStatus.Text = error.Message; }
         };
         var list = new ComboBox { Header = "Scripts", DisplayMemberPath = "Name", HorizontalAlignment = HorizontalAlignment.Stretch };
         var name = new TextBox { Header = "Name", MaxLength = 200 };
@@ -53,18 +68,32 @@ public sealed partial class ShellPage
         remove.Click += (_, _) => { if (selected is not null) scripts.Remove(selected); selected = null; Refresh(); };
         newScript.Click += (_, _) => { list.SelectedItem = null; name.Text = command.Text = ""; };
         var panel = new StackPanel { Spacing = 8, MinWidth = 420 };
-        foreach (var element in new UIElement[] { icon, browse, list, name, command, scriptIcon, setup, add, newScript, remove, status }) panel.Children.Add(element);
+        foreach (var element in new UIElement[] { icon, browse, uploadStatus, list, name, command, scriptIcon, setup, add, newScript, remove, status }) panel.Children.Add(element);
         Refresh();
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Customize " + project.DisplayName,
-            Content = new ScrollViewer { Content = panel, MaxHeight = 560 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
+            Content = new ScrollViewer { Content = panel, MaxHeight = 560 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel",
+            SecondaryButtonText = ViewModel.IsRemote ? "Choose image on host…" : "" };
         dialog.PrimaryButtonClick += (_, args) =>
         {
             if (selected is not null || !string.IsNullOrWhiteSpace(name.Text) || !string.IsNullOrWhiteSpace(command.Text))
                 args.Cancel = !ApplyScript();
         };
         SettingsDialog.Hide();
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-            await ViewModel.UpdateProjectCustomizationAsync(project, scripts, string.IsNullOrWhiteSpace(icon.Text) ? null : icon.Text.Trim());
+        if (_settingsShowTask is { } settingsTask) await settingsTask;
+        while (true)
+        {
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Secondary)
+            {
+                var selectedImage = await HostPathPicker.PickAsync(XamlRoot, "Select an image on " + ViewModel.EnvironmentLabel,
+                    ViewModel.BrowseHostPathAsync, project.CanonicalPath, allowDirectories: false);
+                if (selectedImage is not null) icon.Text = selectedImage;
+                continue;
+            }
+            if (result == ContentDialogResult.Primary)
+                await ViewModel.UpdateProjectCustomizationAsync(project, scripts, string.IsNullOrWhiteSpace(icon.Text) ? null : icon.Text.Trim(), upload);
+            break;
+        }
         await OpenSettingsAsync();
     }
 }

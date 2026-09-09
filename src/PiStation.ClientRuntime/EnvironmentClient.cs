@@ -358,6 +358,15 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
     public Task<DiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken cancellationToken = default) =>
         InvokeAsync<DiagnosticsSnapshot>("GetDiagnostics", cancellationToken);
 
+    public Task<PiRuntimeConfiguration> GetPiRuntimeConfigurationAsync(CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiRuntimeConfiguration>("GetPiRuntimeConfiguration", cancellationToken);
+
+    public Task<HostPathPage> BrowseHostPathAsync(BrowseHostPathRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<HostPathPage>("BrowseHostPath", request, cancellationToken);
+
+    public Task<byte[]?> ReadProjectIconAsync(ProjectId projectId, CancellationToken cancellationToken = default) =>
+        InvokeAsync<byte[]?>("ReadProjectIcon", projectId, cancellationToken);
+
     public Task<PiRuntimeSetupResult> ConfigurePiRuntimeAsync(ConfigurePiRuntimeRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiRuntimeSetupResult>("ConfigurePiRuntime", request, cancellationToken);
 
@@ -383,10 +392,25 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
     public Task<PiSetupTerminalResult> StartPiSetupAsync(StartPiSetupRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSetupTerminalResult>("StartPiSetup", request, cancellationToken);
 
-    public Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
+    public async Task<ExportDiagnosticsResult> ExportDiagnosticsAsync(
         ExportDiagnosticsRequest request,
-        CancellationToken cancellationToken = default) =>
-        InvokeAsync<ExportDiagnosticsResult>("ExportDiagnostics", request, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DestinationPath);
+        var destination = Path.GetFullPath(request.DestinationPath);
+        var download = await InvokeAsync<DiagnosticsDownload>("DownloadDiagnostics", cancellationToken).ConfigureAwait(false);
+        var parent = Path.GetDirectoryName(destination)!;
+        Directory.CreateDirectory(parent);
+        var temporary = Path.Combine(parent, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, download.Content, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        return new(destination, download.Content.LongLength, download.CreatedUtc);
+    }
 
     public Task<SearchProjectFilesResult> SearchProjectFilesAsync(
         SearchProjectFilesRequest request,

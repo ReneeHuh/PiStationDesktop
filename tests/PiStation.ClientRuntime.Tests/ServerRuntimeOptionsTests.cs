@@ -16,6 +16,7 @@ public sealed class ServerRuntimeOptionsTests
         var loaded = PiRuntimeSettingsStore.Load(defaults.ApplicationDataRoot);
         var options = PiStation.Server.Program.CreateHostOptions(defaults.ApplicationDataRoot, defaults.PiInstallation, loaded);
         Assert.Equal(saved.ExecutablePath, loaded.ExecutablePath);
+        Assert.Equal(saved.ExecutablePath, options.ConfiguredPiExecutablePath);
         Assert.False(options.Extensions.DiscoverInstalled);
         Assert.Equal(45, options.LaunchConfiguration.CommandTimeoutSeconds);
         Assert.Equal(8, options.LaunchConfiguration.ShutdownTimeoutSeconds);

@@ -1,23 +1,23 @@
 # PiStation master feature and issue tracker
 
-Last reconciled: 2026-09-08. Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
+Last reconciled: 2026-09-09 (remote access; protocol 42). Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
 
 This is the current tracking index for T3 parity, Pi integration, PiStation additions, defects, and delivery work. Keep completed features here so they are not repeatedly rediscovered as missing. Older documents are supporting history; their old scope decisions and missing-feature labels do not override this tracker.
 
 ## Project goal
 
-**Bring the T3 Code features and subfeatures selected for PiStation into the app, and support the Pi coding agent completely within PiStation, including Pi-only features that T3 does not have.** Deliver the core application as native C# / WinUI on Windows, with Pi as the only coding-agent runtime. Features skipped to get PiStation working belong in the deferred implementation list at the end and will be implemented afterward.
+**Bring the T3 Code features and subfeatures selected for PiStation into the app, and support the Pi coding agent completely within PiStation, including Pi-only features that T3 does not have.** Deliver the core application as native C# / WinUI on Windows, with Pi as the only coding-agent runtime. Selected features postponed to get PiStation working belong in the deferred implementation list at the end. Explicit user exclusions are product boundaries, not deferred commitments.
 
 The project has two equal requirements:
 
-1. **Selected T3 features:** reproduce the T3 user workflows and subfeatures included in PiStation's scope, adapting agent-specific behavior to Pi and the interface to native Windows controls. A feature's presence in T3 does not automatically make it a PiStation requirement. Record skipped feature decisions and their reasons at the end, with implementation scheduled after the core app is working.
+1. **Selected T3 features:** reproduce the T3 user workflows and subfeatures included in PiStation's scope, adapting agent-specific behavior to Pi and the interface to native Windows controls. A feature's presence in T3 does not automatically make it a PiStation requirement. Record temporary deferrals at the end and explicit exclusions in the product-boundary register.
 2. **Complete Pi support:** expose and preserve Pi's stable Windows-relevant capabilities, including runtime configuration, models/providers, tools, commands, skills, prompt templates, packages, extensions and supported extension interactions, turn/queue control, compaction/retry, sessions, branching, and import/export. Pi capabilities belong in the tracker even when T3 has no equivalent.
 
 Track every missing or incomplete capability with its correct origin, implementation status, dependencies, and acceptance criteria. A limitation in the current Pi RPC transport is an integration gap to resolve through an SDK adapter, native bridge, or upstream protocol work; it is not by itself a reason to omit the feature or claim complete Pi support. Distinguish stable Pi capabilities from arbitrary third-party extension behavior and experimental APIs, and record compatibility requirements explicitly.
 
 **Feature origin, delivery phase, and implementation status are separate decisions.** Pi-only features are first-class requirements for complete Pi support, even without a T3 equivalent. T3-only features may be included now, adapted, or deferred. A feature can also come from both projects or be a PiStation addition. Deferred features remain committed follow-up work; they do not block the first working milestone. Unresolved inclusion decisions must be recorded for review rather than silently included or excluded.
 
-The first working milestone remains Windows-focused and Pi-only. Previously skipped platform expansion and remote installation/update automation are deferred to the final section. Until that work is delivered, users install and update software on the other Windows computer themselves. Pi remains the only coding-agent runtime; deferring features does not add other agent harnesses to the product.
+The current remote-access workstream is Windows-only and Pi-only. Linux/macOS, remote installation/update automation, and hosted relay/cloud-account integration are explicitly excluded. Users install and update software on the other Windows computer themselves. Existing Tailscale network discovery does not add a PiStation cloud account or sign-in flow. Other master-tracker deferrals remain separate from this remote-access implementation.
 
 The core milestone is achieved when its included T3 and Pi workflows are usable and their applicable acceptance checks pass. The overall project also includes implementing the deferred feature list after that milestone. Source presence alone does not establish complete support, and a working core does not mark deferred features Done.
 
@@ -27,14 +27,15 @@ The core milestone is achieved when its included T3 and Pi workflows are usable 
 | --- | --- |
 | Client | Native Windows WinUI. Current packaging targets Windows x64. |
 | Coding agent | Pi only. Multiple model providers through Pi remain in scope; additional agent harnesses do not. |
-| T3 feature selection | Include applicable, selected T3 features now; retain skipped features and their reasons in the deferred implementation list. Product boundaries such as Pi-only remain explicit. |
+| T3 feature selection | Include applicable, selected T3 features now; retain temporary deferrals at the end and explicit exclusions in the product-boundary register. |
 | Pi-only features | Include stable Windows-relevant Pi capabilities even when T3 has no equivalent. Track native integration and compatibility gaps explicitly. |
 | Remote access | Windows client to Windows host. Kept in a separate section because remote work is already underway. A local-only view excludes REM and remote issue rows. |
-| Remote installation and updating | Deferred until the core app is working (SCOPE-08). The user installs/updates on the other computer for now. Compatibility checks and manual-update recovery remain core work. |
-| Other platforms | Deferred until the core app is working: Linux/macOS, WSL, web, and mobile. WinUI remains the initial Windows client; later clients require an appropriate separate presentation layer. |
-| Skipped feature decisions | Append each decision to the final deferred section with its reason, current progress, dependencies, and completion target. Implement these after the core milestone. |
+| Remote installation and updating | Out of scope (SCOPE-08). The user installs/updates on the other Windows computer. Compatibility checks and manual-update recovery remain core work. |
+| Cloud accounts and relay | Out of scope for remote access (REM-20). No PiStation hosted relay, account linking, or cloud environment discovery. |
+| Other platforms | Linux/macOS are excluded (SCOPE-01). WSL, web, and mobile remain separate master-tracker deferrals, outside the current Windows-to-Windows remote workstream. |
+| Skipped feature decisions | Record temporary postponements in the final deferred section. Explicit exclusions stay in the product-boundary register and do not create later implementation commitments. |
 | Optional additions | Additional product proposals remain optional. Stable Pi compatibility gaps required by the project goal are tracked as required investigations, including gaps in the current RPC transport. |
-| PiStation source baseline | `36dc4641320a63b0e8a6969a98faede9860f8303` |
+| PiStation inventory baseline | `36dc4641320a63b0e8a6969a98faede9860f8303`. The 2026-09-09 remote implementation on top of `b10e550` supersedes the related REM/BUG rows; see the evidence log. This is not a fresh review of the whole product. |
 | T3 source baseline | Local `../t3code`, `0a590fa01af66ec135d2ebf2d5542b08a37dc275`, dated 2026-09-04. Not a claim about the newest upstream release. |
 | Pi source baseline | Local `../Pi Agent`, `17de82d7bea18a6589677a9761baabc2060c9efb`, coding-agent package 0.85.0. |
 
@@ -44,7 +45,7 @@ The inventory reconciles the earlier source review, existing milestone reports, 
 
 **Origin describes the requested behavior, not which repository contains the implementing code or whether the feature is included.** Pi being able to run `git` in a shell does not make a native PR dashboard a Pi feature.
 
-Inclusion and phase are recorded by the scope decisions and section placement: the main inventory is core work; the final deferred list is implementation work after the core milestone; the product-boundary register describes non-applicable harness/library work. Optional proposals still await a decision except for explicitly required compatibility investigations. A proposal the user has not selected is different from a selected feature they chose to skip temporarily. Keep phase separate from implementation progress.
+Inclusion and phase are recorded by the scope decisions and section placement: the main inventory is core work; the final deferred list is implementation work after the core milestone; the product-boundary register describes explicit exclusions and non-applicable harness/library work. Optional proposals still await a decision except for explicitly required compatibility investigations. A proposal the user has not selected is different from a selected feature they chose to skip temporarily. Keep phase separate from implementation progress.
 
 | Origin | Meaning |
 | --- | --- |
@@ -65,7 +66,7 @@ Inclusion and phase are recorded by the scope decisions and section placement: t
 
 **Deferred** is a delivery phase, not an implementation status. A deferred feature can still be Not started, Partial, or Review needed. Keep its actual progress and evidence; do not mark it Done when the core app becomes usable.
 
-**Evidence:** `S` = source-reviewed assessment, without a fresh end-to-end run for this row; `H` = linked historical milestone records relevant validation, with its stated limits; `P` = acceptance or investigation pending; `N/A` = excluded. Evidence links appear immediately before each group's table. H does not mean every subfeature was independently tested, and old results do not certify later changes.
+**Evidence:** `S` = source-reviewed assessment, without a fresh end-to-end run for this row; `H` = linked historical milestone records relevant validation, with its stated limits; `V` = focused automated validation in the current reconciliation, described in the evidence log; `P` = acceptance or investigation pending; `N/A` = excluded. Evidence links appear immediately before each group's table. Neither H nor V means every subfeature or native interaction was independently tested, and old results do not certify later changes.
 
 Maintain stable IDs. Split a row when subfeatures have different statuses, origins, or scope. Update its remaining-work cell, evidence, and reconciliation date with the implementation. A checkbox or protocol enum alone is not completion. A release claim also requires the applicable DEL checks. Keep defects in the issue register and link them to feature IDs rather than duplicating the feature backlog. Do not calculate a parity percentage across differently sized features or count deferred work against the first working milestone. Keep the deferred section last when adding new material.
 
@@ -127,7 +128,7 @@ Evidence: [runtime configuration](src/PiStation.App/ViewModels/ShellViewModel.Se
 | ID | Feature / subfeature | Origin | Status | Evidence | Remaining work / completion boundary |
 | --- | --- | --- | --- | --- | --- |
 | PI-01 | Discover/configure Pi executable; startup health, retry, idle restart | Pi | Done | H | Existing installation workflow; clean-machine checks are DEL-06. |
-| PI-02 | Runtime arguments, environment variables, extension paths | Both | Done | S | Local UI implemented. Remote setup issue BUG-01 remains separate. |
+| PI-02 | Runtime arguments, environment variables, extension paths | Both | Done | V | Remote loading and round-trip preservation are implemented in REM-15, including empty/multiline values and startup executable overrides. Native acceptance remains separate. |
 | PI-03 | Multiple model providers through Pi | Both | Done | H | Does not add separate coding-agent harnesses. |
 | PI-04 | Switch model and supported thinking level | Both | Done | H | Capabilities differ by model. |
 | PI-05 | Project/new-thread model and reasoning defaults | Both | Done | S | Persist and apply defaults to the appropriate new session. |
@@ -236,7 +237,7 @@ Evidence: [project customization](src/PiStation.App/Views/ShellPage.ProjectCusto
 | PROJ-03 | Local checkout versus managed worktree per thread | T3 | Done | S | Correct session working directory. |
 | PROJ-04 | Setup/named scripts, trust, and worktree setup hooks | T3 | Done | S | Script execution and trust implemented. |
 | PROJ-05 | Native script create/edit/remove controls | T3 | Done | S | Do not reclassify as missing based on older config-only reviews. |
-| PROJ-06 | Project emoji/image/automatic icon selection | T3 | Done | S | Local editing exists; remote image paths are BUG-03. |
+| PROJ-06 | Project emoji/image/automatic icon selection | T3 | Done | S | Local editing exists; remote upload, host selection, and image transport are implemented in REM-17. |
 | PROJ-07 | Shared project icon behavior across grouped checkouts | T3 | Partial | S | Reconcile editing/storage across the whole repository group. Automatic script replication is not part of this row. |
 | PROJ-08 | Safe automatic default-branch fast-forward pull | T3 | Done | S | Skip dirty/diverged/wrong-branch/no-upstream checkouts. |
 | GIT-01 | Status, refs, branches, upstream divergence | T3 | Done | S | Structured workspace state. |
@@ -359,7 +360,7 @@ Evidence: [settings/usage UI](src/PiStation.App/ViewModels/SettingsViewModel.cs)
 | USE-05 | Subscription quota, reset times, and consumption pace | T3 | Not started | S | Requires supported provider/account adapters; Pi has no generic stable quota RPC. Unsupported stays unknown. |
 | USE-06 | CLIProxyAPI pooled-account usage hubs | T3 | Not started | S | Usage integration and credential settings; separate from model request routing. |
 | USE-07 | Aggregate child-agent usage without double counting | PiStation | Partial | H | Per-child metrics exist; reconcile into aggregate totals. |
-| DIAG-01 | Runtime/tool health, bounded logs, local redacted export | T3 | Done | S | Remote export defect is BUG-02. |
+| DIAG-01 | Runtime/tool health, bounded logs, local redacted export | T3 | Done | V | Remote export now downloads redacted content and saves on the client (REM-16); BUG-02 is fixed in source and covered by focused HTTPS tests. |
 | DIAG-02 | Process trees, resource history, targeted process actions | T3 | Partial | S | Current diagnostics snapshots need history/process relationships and supported Windows actions. |
 | DIAG-03 | Tracing/metrics and supported observability configuration | T3 | Partial | S | Logging exists; match selected tracing/metrics workflows and export controls. |
 | REL-01 | Ordered projections, receipts, reconnect/resnapshot recovery | Delivery | Done | H | Do not replay uncertain mutations automatically. Remote qualification is DEL-09. |
@@ -372,7 +373,9 @@ Evidence: [settings/usage UI](src/PiStation.App/ViewModels/SettingsViewModel.cs)
 
 Evidence: [remote implementation and qualification](Docs/REMOTE-ACCESS-IMPLEMENTATION.md), [earlier defect review](Docs/REMOTE-ACCESS-REVIEW-2026-09-07.md), [connection supervisor](src/PiStation.ClientRuntime/ConnectionSupervisor.cs), [remote window setup](src/PiStation.App/App.xaml.cs), [T3 remote workflows](../t3code/docs/user/remote-access.md).
 
-Earlier remote docs include automatic updates and non-Windows possibilities. Those now belong to the deferred phase, after the Windows core is working. Old reproduced reconnect/payload defects were followed by implementation fixes; do not reopen them solely from the historical review. Physical two-machine acceptance remains DEL-09. This section records current work, not a request to replace changes the user is already making.
+2026-09-09 implementation and verification: [runtime loading](src/PiStation.App/ViewModels/ShellViewModel.Setup.cs), [client transfers](src/PiStation.ClientRuntime/EnvironmentClient.cs), [host file APIs](src/PiStation.Host/EnvironmentService.HostFiles.cs), [native host picker](src/PiStation.App/Views/HostPathPicker.cs), [icon storage](src/PiStation.Host/Projects/ProjectIconStorage.cs), [Tailscale discovery](src/PiStation.ClientRuntime/TailscaleDiscovery.cs), [HTTPS workflow regressions](tests/PiStation.ClientRuntime.Tests/RemoteHostWorkflowTests.cs), [Tailscale tests](tests/PiStation.ClientRuntime.Tests/TailscaleDiscoveryTests.cs).
+
+Earlier remote docs include automatic updates and non-Windows possibilities. Those are excluded from this workstream by the user's scope, as is cloud account/relay integration. Old reproduced reconnect/payload defects were followed by implementation fixes; do not reopen them solely from the historical review. Physical two-machine acceptance remains DEL-09. Protocol 42 requires manually updating both host and client before connecting.
 
 | ID | Feature / subfeature | Origin | Status | Evidence | Remaining work / completion boundary |
 | --- | --- | --- | --- | --- | --- |
@@ -387,15 +390,14 @@ Earlier remote docs include automatic updates and non-Windows possibilities. Tho
 | REM-09 | Device sessions, read/operate scope, revocation and recovery guidance | T3 | Done | H | Distinguish revoked/auth/identity/version/connectivity states. |
 | REM-10 | Verify/edit saved endpoint without losing environment identity | T3 | Done | H | Retain original working configuration on failure. |
 | REM-11 | Remote file reads/writes and supported large payloads | T3 | Done | H | Revision/size handling across HTTPS and SSH. |
-| REM-12 | Remote attachments, artifacts, and portable session transfer | T3 | Done | S | Use transport for content and resolve original host paths. Specialized path issues remain BUG-02/03. |
+| REM-12 | Remote attachments, artifacts, and portable session transfer | T3 | Done | S | Use transport for content and resolve original host paths. Diagnostic and project-icon paths are now handled by REM-16/17. |
 | REM-13 | Host-local preview forwarding, assets, SSE/WebSocket reload | T3 | Done | H | Local browser automation ownership is separately WEB-13. |
-| REM-14 | Connection diagnostics and session activity | T3 | Done | H | Keep credentials redacted; diagnostics file delivery remains BUG-02. |
-| REM-15 | Remote Pi runtime configuration round-trip | PiStation | Partial | S | BUG-01: initialize host launch settings before saving changes. |
-| REM-16 | Remote diagnostic export to chosen client destination | PiStation | Partial | S | BUG-02: transfer bytes rather than sending a client-local destination to the host. |
-| REM-17 | Remote project icon / executable picker path semantics | PiStation | Partial | S | BUG-03: distinguish client uploads from host paths and render through transport. |
-| REM-18 | Version compatibility and recovery after manual host update | T3 | Done | H | Keep useful update instructions and reconnect behavior; automatic updating is deferred in SCOPE-08. |
-| REM-19 | Tailscale HTTPS discovery/connection integration | T3 | Not started | S | Windows-relevant T3 connection workflow; no Linux/macOS host or automated remote installation. |
-| REM-20 | Hosted relay/account linking and environment discovery | T3 | Not started | S | Requires a PiStation service/backend equivalent; T3 Connect itself is not a PiStation service. |
+| REM-14 | Connection diagnostics and session activity | T3 | Done | H | Keep credentials redacted; client-side diagnostics file delivery is now implemented in REM-16. |
+| REM-15 | Remote Pi runtime configuration round-trip | PiStation | Done | V | Host settings load before saving is enabled; preserve startup executable overrides, arguments, environment values/removals, extensions, and timeouts. Loading secrets requires operate access. Focused HTTPS round-trip tests passed; native/two-machine acceptance remains DEL-09. |
+| REM-16 | Remote diagnostic export to chosen client destination | PiStation | Done | V | Download redacted content without sending the client destination to the host, then write locally through a temporary file and replacement. HTTPS export and denied read-only access are tested; native save-picker acceptance remains DEL-09. |
+| REM-17 | Remote project icon / executable picker path semantics | PiStation | Done | V | Native paged host browsing selects executables/packages and host images; client-selected icons upload on Save (512 KiB limit and image signature checks), and host icons render from transported bytes. HTTPS upload/read, pagination, invalid payloads, and access checks passed. Native picker/render acceptance remains DEL-09. |
+| REM-18 | Version compatibility and recovery after manual host update | T3 | Done | H | Protocol is now 42; manually update both computers. Preserve useful incompatibility/reconnect guidance. Remote update automation is excluded in SCOPE-08. |
+| REM-19 | Tailscale HTTPS discovery/connection integration | T3 | Partial | V | Windows self/peer discovery, adapter selection, and direct PiStation HTTPS using Tailscale IP/MagicDNS are implemented, preserving pairing certificate pins. Parsing, endpoint selection, offline state, and trust-preservation tests passed. T3-style Tailscale Serve HTTPS setup/endpoint probing is not implemented. Live Tailscale and native acceptance remain DEL-09; no new cloud account flow is included. |
 
 ## 15. Delivery and qualification (not feature-origin claims)
 
@@ -411,18 +413,18 @@ Evidence: [release deferral](Docs/RELEASE-TODO.md), [release build](Build-Releas
 | DEL-06 | Clean-machine Pi setup and authenticated provider journeys | Delivery | Partial | H | Existing isolated/one-account tests do not establish fresh setup or all providers. |
 | DEL-07 | Authenticated hosting acceptance across supported providers | Delivery | Partial | H | Verify actual list/clone/publish/review/action flows with controlled repositories and authorized writes. |
 | DEL-08 | Native browser automation/profile/media acceptance | Delivery | Partial | H | Verify hidden/background tabs, keyboard/scroll/wait, media capture, policy denial, and new operations as delivered. |
-| DEL-09 | Two physical Windows machines: direct HTTPS and actual OpenSSH | Delivery | Partial | H | Pair, revoke, restart, sleep/wake, change networks, transfer files, run terminal/preview, manually update host and reconnect. |
-| DEL-10 | Regression/compatibility gates and evidence maintenance | Delivery | Partial | H | Keep focused tests and historical failures distinguishable; resolve BUG-04 status. No new application tests run for this documentation edit. |
+| DEL-09 | Two physical Windows machines: direct HTTPS and actual OpenSSH | Delivery | Partial | V | Loopback HTTPS workflows and SSH host integration tests passed. Still verify on two physical Windows computers: pair/revoke, restart, sleep/wake, network changes, files/terminal/preview, manual update/reconnect, native settings/pickers/icon rendering, and live Tailscale. These physical/native checks were not run in this reconciliation. |
+| DEL-10 | Regression/compatibility gates and evidence maintenance | Delivery | Partial | V | The 2026-09-09 remote build and selected regression suites passed (see evidence log). Broader release qualification and BUG-04 investigation remain; selected tests do not certify every feature. |
 
-## 16. Open defect / investigation register
+## 16. Defect / investigation register
 
-Feature gaps above are not duplicated as bugs. These entries describe a specific incorrect or uncertain behavior. Source findings require focused reproduction before claiming a failing runtime test. No fixes are claimed by creating this file.
+Feature gaps above are not duplicated as bugs. These entries describe specific incorrect or uncertain behavior and retain implemented fixes for history. The original BUG-01/02/03 findings came from source review; the current implementation has focused HTTPS regression coverage, not a claim that the original failures were reproduced on two physical computers. Native acceptance remains explicit in DEL-09.
 
 | ID | Related features | Scope | State | Finding / next check | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| BUG-01 | PI-02, REM-15 | Remote | Source finding | Remote window setup does not hydrate saved host launch arguments/environment like local bootstrap. Saving another runtime setting can submit empty launch settings and replace host configuration. Reproduce with nonempty host settings, then load/round-trip them without loss. | [remote window](src/PiStation.App/App.xaml.cs), [setup save](src/PiStation.App/ViewModels/ShellViewModel.Setup.cs), [host replacement](src/PiStation.Host/EnvironmentService.Runtime.cs) |
-| BUG-02 | DIAG-01, REM-16 | Remote | Source finding | Save picker supplies a client filesystem destination to a host export method that writes on the host. Reproduce with different client/host paths; return/download redacted content and save on the client. | [picker](src/PiStation.App/Views/ShellPage.xaml.cs), [client request](src/PiStation.App/ViewModels/ShellViewModel.cs), [host export](src/PiStation.Host/Diagnostics/HostDiagnosticsService.cs) |
-| BUG-03 | PROJ-06, REM-17 | Remote | Source finding | Local image/executable picker paths can be passed as host paths; project icons use a local image URI. Check host paths and client-selected files separately; add upload/host selection/content transport where appropriate. | [project picker](src/PiStation.App/Views/ShellPage.ProjectCustomization.cs), [icon converter](src/PiStation.App/Views/ProjectIconSourceConverter.cs), [runtime setup](src/PiStation.App/ViewModels/ShellViewModel.Setup.cs) |
+| BUG-01 | PI-02, REM-15 | Remote | Fixed; native acceptance pending | Load host runtime settings before enabling Save. Preserve launch values, explicit/PATH discovery choice, and startup overrides when changing another setting. HTTPS round-trip regression passed; verify the native journey under DEL-09. | [setup save](src/PiStation.App/ViewModels/ShellViewModel.Setup.cs), [host configuration](src/PiStation.Host/EnvironmentService.Runtime.cs), [regression](tests/PiStation.ClientRuntime.Tests/RemoteHostWorkflowTests.cs) |
+| BUG-02 | DIAG-01, REM-16 | Remote | Fixed; native acceptance pending | Client export now requests redacted bytes and saves them to its chosen destination. The destination no longer crosses the RPC boundary. HTTPS export and read-only denial tests passed; verify the save picker on separate computers under DEL-09. | [client export](src/PiStation.ClientRuntime/EnvironmentClient.cs), [redacted download](src/PiStation.Host/Diagnostics/HostDiagnosticsService.cs), [regression](tests/PiStation.ClientRuntime.Tests/RemoteHostWorkflowTests.cs) |
+| BUG-03 | PROJ-06, REM-17 | Remote | Fixed; native acceptance pending | Client images upload as content; host executables/images use the host browser; sidebar icons load through transport. Bounded content, invalid uploads, pagination, and read permissions are tested. Verify native picker and icon rendering under DEL-09. | [project picker](src/PiStation.App/Views/ShellPage.ProjectCustomization.cs), [host picker](src/PiStation.App/Views/HostPathPicker.cs), [icon converter](src/PiStation.App/Views/ProjectIconSourceConverter.cs), [regression](tests/PiStation.ClientRuntime.Tests/RemoteHostWorkflowTests.cs) |
 | BUG-04 | GIT-07/08, DEL-10 | Local/shared | Review needed | Historical checkpoint/rewind test exceeded its cancellation budget in some runs and passed isolated in others. Establish current reproducibility and contention cause before closing or labeling it a product failure. | [automation run limit](Docs/PI-AUTOMATION-SETTINGS-2026-09-07.md), [session test history](Docs/PI-SESSION-MANAGEMENT-2026-09-06.md) |
 | BUG-05 | PI-01, DEL-06 | Local | Review needed | Historical npm-local `.bin/pi.ps1` discovery failure was separate from working global launcher/package-directory discovery. Verify current locator against that exact layout before retaining it as an open defect. | [session milestone](Docs/PI-SESSION-MANAGEMENT-2026-09-06.md) |
 
@@ -434,7 +436,7 @@ Under the complete-Pi-support goal, OPT-02 and OPT-03 are required compatibility
 
 | ID | Proposal | Origin | Status | Dependency / decision |
 | --- | --- | --- | --- | --- |
-| OPT-01 | Install/update the local Pi runtime from PiStation | PiStation | Not started | Convenience adaptation of Pi CLI and T3 provider maintenance. T3 has provider-specific actions, not a universal unattended installer. Remote installation/updating is deferred in SCOPE-08. |
+| OPT-01 | Install/update the local Pi runtime from PiStation | PiStation | Not started | Convenience adaptation of Pi CLI and T3 provider maintenance. T3 has provider-specific actions, not a universal unattended installer. Remote installation/updating is excluded in SCOPE-08. |
 | OPT-02 | Native bridge for arbitrary Pi TUI UI/editor/loading components | Pi extension | Not started | Required compatibility investigation: Pi RPC omits/no-ops these methods. Define native equivalents and an explicit extension/SDK/UI contract. Links EXT-15. |
 | OPT-03 | Adapters for independently controlling external subagent extensions | Pi extension | Partial | Required compatibility investigation: parent-stop fallback exists; determine supported extension-specific handles/protocol and adapters. Links AGENT-08. |
 | OPT-04 | Built-in MCP client or packaged MCP-to-Pi bridge | Pi extension | Not started | Pi has no core MCP client. Existing loaded extensions remain usable; define supported bridge first. |
@@ -448,41 +450,46 @@ Under the complete-Pi-support goal, OPT-02 and OPT-03 are required compatibility
 
 ## 18. Product boundaries / not application parity
 
-These describe the Pi-only product identity and non-applicable implementation mechanisms. They are distinct from user-facing features skipped to get the app working; those are in the final deferred section. Implementing deferred features does not require adding other coding-agent harnesses or rebuilding Pi's internal libraries.
+These describe explicit user exclusions, the Pi-only product identity, and non-applicable implementation mechanisms. They are distinct from temporary deferrals in the final section. Existing code or older deferred labels do not override the exclusions recorded here.
 
 | ID | Feature family | Origin | Status | Reason |
 | --- | --- | --- | --- | --- |
+| REM-20 | Hosted relay/account linking and cloud environment discovery | T3 | Out of scope | User excluded cloud accounts from remote access. Existing Tailscale discovery uses the user's already-configured network; it does not add a PiStation backend/account flow. |
+| SCOPE-01 | Linux/macOS hosts and clients; non-Windows shell backends | T3 | Out of scope | User explicitly selected Windows-only remote access. Supersedes the older deferred label; no Linux/macOS implementation commitment is part of this workstream. |
 | SCOPE-03 | Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity agent harnesses | T3 | Out of scope | Pi is the only coding agent. Model access through Pi is still in scope. |
 | SCOPE-05 | Codex-specific async app access, feedback, protocol-only controls | T3 | Out of scope | Do not map another harness's protocol to unsupported Pi requirements. |
+| SCOPE-08 | Remote installation/bootstrap and remote runtime/app/server updates | T3 | Out of scope | User installs and updates on the other computer manually. Existing update code is historical implementation, not a commitment to finish remote automation. Compatibility and manual-update recovery remain REM-18. |
 | SCOPE-10 | Rebuild Pi TUI renderer, raw terminal editor, terminal keybinding engine | Pi | Out of scope | Reimplementing the terminal engine is not the product goal. Native support for the corresponding Pi user capabilities remains a compatibility investigation in EXT-15/OPT-02. |
 | SCOPE-12 | Pi experimental services, replicated state, plugin facets, alternative session backend | Pi | Out of scope | Experimental/library mechanisms are not required stable desktop features. Existing app SQLite + Pi JSONL remains REL-05. |
 | SCOPE-13 | Reimplement or distribute all Pi SDK/model/TUI libraries | Pi | Out of scope | Use supported integration APIs; library internals are not a separate feature backlog. |
 
 ## Evidence log and next maintenance step
 
-- Earlier comparison in this conversation ran selected ClientRuntime tests (162 passed) and Host tests (171 passed), covering remote/transfer/catalog/browser and related cases. These counts describe the selected filters, not all features or a full release gate.
-- This tracker creation changes documentation only. Source/milestone reconciliation and file/link/ID checks are the validation for this edit; no new paid provider calls, hosting writes, physical-machine checks, or UI certification are implied.
+- The original tracker was a source/milestone reconciliation against the inventory baselines above. Its creation did not establish new runtime or release certification.
+- **2026-09-09, protocol 42 remote implementation:** solution Debug build and final Windows x64 WinUI build passed with zero warnings/errors. Both computers require manual updates to protocol 42. Build commands: `dotnet build PiStationDesktop.slnx -c Debug --no-restore -v minimal` and `dotnet build src/PiStation.App/PiStation.App.csproj -c Debug -p:Platform=x64 --no-restore -v minimal`.
+- Selected ClientRuntime remote/SSH/catalog/Tailscale/attachment/session-transfer/preview-lease regressions: **170 passed**. Selected Host remote/project-customization/runtime-lifecycle/runtime-settings/catalog regressions: **54 passed**. Protocol suite: **40 passed**. Desktop remote-pairing/lifecycle/edit-recovery tests: **25 passed**. These are selected suites, not complete application coverage.
+- After the final runtime startup-choice adjustment, **22 affected ClientRuntime tests passed**: RemoteHostWorkflowTests, TailscaleDiscoveryTests, ServerRuntimeOptionsTests, and SshHostIntegrationTests. This rerun overlaps the earlier selection; do not add its count as independent coverage.
+- Focused regressions exercise settings preservation, client diagnostics saving/redaction, image upload/read limits, host directory pagination, read-only denial, and Tailscale endpoint/trust parsing. See [remote workflows](tests/PiStation.ClientRuntime.Tests/RemoteHostWorkflowTests.cs), [Tailscale discovery](tests/PiStation.ClientRuntime.Tests/TailscaleDiscoveryTests.cs), and [server options](tests/PiStation.ClientRuntime.Tests/ServerRuntimeOptionsTests.cs).
+- Live Tailscale, physical two-Windows-machine HTTPS/OpenSSH, and native WinUI picker/render/interaction acceptance were **not run**. T3-style Tailscale Serve setup/probing is still missing (REM-19). No release certification or cloud-account integration is claimed.
 - Resolve Review needed rows with targeted source/protocol checks. When implementation starts, choose specific IDs and update them with the patch and relevant validation. Preserve Done, deferred, optional, and product-boundary decisions so scope and provenance remain visible.
 
 ## 19. Deferred decisions — implement after PiStation is working
 
-**Decision recorded 2026-09-08:** features skipped to get PiStation working are deferred implementation work, not permanently discarded. Keep this section at the end of the tracker. Once the core milestone below passes, implement these features in dependency order, carrying forward their existing progress and acceptance evidence.
+**Decision recorded 2026-09-08; exclusions reconciled 2026-09-09:** the selected features listed below remain deferred implementation work. Explicit exclusions (REM-20, SCOPE-01, SCOPE-08) are recorded in section 18 and are not commitments in this phase. Keep this section at the end of the tracker. Once the core milestone below passes, implement the remaining deferred features in dependency order, carrying forward their existing progress and acceptance evidence.
 
 The first working milestone means the Windows/Pi app can complete its included coding workflows: configure Pi, create/open a project and conversation, send/stream/stop work, use the required tools and Pi features, inspect/edit files, review changes, and recover drafts/sessions after restart. Included Windows remote workflows must pass their applicable connection/recovery checks. Relevant focused tests and native acceptance must pass, with no unresolved defect preventing those workflows. Record the accepted commit and evidence before starting the deferred phase. This milestone does not require the deferred features or deferred production signing, and it is not a claim of public-release readiness or completion of the whole project.
 
-The previous skip reasons are retained below as scheduling history. Existing SCOPE IDs are retained for continuity; their phase is now Deferred. Decompose broad rows into implementation subfeatures when that phase starts.
+The previous skip reasons are retained below as scheduling history. Existing IDs are retained for continuity; the rows remaining here have phase Deferred. These separate master-tracker deferrals are outside the current Windows-to-Windows remote workstream. Decompose broad rows into implementation subfeatures when that phase starts.
 
 | ID | Deferred feature | Origin | Phase | Implementation | Previous skip reason / completion target |
 | --- | --- | --- | --- | --- | --- |
-| SCOPE-01 | Linux/macOS hosts and clients; non-Windows shell backends | T3 | Deferred | Not started | Previously skipped for Windows focus. After the core works, implement host/runtime support and suitable client presentation; WinUI itself remains Windows-only. |
 | SCOPE-02 | WSL distribution discovery and Linux workspace connections | T3 | Deferred | Not started | Previously skipped with Linux scope. Deliver distribution discovery, path handling, host connection, Pi execution, and restart recovery after the core milestone. |
 | SCOPE-04 | Multiple named Pi runtime/account instances | T3 | Deferred | Not started | Previously skipped for a simpler Pi setup. Add isolated named Pi configurations/account selection without introducing other agent harnesses. |
 | SCOPE-06 | Web/hosted clients and iOS/Android clients | T3 | Deferred | Not started | Previously skipped for the native Windows client. Reuse host contracts with appropriate new clients and verify scoped state/recovery after the core milestone. |
 | SCOPE-07 | Mobile offline queue, share sheet, voice, push/activity | T3 | Deferred | Not started | Depends on deferred mobile clients. Implement applicable platform capabilities with their actual device/provider limits. |
-| SCOPE-08 | Remote installation/bootstrap and remote runtime/app/server updates | T3 | Deferred | Partial | Previously skipped because users would install/update on the other computer. Existing update code and local verification remain; finish setup, supported ownership/update paths, and real-machine qualification after the core works. |
 | SCOPE-09 | Environment-published themes for served/hosted clients | T3 | Deferred | Not started | Previously skipped with web clients. Implement when those clients exist; local WinUI theme work remains in LOOK. |
 | SCOPE-11 | PiStation one-shot/print/JSON task CLI | Pi | Deferred | Not started | Previously skipped because Pi already supplies these modes. Add an application-integrated task interface after the core milestone while preserving Pi behavior. |
 
 Also carry forward the existing owner-deferred **DEL-02** production publisher/signing/feed/install-migration work after the core milestone and before public release; its implementation status and evidence remain in the delivery table.
 
-For every future skip decision, append the feature ID, origin, date/reason, current implementation status, dependencies, and measurable completion target here. Deferred means **implement after the core is working**. Optional ideas that have never been selected remain in section 17 until selected.
+For future temporary deferrals, append the feature ID, origin, date/reason, current implementation status, dependencies, and measurable completion target here. Deferred means **implement after the core is working**. Record explicit exclusions in section 18 instead. Optional ideas that have never been selected remain in section 17 until selected.

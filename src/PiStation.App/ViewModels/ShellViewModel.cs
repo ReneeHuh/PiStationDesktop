@@ -385,7 +385,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
                 if (ProjectGroups.All(group => group.Project.ProjectId != project.ProjectId))
                 {
-                    ProjectGroups.Add(new ProjectGroupViewModel(project));
+                    var group = new ProjectGroupViewModel(project);
+                    if (IsRemote && _client is { } iconClient) _ = group.LoadRemoteIconAsync(iconClient);
+                    ProjectGroups.Add(group);
                 }
 
                 ClearError();
@@ -651,6 +653,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         });
         try
         {
+            await LoadPiRuntimeConfigurationAsync(cancellationToken).ConfigureAwait(false);
             var writing = await RequireClient().GetSourceControlWritingSettingsAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => Settings.ApplyWritingSettings(writing));
             var settlement = await RequireClient().GetSettlementSettingsAsync(cancellationToken).ConfigureAwait(false);
@@ -3472,6 +3475,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             SetWindowActive(false);
             WorkbenchFiles.SetWriteAccess(false);
             OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(CanConfigurePiRuntime));
             OnPropertyChanged(nameof(IsReadOnly));
             OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(IsComposerReadOnly));
@@ -3623,6 +3627,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 Connection.Status += $" · attempt {diagnostics.Attempt} · {diagnostics.Failure}";
             OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(CanOperate));
+            OnPropertyChanged(nameof(CanConfigurePiRuntime));
             OnPropertyChanged(nameof(IsReadOnly));
             OnPropertyChanged(nameof(IsComposerReadOnly));
             WorkbenchChanges.AllowOperations = CanOperate;
@@ -3631,6 +3636,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             if (args.State == EnvironmentConnectionState.Connected)
             {
                 ClearTransportError();
+                _ = LoadPiRuntimeConfigurationAsync();
                 UpdateThreadSynchronizationStatus();
                 _ = RefreshRemoteWorkspaceAsync();
                 _ = RestorePendingSessionImportAsync();

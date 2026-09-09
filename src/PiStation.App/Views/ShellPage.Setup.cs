@@ -81,6 +81,13 @@ public sealed partial class ShellPage
 
     private async void OnBrowsePiExecutableClicked(object sender, RoutedEventArgs e)
     {
+        if (ViewModel.IsRemote)
+        {
+            var selected = await HostPathPicker.PickAsync(XamlRoot, "Select Pi on " + ViewModel.EnvironmentLabel,
+                ViewModel.BrowseHostPathAsync, showDialog: dialog => ShowConnectionDialogAsync(dialog, CancellationToken.None));
+            if (selected is not null) ViewModel.Settings.PiExecutablePath = selected;
+            return;
+        }
         if ((Application.Current as App)?.MainWindow is not { } window) return;
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add("*");

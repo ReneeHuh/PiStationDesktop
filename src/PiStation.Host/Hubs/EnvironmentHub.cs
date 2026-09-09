@@ -89,6 +89,8 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     {
         try { return await _environment.UpdateProjectDefaultsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
         catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        { throw new HubException(exception.Message); }
     }
 
     public async Task<ProjectDescriptor> SetProjectScriptsTrust(SetProjectScriptsTrustRequest request)
@@ -237,6 +239,18 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
 
     public Task<PiRuntimeSetupResult> ConfigurePiRuntime(ConfigurePiRuntimeRequest request) =>
         _environment.ConfigurePiRuntimeAsync(request, Context.ConnectionAborted);
+
+    public Task<PiRuntimeConfiguration> GetPiRuntimeConfiguration() =>
+        SessionOperationAsync(() => _environment.GetPiRuntimeConfigurationAsync(Context.ConnectionAborted));
+
+    public Task<DiagnosticsDownload> DownloadDiagnostics() =>
+        SessionOperationAsync(() => _environment.DownloadDiagnosticsAsync(Context.ConnectionAborted));
+
+    public Task<HostPathPage> BrowseHostPath(BrowseHostPathRequest request) =>
+        SessionOperationAsync(() => _environment.BrowseHostPathAsync(request, Context.ConnectionAborted));
+
+    public Task<byte[]?> ReadProjectIcon(ProjectId projectId) =>
+        SessionOperationAsync(() => _environment.ReadProjectIconAsync(projectId, Context.ConnectionAborted));
 
     public async Task<PiResourcesSnapshot> ManagePiResources(ManagePiResourcesRequest request)
     {

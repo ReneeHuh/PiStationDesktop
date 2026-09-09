@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void DesktopFeatureProtocolVersionIsFortyOne()
+    public void RemoteHostFileAndRuntimeProtocolVersionIsFortyTwo()
     {
-        Assert.Equal(41, ProtocolVersion.Current);
+        Assert.Equal(42, ProtocolVersion.Current);
     }
 }

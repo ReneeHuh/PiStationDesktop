@@ -10,6 +10,24 @@
         <StackPanel Spacing="10" automation:AutomationProperties.AutomationId="RemoteConnectionsPanel"
             automation:AutomationProperties.Name="Remote connections">
             <TextBlock Text="Connections" Style="{StaticResource PiPanelHeaderTextStyle}" />
+            <Expander Header="Tailscale" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Use an existing Tailscale connection on both Windows computers. Start PiStation sharing on the host's Tailscale adapter, then pair using its link."
+                        TextWrapping="Wrap" />
+                    <Button Content="Refresh Tailscale" Click="OnRefreshTailscale" automation:AutomationProperties.AutomationId="RefreshTailscaleButton" />
+                    <TextBlock x:Name="TailscaleStatus" Text="Refresh to discover the local adapter and Windows computers." TextWrapping="Wrap"
+                        automation:AutomationProperties.AutomationId="TailscaleStatus" automation:AutomationProperties.LiveSetting="Polite" />
+                    <CheckBox x:Name="TailscaleMagicDns" Content="Use MagicDNS names (turn off to use Tailscale IP addresses)" IsChecked="True" />
+                    <Button x:Name="UseTailscaleAdapter" Content="Use this computer's Tailscale adapter for sharing" IsEnabled="False" Click="OnUseTailscaleAdapter"
+                        automation:AutomationProperties.AutomationId="UseTailscaleAdapterButton" />
+                    <ComboBox x:Name="TailscalePeers" Header="Windows computers" DisplayMemberPath="Label" HorizontalAlignment="Stretch"
+                        automation:AutomationProperties.AutomationId="TailscalePeers" />
+                    <NumberBox x:Name="TailscalePort" Header="PiStation sharing port on the other computer" Value="52740" Minimum="1024" Maximum="65535" />
+                    <Button Content="Use selected computer's address" Click="OnUseTailscalePeer" automation:AutomationProperties.AutomationId="UseTailscalePeerButton" />
+                    <TextBlock Text="The address updates the pairing link below, or the selected saved environment's address. Pairing and Verify and save still check the host identity."
+                        TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                </StackPanel>
+            </Expander>
             <StackPanel x:Name="HostControls" Spacing="8">
                 <ToggleSwitch x:Name="AllowRemoteUpdates" Header="Allow approved operate devices to request host updates"
                     Toggled="OnAllowRemoteUpdatesChanged" />

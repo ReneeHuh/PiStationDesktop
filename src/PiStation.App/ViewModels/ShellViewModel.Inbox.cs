@@ -133,6 +133,7 @@ public sealed partial class ShellViewModel
         {
             var group = ProjectGroups.FirstOrDefault(item => item.GroupKey == members.Key) ?? new ProjectGroupViewModel(members.First()) { GroupKey = members.Key };
             group.SetMembers(members.ToArray());
+            if (IsRemote && _client is { } iconClient) _ = group.LoadRemoteIconAsync(iconClient);
             group.Apply(allThreads.Where(thread => members.Any(project => project.ProjectId == thread.ProjectId)).DistinctBy(thread => thread.ThreadId).ToArray(), InboxShelf, preferences);
             groups.Add(group);
         }

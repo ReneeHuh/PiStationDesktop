@@ -4,13 +4,13 @@ namespace PiStation.App.ViewModels;
 
 public sealed partial class ShellViewModel
 {
-    public async Task UpdateProjectCustomizationAsync(ProjectDescriptor project, IReadOnlyList<ProjectScript> scripts, string? icon)
+    public async Task UpdateProjectCustomizationAsync(ProjectDescriptor project, IReadOnlyList<ProjectScript> scripts, string? icon, ProjectIconUpload? upload = null)
     {
         try
         {
             var updated = await RequireClient().UpdateProjectDefaultsAsync(new(project.ProjectId, project.DefaultWorkspaceMode,
                 project.DefaultModel, project.DefaultThinkingLevel, project.DefaultRuntimeModeId, project.AutoPullDefaultBranch,
-                scripts, icon, true)).ConfigureAwait(false);
+                scripts, icon, true, upload)).ConfigureAwait(false);
             await RunOnUiThreadAsync(() =>
             {
                 var index = Projects.ToList().FindIndex(item => item.ProjectId == updated.ProjectId);

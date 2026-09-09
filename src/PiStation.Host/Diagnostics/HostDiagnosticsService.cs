@@ -76,6 +76,17 @@ internal sealed partial class HostDiagnosticsService(
         var parent = Path.GetDirectoryName(destination)
             ?? throw new ArgumentException("The diagnostic export path requires a directory.", nameof(request));
         Directory.CreateDirectory(parent);
+        var download = await DownloadAsync(cancellationToken).ConfigureAwait(false);
+        await using var stream = new FileStream(
+            destination, FileMode.Create, FileAccess.Write, FileShare.None, 32 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await stream.WriteAsync(download.Content, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return new ExportDiagnosticsResult(destination, stream.Length, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<DiagnosticsDownload> DownloadAsync(CancellationToken cancellationToken = default)
+    {
         var snapshot = await GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
         var redacted = snapshot with
         {
@@ -84,13 +95,7 @@ internal sealed partial class HostDiagnosticsService(
                 : item with { Detail = Redact(item.Detail) }).ToArray(),
             RecentLogs = snapshot.RecentLogs.Select(Redact).ToArray(),
         };
-        await using var stream = new FileStream(
-            destination, FileMode.Create, FileAccess.Write, FileShare.None, 32 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await JsonSerializer.SerializeAsync(
-            stream, redacted, ProtocolJsonContext.Default.DiagnosticsSnapshot, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        return new ExportDiagnosticsResult(destination, stream.Length, DateTimeOffset.UtcNow);
+        return new(JsonSerializer.SerializeToUtf8Bytes(redacted, ProtocolJsonContext.Default.DiagnosticsSnapshot), DateTimeOffset.UtcNow);
     }
 
     private static string Redact(string value)
