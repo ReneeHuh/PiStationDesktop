@@ -806,7 +806,7 @@
                                 <StackPanel Spacing="8">
                                     <Button Content="Refresh session tree" Click="OnInspectPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="InspectPiSessionButton" />
                                     <TextBlock Text="{x:Bind ViewModel.PiSessions.Summary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiSessionSummaryText" />
-                                    <TextBlock Text="The tree includes alternate branches and configuration entries. Fork after a completed assistant response to continue that conversation in a new thread." TextWrapping="Wrap" FontSize="12" />
+                                    <TextBlock Text="Switch branch changes the conversation in this session. Your draft, attachments, context and workspace files are kept. Selecting a user message returns to its parent and makes that prompt available for copying. Fork creates an independent thread." TextWrapping="Wrap" FontSize="12" />
                                     <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Entries}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedEntry, Mode=TwoWay}" MaxHeight="300" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionTreeList">
                                         <ListView.ItemTemplate>
                                             <DataTemplate x:DataType="viewModels:PiSessionTreeRow">
@@ -818,6 +818,13 @@
                                         </ListView.ItemTemplate>
                                     </ListView>
                                     <Button Content="Fork after selected response" Click="OnForkPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ForkPiSessionButton" />
+                                    <CheckBox Content="Summarize the branch being left (uses the selected model)" IsChecked="{x:Bind ViewModel.PiSessions.SummarizeBranch, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="SummarizePiBranchCheckBox" />
+                                    <TextBox Header="Summary instructions (optional)" Text="{x:Bind ViewModel.PiSessions.SummaryInstructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="16384" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
+                                    <CheckBox Content="Use these instructions in place of Pi's default summary instructions" IsChecked="{x:Bind ViewModel.PiSessions.ReplaceSummaryInstructions, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
+                                    <Button Content="Switch to selected branch" Click="OnNavigatePiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" automation:AutomationProperties.AutomationId="NavigatePiSessionButton" />
+                                    <Button Content="Cancel branch switch" Click="OnCancelPiSessionNavigationClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanCancelNavigation, Mode=OneWay}" automation:AutomationProperties.AutomationId="CancelPiSessionNavigationButton" />
+                                    <TextBox Header="Selected prompt returned by Pi" Text="{x:Bind ViewModel.PiSessions.NavigationPrompt, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="120" automation:AutomationProperties.AutomationId="PiNavigationPrompt" />
+                                    <Button Content="Copy selected prompt" Click="OnCopyNavigationPromptClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanCopyNavigationPrompt, Mode=OneWay}" />
                                     <Button Content="Copy whole session" Click="OnCopyPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="CopyPiSessionButton" />
                                     <TextBlock Text="JSONL retains the full tree and embedded images. HTML is a readable text transcript of the active branch. Linked files remain external." TextWrapping="Wrap" FontSize="12" />
                                     <TextBlock Text="Exports are downloaded and saved on this PC. Choose a ZIP bundle to include sent attachments and citation comments." TextWrapping="Wrap" FontSize="12" />

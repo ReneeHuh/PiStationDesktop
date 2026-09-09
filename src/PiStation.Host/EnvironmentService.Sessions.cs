@@ -18,6 +18,18 @@ public sealed partial class EnvironmentService
 {
     private readonly SemaphoreSlim _sessionCopyGate = new(1, 1);
 
+    public async Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await controller.NavigateSessionAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await controller.CancelSessionNavigationAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(request.Offset);
@@ -185,7 +197,7 @@ public sealed partial class EnvironmentService
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static PiSessionSnapshot CreateSessionSnapshot(ThreadId threadId, string path, PiSessionDocument document, int offset = 0, int limit = 1000)
+    internal static PiSessionSnapshot CreateSessionSnapshot(ThreadId threadId, string path, PiSessionDocument document, int offset = 0, int limit = 1000)
     {
         var branch = document.Branch();
         var activeIds = branch.Select(entry => PiSessionDocument.Text(entry, "id")!).ToHashSet(StringComparer.Ordinal);

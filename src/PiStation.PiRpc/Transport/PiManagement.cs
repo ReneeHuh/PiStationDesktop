@@ -10,10 +10,14 @@ public sealed partial class PiRpcConnection
     public const string ManagementCommand = "pistation-desktop-resources";
     public const string PlanCommand = "pistation-desktop-plan";
     public const string AgentsCommand = "pistation-desktop-agents";
+    public const string SessionsCommand = "pistation-desktop-sessions";
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _managementRequests = new();
 
     public Task<JsonElement> ManageAsync(JsonObject action, CancellationToken cancellationToken = default) =>
         ManageCoreAsync(ManagementCommand, action, cancellationToken);
+
+    public Task<JsonElement> NavigateSessionAsync(JsonObject action, CancellationToken cancellationToken = default) =>
+        ManageCoreAsync(SessionsCommand, action, cancellationToken);
 
     public Task<JsonElement> ManagePlanAsync(JsonObject action, CancellationToken cancellationToken = default) =>
         ManageCoreAsync(PlanCommand, action, cancellationToken);
@@ -24,7 +28,7 @@ public sealed partial class PiRpcConnection
     private async Task<JsonElement> ManageCoreAsync(string commandName, JsonObject action, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposeCancellation.Token);
-        timeout.CancelAfter(action["action"]?.ToString() is "packageInstall" or "packageRemove" or "packageUpdate" or "login"
+        timeout.CancelAfter(commandName == SessionsCommand || action["action"]?.ToString() is "packageInstall" or "packageRemove" or "packageUpdate" or "login"
             ? _options.LongRunningCommandTimeout : _options.DefaultCommandTimeout);
         if (!(await GetCommandsAsync(timeout.Token).ConfigureAwait(false)).Any(command => command.Name == commandName))
             throw new PiRpcCommandException(commandName, "The PiStation management extension is unavailable. Restart Pi after updating PiStation.");

@@ -379,7 +379,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             new("stash", "Save the current draft to the project prompt stash.", ComposerCommandSource.BuiltIn),
             new("background", "Start an independent task and keep a fresh draft here.", ComposerCommandSource.BuiltIn),
         };
-        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand && command.Name != PiRpcConnection.AgentsCommand).Select(static command => new ComposerCommandDescriptor(
+        result.AddRange(commands.Where(static command => command.Name != PiRpcConnection.ManagementCommand && command.Name != PiRpcConnection.PlanCommand && command.Name != PiRpcConnection.AgentsCommand && command.Name != PiRpcConnection.SessionsCommand).Select(static command => new ComposerCommandDescriptor(
             command.Name,
             command.Description ?? command.Name,
             command.Source switch
@@ -637,6 +637,10 @@ public sealed partial class PiThreadController : IAsyncDisposable
         ClientId clientId, CommandId commandId, CancellationToken cancellationToken = default) =>
         StartTurnCoreAsync(prompt, attachments, clientId, commandId, null, cancellationToken);
 
+    internal Task<TurnId> StartTurnAsync(string prompt, IReadOnlyList<PiPromptAttachment> attachments,
+        ClientId clientId, CommandId commandId, long? expectedNavigationGeneration, CancellationToken cancellationToken) =>
+        StartTurnCoreAsync(prompt, attachments, clientId, commandId, null, cancellationToken, expectedNavigationGeneration: expectedNavigationGeneration);
+
     private async Task<TurnId> StartTurnCoreAsync(
         string prompt,
         IReadOnlyList<PiPromptAttachment> attachments,
@@ -644,10 +648,13 @@ public sealed partial class PiThreadController : IAsyncDisposable
         CommandId commandId,
         long? approvedPlanRevision,
         CancellationToken cancellationToken,
-        PiAgentWorkflow? agentWorkflow = null)
+        PiAgentWorkflow? agentWorkflow = null, long? expectedNavigationGeneration = null)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ArgumentNullException.ThrowIfNull(attachments);
+        var navigationGeneration = expectedNavigationGeneration ?? NavigationGeneration;
+        if (navigationGeneration % 2 != 0)
+            throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "Wait for the branch switch to finish before sending a prompt.");
         if (string.IsNullOrWhiteSpace(prompt) && attachments.Count == 0)
         {
             throw new HostOperationException(
@@ -665,6 +672,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread is not ready for a new turn.");
             }
 
+            if (NavigationGeneration != navigationGeneration)
+                throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The session branch changed. Review the conversation before sending the prompt again.");
             // Resolve resources before creating a turn or consuming its draft.
             await ApplyPiAutomationAsync(cancellationToken).ConfigureAwait(false);
             if (agentWorkflow is not null) await ValidateAgentWorkflowAsync(agentWorkflow, cancellationToken).ConfigureAwait(false);
@@ -803,27 +812,22 @@ public sealed partial class PiThreadController : IAsyncDisposable
                 "A queued message must contain text or at least one attachment.");
         }
 
-        var process = _process;
-        if (process is null || Journal.Projection.RuntimeState != ThreadRuntimeState.Running)
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread has no active turn to steer.");
+            var process = _process;
+            if (process is null || Journal.Projection.RuntimeState != ThreadRuntimeState.Running)
+                throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The thread has no active turn to steer.");
+            var state = await process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
+            if (!state.IsStreaming || Journal.Projection.CurrentTurnId is null)
+                throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The active turn settled before the message could be queued.");
+            await _database.RecordSettlementActivityAsync(_thread.ThreadId, true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+            if (kind == QueuedMessageKind.Steering)
+                await process.Connection.SteerAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
+            else
+                await process.Connection.FollowUpAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
         }
-
-        var state = await process.Connection.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        if (!state.IsStreaming || Journal.Projection.CurrentTurnId is null)
-        {
-            throw new HostOperationException(ProtocolErrorCodes.ThreadBusy, "The active turn settled before the message could be queued.");
-        }
-
-        await _database.RecordSettlementActivityAsync(_thread.ThreadId, true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
-        if (kind == QueuedMessageKind.Steering)
-        {
-            await process.Connection.SteerAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            await process.Connection.FollowUpAsync(prompt, attachments, cancellationToken).ConfigureAwait(false);
-        }
+        finally { _lifecycle.Release(); }
     }
 
     public async Task ClearQueueAsync(CancellationToken cancellationToken = default)
@@ -940,9 +944,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     "A checkpoint revert must target an earlier completed turn.");
             }
 
-            var checkpoints = await _checkpoints.ListAsync(_thread.ThreadId, cancellationToken)
-                .ConfigureAwait(false);
-            var source = checkpoints.SingleOrDefault(checkpoint => checkpoint.TurnCount == turnCount + 1);
+            var source = Journal.Projection.Checkpoints.SingleOrDefault(checkpoint => checkpoint.TurnCount == turnCount + 1);
             if (source is null ||
                 source.Status != ThreadCheckpointStatus.Ready ||
                 turnCount > 0 && string.IsNullOrWhiteSpace(source.PiEntryIdBeforeTurn))

@@ -252,6 +252,10 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         SessionOperationAsync(() => _environment.InspectPiSessionPageAsync(request, Context.ConnectionAborted));
     public Task<ThreadDescriptor> CopyPiSession(CopyPiSessionRequest request) =>
         SessionOperationAsync(() => _environment.CopyPiSessionAsync(request, Context.ConnectionAborted));
+    public Task<NavigatePiSessionResult> NavigatePiSession(NavigatePiSessionRequest request) =>
+        SessionOperationAsync(() => _environment.NavigatePiSessionAsync(request, Context.ConnectionAborted));
+    public Task<bool> CancelPiSessionNavigation(CancelPiSessionNavigationRequest request) =>
+        SessionOperationAsync(() => _environment.CancelPiSessionNavigationAsync(request, Context.ConnectionAborted));
     public Task<PiSessionExportResult> ExportPiSession(ExportPiSessionRequest request) =>
         SessionOperationAsync(() => _environment.ExportPiSessionAsync(request, Context.ConnectionAborted));
 

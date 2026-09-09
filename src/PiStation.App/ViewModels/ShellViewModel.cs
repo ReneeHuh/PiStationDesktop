@@ -71,6 +71,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _editingRecovery = layoutSettingsPath is null ? null : new EditingRecoveryStore(
             Path.Combine(Path.GetDirectoryName(Path.GetFullPath(layoutSettingsPath))!, "editing-recovery"));
         WorkbenchFiles = new WorkbenchFilesViewModel(_editingRecovery);
+        ExternalEditor = new ExternalPromptEditor(Path.Combine(Path.GetDirectoryName(_attachmentCacheRoot)!, "external-prompts"));
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
         WorkbenchPreview = new WorkbenchPreviewViewModel();
@@ -3767,6 +3768,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void OnComposerPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
+        OnPropertyChanged(nameof(CanEditPromptExternally));
         OnPropertyChanged(nameof(CanStartBackgroundTask));
         OnPropertyChanged(nameof(CanStashPrompt));
         if (args.PropertyName == nameof(ComposerViewModel.ContextChips))
@@ -3828,6 +3830,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RaiseCommandStateChanged()
     {
+        OnPropertyChanged(nameof(CanEditPromptExternally));
         PiShell.SetAvailable(CanOperate && IsConnected && !_commandPending && !Connection.HasUncertainCommand);
         OnPropertyChanged(nameof(LocalSessionFolderPickerVisibility));
         PiSessions.AllowOperations = CanOperate && IsConnected;

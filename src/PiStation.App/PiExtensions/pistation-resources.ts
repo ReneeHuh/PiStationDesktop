@@ -6,6 +6,7 @@ import { DefaultPackageManager, getAgentDir, ModelRuntime, ProjectTrustStore, Se
 import { spawn } from "node:child_process";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getPermissionMode, permissionModes, reviewToolCall, setPermissionMode } from "./pistation-permissions.ts";
+import registerSessions from "./pistation-sessions.ts";
 
 const commandName = "pistation-desktop-resources";
 const kinds = ["extensions", "skills", "prompts"] as const;
@@ -30,6 +31,7 @@ function requireRevision(actual: string, expected: unknown) {
 }
 
 export default function (pi: any) {
+  registerSessions(pi);
   pi.on("tool_call", (event: any, ctx: any) => reviewToolCall(event, ctx));
   pi.registerCommand(commandName, {
     description: "PiStation resource and provider management",

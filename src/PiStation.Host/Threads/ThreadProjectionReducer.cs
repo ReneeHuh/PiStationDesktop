@@ -12,7 +12,7 @@ using PiStation.PiRpc.Transport;
 
 namespace PiStation.Host.Threads;
 
-public static class ThreadProjectionReducer
+public static partial class ThreadProjectionReducer
 {
     public static ThreadProjection Create(
         EnvironmentId environmentId,
@@ -44,6 +44,9 @@ public static class ThreadProjectionReducer
         string? piSessionId = null,
         IReadOnlyDictionary<string, SentMessageContent>? sentMessages = null)
     {
+        var tree = entries.Any(entry => entry.TryGetProperty("parentId", out _));
+        entries = ActiveBranch(entries, leafId);
+        var activeIds = entries.Where(entry => entry.TryGetProperty("id", out _)).Select(entry => entry.GetProperty("id").GetString()).ToHashSet(StringComparer.Ordinal);
         var timeline = new List<TimelineItem>();
         var hydratedTurnIds = new List<TurnId>();
         TurnId? hydratedTurnId = null;
@@ -54,6 +57,13 @@ public static class ThreadProjectionReducer
         var messageCount = 0;
         foreach (var entry in entries)
         {
+            if (entry.TryGetProperty("type", out var kind) && kind.GetString() == "branch_summary")
+            {
+                var summaryId = entry.GetProperty("id").GetString()!;
+                timeline.Add(new MessageTimelineItem("summary-" + summaryId, null, summaryId, MessageRole.System,
+                    "Branch summary\n" + entry.GetProperty("summary").GetString(), true));
+                continue;
+            }
             if (!entry.TryGetProperty("type", out var entryType) || entryType.GetString() != "message" ||
                 !entry.TryGetProperty("message", out var message))
             {
@@ -126,6 +136,7 @@ public static class ThreadProjectionReducer
         }
 
         var hydratedCheckpoints = (checkpoints ?? current.Checkpoints)
+            .Where(checkpoint => !tree || checkpoint.PiEntryIdAfterTurn is { } id && activeIds.Contains(id))
             .OrderBy(static checkpoint => checkpoint.TurnCount)
             .Select(checkpoint => checkpoint.TurnCount > 0 && checkpoint.TurnCount <= hydratedTurnIds.Count
                 ? checkpoint with { TurnId = hydratedTurnIds[checkpoint.TurnCount - 1] }

@@ -101,6 +101,8 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
             [nameof(EnvironmentHub.InspectPiSession)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.InspectPiSessionPage)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.CopyPiSession)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.NavigatePiSession)] = RemoteAccessLevel.Operate,
+            [nameof(EnvironmentHub.CancelPiSessionNavigation)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.ExportPiSession)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.StartPiSetup)] = RemoteAccessLevel.Operate,
             [nameof(EnvironmentHub.ExportDiagnostics)] = RemoteAccessLevel.Operate,

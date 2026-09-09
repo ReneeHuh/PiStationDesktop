@@ -16,6 +16,16 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class ComposerSurface : UserControl
 {
+    private bool _externalEditorOpen;
+    public async Task OpenExternalEditorAsync()
+    {
+        if (_externalEditorOpen || !ViewModel.CanEditPromptExternally) return;
+        _externalEditorOpen = true;
+        try { using var dialog = new ExternalPromptEditorDialog(ViewModel) { XamlRoot = XamlRoot }; await dialog.ShowAsync(); }
+        finally { _externalEditorOpen = false; }
+    }
+    private async void OnExternalEditorClicked(object sender, RoutedEventArgs args) => await OpenExternalEditorAsync();
+
     private async void OnPiShellClicked(object sender, RoutedEventArgs e) =>
         await new PiShellDialog(ViewModel) { XamlRoot = XamlRoot }.ShowAsync();
 

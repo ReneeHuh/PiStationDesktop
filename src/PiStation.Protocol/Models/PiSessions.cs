@@ -15,3 +15,7 @@ public sealed record CopyPiSessionRequest(Guid OperationId, ProjectId ProjectId,
 public enum PiSessionExportFormat { Jsonl, Html, Bundle }
 public sealed record ExportPiSessionRequest(ThreadId ThreadId, string DestinationPath, PiSessionExportFormat Format);
 public sealed record PiSessionExportResult(string Path, long Bytes);
+public sealed record NavigatePiSessionRequest(Guid OperationId, ThreadId ThreadId, string EntryId, string ExpectedRevision,
+    bool Summarize = false, string? CustomInstructions = null, bool ReplaceInstructions = false);
+public sealed record NavigatePiSessionResult(PiSessionSnapshot Snapshot, bool Cancelled, string? EditorText = null);
+public sealed record CancelPiSessionNavigationRequest(ThreadId ThreadId, Guid OperationId);

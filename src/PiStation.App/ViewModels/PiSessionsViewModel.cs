@@ -26,6 +26,8 @@ public sealed class PiSessionsViewModel : ObservableObject
     private bool _allowOperations;
     private bool _hasPendingImport;
     private bool _canCancelTransfer;
+    private bool _canCancelNavigation;
+    private string _navigationPrompt = string.Empty;
     private string _status = "Import a Pi session, or inspect the selected idle thread.";
     private string _directory = string.Empty;
     private string _summary = string.Empty;
@@ -47,7 +49,14 @@ public sealed class PiSessionsViewModel : ObservableObject
     public bool CanAct => !IsBusy && AllowOperations;
     public bool CanRetryImport => CanAct && HasPendingImport;
     public PiSessionCandidateRow? SelectedCandidate { get => _selectedCandidate; set => SetProperty(ref _selectedCandidate, value); }
-    public PiSessionTreeRow? SelectedEntry { get => _selectedEntry; set => SetProperty(ref _selectedEntry, value); }
+    public PiSessionTreeRow? SelectedEntry { get => _selectedEntry; set { SetProperty(ref _selectedEntry, value); OnPropertyChanged(nameof(CanNavigate)); } }
+    public bool CanNavigate => CanAct && Snapshot is not null && SelectedEntry is not null;
+    public bool CanCancelNavigation { get => _canCancelNavigation; internal set => SetProperty(ref _canCancelNavigation, value); }
+    public bool SummarizeBranch { get; set; }
+    public string SummaryInstructions { get; set; } = string.Empty;
+    public bool ReplaceSummaryInstructions { get; set; }
+    public string NavigationPrompt { get => _navigationPrompt; internal set { SetProperty(ref _navigationPrompt, value); OnPropertyChanged(nameof(CanCopyNavigationPrompt)); } }
+    public bool CanCopyNavigationPrompt => NavigationPrompt.Length > 0;
     public string NewTitle { get; set; } = string.Empty;
 
     private void RaiseActionState()
@@ -56,6 +65,7 @@ public sealed class PiSessionsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRetryImport));
         OnPropertyChanged(nameof(HasMoreCandidates));
         OnPropertyChanged(nameof(HasMoreEntries));
+        OnPropertyChanged(nameof(CanNavigate));
     }
 
     internal void Apply(PiSessionBrowserResult result, bool append = false)
@@ -79,13 +89,14 @@ public sealed class PiSessionsViewModel : ObservableObject
         Summary = $"{snapshot.ActiveMessageCount} messages in the active branch · {snapshot.TotalEntries} tree entries\n" +
             $"Model: {snapshot.Model?.ProviderId ?? "unknown"} / {snapshot.Model?.ModelId ?? "unknown"} · thinking: {snapshot.ThinkingLevel ?? "unknown"}\n" +
             $"Tokens: {snapshot.TotalTokens?.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) ?? "unknown"} · cost: {snapshot.Cost?.ToString("C4", System.Globalization.CultureInfo.GetCultureInfo("en-US")) ?? "unknown"}";
-        Status = snapshot.IsTruncated ? $"Showing {Entries.Count} of {snapshot.TotalEntries} entries. Load more to continue." : "Select a completed assistant response to fork, or copy the whole session.";
+        Status = snapshot.IsTruncated ? $"Showing {Entries.Count} of {snapshot.TotalEntries} entries. Load more to continue." : "Select an entry to switch branches, a completed assistant response to fork, or copy the whole session.";
         OnPropertyChanged(nameof(HasMoreEntries));
     }
 
     internal void ClearThread()
     {
         Snapshot = null;
+        NavigationPrompt = string.Empty;
         OnPropertyChanged(nameof(HasMoreEntries));
         SelectedEntry = null;
         Entries.Clear();

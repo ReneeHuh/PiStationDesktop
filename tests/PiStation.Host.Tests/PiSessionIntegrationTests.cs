@@ -102,7 +102,7 @@ public sealed class PiSessionIntegrationTests
         Assert.Single(await host.Environment.ListThreadsAsync(project.ProjectId));
     }
 
-    private static string Fixture(string cwd) => new JsonObject
+    internal static string Fixture(string cwd) => new JsonObject
     {
         ["type"] = "session", ["version"] = 3, ["id"] = "22222222222222222222222222222222", ["cwd"] = cwd,
         ["timestamp"] = "2026-09-06T00:00:00Z",

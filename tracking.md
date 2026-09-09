@@ -1,6 +1,6 @@
 # PiStation master feature and issue tracker
 
-Last updated: 2026-09-09 (PI-18/PI-19); inventory baseline reconciled 2026-09-08. Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
+Last updated: 2026-09-09 (PI-18/PI-19, CHAT-16, SES-06); inventory baseline reconciled 2026-09-08. Target: a C# / WinUI Windows application using **Pi as its only coding-agent runtime**.
 
 This is the current tracking index for T3 parity, Pi integration, PiStation additions, defects, and delivery work. Keep completed features here so they are not repeatedly rediscovered as missing. Older documents are supporting history; their old scope decisions and missing-feature labels do not override this tracker.
 
@@ -99,6 +99,8 @@ Evidence: [shell/layout](src/PiStation.App/ViewModels/ShellLayoutViewModel.cs), 
 
 Evidence: [composer](src/PiStation.App/ViewModels/ComposerViewModel.cs), [power features](src/PiStation.App/ViewModels/ComposerPowerViewModel.cs), [sent content milestone](Docs/SENT-CONTENT-2026-09-07.md), [background tasks](Docs/BACKGROUND-TASKS-2026-09-07.md), [artifact routing](src/PiStation.App/ViewModels/ShellViewModel.Artifacts.cs), [T3 composer](../t3code/docs/user/composer.md), [Pi interactive features](<../Pi Agent/packages/coding-agent/README.md>).
 
+CHAT-16 verification, 2026-09-09: [editor handoff and recovery](src/PiStation.ClientRuntime/ExternalPromptEditor.cs), [composer integration](src/PiStation.App/ViewModels/ComposerViewModel.ExternalEditor.cs), [native dialog](src/PiStation.App/Views/ExternalPromptEditorDialog.xaml), [runtime/host tests](tests/PiStation.ClientRuntime.Tests/ExternalPromptEditorTests.cs), and [native WinUI acceptance](tests/PiStation.UiTests/Invoke-ExternalPromptEditorSlice.ps1). The x64 solution builds with no warnings or errors; 10 external-editor/recovery tests and 30 command-system tests passed. Native UI Automation passed Unicode import, newer-draft conflict/discard, app restart recovery, and nonzero editor exit checks. Ctrl+G is registered in the command system, but Windows reported `no_interactive_desktop` during input injection; physical shortcut acceptance remains DEL-03. Rendered visual acceptance remains DEL-04. The app uses a device-local executable/arguments preference, then `VISUAL`/`EDITOR`, then Notepad; it does not read Pi's separate TUI editor setting. Recovery metadata is Windows-protected; the working Markdown file is ordinary local text so the chosen editor can read it. Applying saved text retains that working copy until explicit discard, including later editor autosaves.
+
 | ID | Feature / subfeature | Origin | Status | Evidence | Remaining work / completion boundary |
 | --- | --- | --- | --- | --- | --- |
 | CHAT-01 | Durable per-thread drafts and revision conflicts | T3 | Done | H | Preserve unsent input across navigation/restart. |
@@ -116,7 +118,7 @@ Evidence: [composer](src/PiStation.App/ViewModels/ComposerViewModel.cs), [power 
 | CHAT-13 | Sent attachment previews and save/copy/download | T3 | Done | H | Remote transfer path is REM-12. |
 | CHAT-14 | Durable sent citations, comments, source navigation | T3 | Done | H | Navigation resolves original source scope. |
 | CHAT-15 | Workspace file/line links and outside-workspace read-only artifacts | T3 | Done | S | Remote path handling is REM-12. |
-| CHAT-16 | Edit a prompt in an external editor | Pi | Not started | S | Round-trip prompt text without losing draft/attachments; Pi TUI has this workflow. |
+| CHAT-16 | Edit a prompt in an external editor | Pi | Done | V | Composer action and configurable Ctrl+G shortcut; local Windows executable/arguments, preview/refresh/copy, and explicit Use saved text without sending. Preserves attachments/context, rejects changed draft identities/text/revisions, and recovers retained files after restart or editor failure. Maximum 128K UTF-16 characters; accepts UTF-8 and BOM-marked text. Shortcut/visual qualification remains DEL-03/DEL-04. |
 | CHAT-17 | Resting composer collapse on blur/scroll preferences | T3 | Review needed | P | Compare behavior and independent controls against T3 client settings. |
 | CHAT-18 | Control skill visibility in the slash menu | T3 | Review needed | P | Skill discovery works; establish whether the display preference is exposed. |
 
@@ -176,6 +178,8 @@ Evidence: [Pi integration milestone](Docs/PI-INTEGRATION-MILESTONE-2026-09-05.md
 
 Evidence: [session milestone](Docs/PI-SESSION-MANAGEMENT-2026-09-06.md), [session UI](src/PiStation.App/ViewModels/PiSessionsViewModel.cs), [session service](src/PiStation.Host/EnvironmentService.Sessions.cs), [transfer UI](src/PiStation.App/ViewModels/ShellViewModel.SessionTransfers.cs), [Pi sessions](<../Pi Agent/packages/coding-agent/docs/sessions.md>).
 
+SES-06 verification, 2026-09-09: [Pi SDK bridge](src/PiStation.App/PiExtensions/pistation-sessions.ts), [host navigation/recovery](src/PiStation.Host/Threads/PiThreadController.Navigation.cs), [native integration](src/PiStation.App/ViewModels/ShellViewModel.SessionNavigation.cs), [host tests](tests/PiStation.Host.Tests/PiSessionNavigationTests.cs), [installed-Pi offline acceptance](tests/PiStation.PiRpc.Tests/RealPiSessionNavigationTests.cs), and [native WinUI acceptance](tests/PiStation.UiTests/Invoke-PiSessionNavigationSlice.ps1). The solution and app build with no warnings or errors. Across regression runs and corrected focused reruns, 46 host/session/checkpoint/lifecycle/authorization checks, 10 session-file/real-Pi checks, 7 client projection checks, and 41 protocol checks passed (104 total). The real Pi run verified selected context on continuation, immediate restart persistence, safe replay, optional summaries, and user-message navigation. Native UI Automation passed branch switching with draft preservation, restart before another prompt, and returning to alternate branches/user prompts. Rendered visual acceptance remains DEL-04. Navigation uses Pi's SDK and persists a custom non-message entry so an unsummarized selection survives restart; it preserves the session identity and all branches. Summary generation is opt-in and uses the selected model. Returned user-message text is shown for explicit copying, preserving the existing draft; the return limit is 128K characters. Navigation changes conversation context while retaining workspace files. Transcript hydration follows active ancestry and excludes checkpoints from other branches. Protocol version is now 43; clients and hosts require matching builds. Labels/bookmarks/search remain SES-07.
+
 | ID | Feature / subfeature | Origin | Status | Evidence | Remaining work / completion boundary |
 | --- | --- | --- | --- | --- | --- |
 | SES-01 | Resume/hydrate persistent Pi sessions after restart | Both | Done | H | Keep Pi session and application thread identities consistent. |
@@ -183,7 +187,7 @@ Evidence: [session milestone](Docs/PI-SESSION-MANAGEMENT-2026-09-06.md), [sessio
 | SES-03 | Independent whole-session tree copies | Pi | Done | H | New identities; original remains unchanged. |
 | SES-04 | Fork at a completed assistant response, including alternate branches | Pi | Done | H | Copy selected ancestry; no implied workspace rewind. |
 | SES-05 | Inspect/page branch tree and active-branch statistics | Pi | Done | H | Display bounded results and load-more controls. |
-| SES-06 | Navigate an existing session in place between branches | Pi | Partial | S | Inspection and independent forks exist; native in-place switching remains. |
+| SES-06 | Navigate an existing session in place between branches | Pi | Done | V | Switch to selected entries in the same session; active-branch transcript refresh, durable selection/replay, optional summaries/custom instructions/cancellation, and returned user prompts. Draft text, attachments, context and workspace files are preserved. Busy work and stale trees are rejected; failed/unavailable SDK navigation stops Pi for recovery from its saved session. |
 | SES-07 | Session tree labels/bookmarks and branch filtering/search | Pi | Partial | S | Tree inspection exists; label editing and Pi-equivalent tree search remain. |
 | SES-08 | Export full validated JSONL | Pi | Done | H | Preserve full validated session, including embedded content. |
 | SES-09 | Export readable HTML | Pi | Partial | H | Active-branch text export exists; richer Pi-equivalent media rendering remains. |

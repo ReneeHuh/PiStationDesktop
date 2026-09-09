@@ -368,6 +368,10 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         InvokeAsync<PiSessionBrowserResult>("BrowsePiSessions", request, cancellationToken);
     public Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionSnapshot>("InspectPiSession", threadId, cancellationToken);
+    public Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<NavigatePiSessionResult>("NavigatePiSession", request, cancellationToken);
+    public Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<bool>("CancelPiSessionNavigation", request, cancellationToken);
     public Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionSnapshot>("InspectPiSessionPage", request, cancellationToken);
     public Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default) =>

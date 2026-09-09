@@ -147,6 +147,12 @@ internal sealed partial class FakePiServer : IDisposable
                 await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "prompt":
+                if (command["message"]?.ToString() is { } sessionPrompt && sessionPrompt.StartsWith("/pistation-desktop-sessions ", StringComparison.Ordinal))
+                {
+                    await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
+                    _ = HandleSessionNavigationAsync(sessionPrompt, cancellationToken);
+                    break;
+                }
                 if (_arguments.Scenario == "agent-workflow" && command["message"]?.ToString() is { } agentPrompt)
                 {
                     if (agentPrompt.StartsWith("/pistation-desktop-agents ", StringComparison.Ordinal)) await HandleAgentsCommandAsync(id, agentPrompt, cancellationToken);
@@ -255,6 +261,7 @@ internal sealed partial class FakePiServer : IDisposable
                     ["name"] = "pistation-desktop-resources", ["source"] = "extension",
                     ["sourceInfo"] = new JsonObject { ["path"] = Path.Combine(_arguments.SessionDirectory, "management.ts"), ["scope"] = "temporary" },
                 });
+                if (_arguments.Scenario != "navigation-unavailable") commands.Add(new JsonObject { ["name"] = "pistation-desktop-sessions", ["source"] = "extension" });
                 if (_arguments.Scenario == "plan-workflow") commands.Add(new JsonObject { ["name"] = "pistation-desktop-plan", ["source"] = "extension" });
                 if (_arguments.Scenario == "agent-workflow") commands.Add(new JsonObject { ["name"] = "pistation-desktop-agents", ["source"] = "extension" });
                 await _writer.WriteAsync(Response(id, type, new JsonObject { ["commands"] = commands }), cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -390,6 +397,7 @@ internal sealed partial class FakePiServer : IDisposable
                 await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             case "abort":
+                _fakeNavigationCancelled?.TrySetResult();
                 await HandleAbortAsync(id, cancellationToken).ConfigureAwait(false);
                 break;
             case "abort_retry":

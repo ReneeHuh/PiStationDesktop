@@ -908,6 +908,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         try
         {
             PiThreadController? controller = null;
+            long? navigationGeneration = null;
             if (request.Command is not (ThreadSaveDraftCommand or
                                         ThreadAddDraftAttachmentCommand or
                                         ThreadRemoveDraftAttachmentCommand or
@@ -922,6 +923,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                                         ThreadSetPinnedOrderCommand))
             {
                 controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+                navigationGeneration = controller.NavigationGeneration;
                 ValidateExpectations(request, controller);
             }
 
@@ -961,7 +963,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         promptAttachments,
                         request.ClientId,
                         request.CommandId,
-                        cancellationToken).ConfigureAwait(false);
+                        navigationGeneration, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadQueueSteeringCommand steering:
                     var steeringAttachments = await ResolveTurnAttachmentsAsync(

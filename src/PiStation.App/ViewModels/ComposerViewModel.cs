@@ -14,7 +14,7 @@ public sealed class ComposerSaveFailedEventArgs(Exception exception) : EventArgs
     public Exception Exception { get; } = exception;
 }
 
-public sealed class ComposerViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class ComposerViewModel : ObservableObject, IAsyncDisposable
 {
     private static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(400);
     private readonly DispatcherQueue _dispatcherQueue;
