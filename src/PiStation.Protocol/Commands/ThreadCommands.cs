@@ -36,6 +36,8 @@ namespace PiStation.Protocol.Commands;
 [JsonDerivedType(typeof(ThreadSetPinnedOrderCommand), "threadSetPinnedOrder")]
 [JsonDerivedType(typeof(ThreadRegenerateTitleCommand), "threadRegenerateTitle")]
 [JsonDerivedType(typeof(ThreadCompactContextCommand), "threadCompactContext")]
+[JsonDerivedType(typeof(ThreadRunPiShellCommand), "threadRunPiShell")]
+[JsonDerivedType(typeof(ThreadCancelPiShellCommand), "threadCancelPiShell")]
 [JsonDerivedType(typeof(ThreadRevertCheckpointCommand), "threadRevertCheckpoint")]
 public abstract record ThreadCommand;
 
@@ -148,6 +150,9 @@ public sealed record ThreadSetPinnedOrderCommand(
 public sealed record ThreadRegenerateTitleCommand(long ExpectedRevision) : ThreadCommand;
 
 public sealed record ThreadCompactContextCommand(string? CustomInstructions = null) : ThreadCommand;
+
+public sealed record ThreadRunPiShellCommand(string Command, bool ExcludeFromContext = false) : ThreadCommand;
+public sealed record ThreadCancelPiShellCommand(CommandId ExecutionId) : ThreadCommand;
 
 public sealed record ThreadRevertCheckpointCommand(int TurnCount) : ThreadCommand;
 

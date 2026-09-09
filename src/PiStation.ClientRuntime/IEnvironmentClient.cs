@@ -132,6 +132,10 @@ public interface IEnvironmentClient : IAsyncDisposable
     Task<PiResourcesSnapshot> ManagePiResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default);
+    Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default);
+    Task<PiSessionSnapshot> SetPiSessionLabelAsync(SetPiSessionLabelRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Session labels are unavailable in this client.");
+    Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Session pagination is unavailable in this client.");
     Task<ThreadDescriptor> CopyPiSessionAsync(CopyPiSessionRequest request, CancellationToken cancellationToken = default);
@@ -312,6 +316,12 @@ public interface IEnvironmentClient : IAsyncDisposable
         ThreadId threadId,
         long expectedRevision,
         CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> RunPiShellAsync(ThreadId threadId, string command, bool excludeFromContext,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default);
+
+    Task<CommandReceipt> CancelPiShellAsync(ThreadId threadId, CommandId executionId,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default);
 
     Task<CommandReceipt> CompactThreadContextAsync(
         ThreadId threadId,

@@ -377,6 +377,12 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         InvokeAsync<PiSessionBrowserResult>("BrowsePiSessions", request, cancellationToken);
     public Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionSnapshot>("InspectPiSession", threadId, cancellationToken);
+    public Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<NavigatePiSessionResult>("NavigatePiSession", request, cancellationToken);
+    public Task<PiSessionSnapshot> SetPiSessionLabelAsync(SetPiSessionLabelRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<PiSessionSnapshot>("SetPiSessionLabel", request, cancellationToken);
+    public Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<bool>("CancelPiSessionNavigation", request, cancellationToken);
     public Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default) =>
         InvokeAsync<PiSessionSnapshot>("InspectPiSessionPage", request, cancellationToken);
     public Task<PiSessionExportResult> ExportPiSessionAsync(ExportPiSessionRequest request, CancellationToken cancellationToken = default) =>
@@ -1250,6 +1256,14 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         null,
         new ThreadSetQueueDeliveryModeCommand(kind, mode),
         cancellationToken);
+
+    public Task<CommandReceipt> RunPiShellAsync(ThreadId threadId, string command, bool excludeFromContext,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default) => ExecuteAsync(
+            threadId, expectedProjectionEpoch, null, new ThreadRunPiShellCommand(command, excludeFromContext), cancellationToken);
+
+    public Task<CommandReceipt> CancelPiShellAsync(ThreadId threadId, CommandId executionId,
+        ProjectionEpoch? expectedProjectionEpoch = null, CancellationToken cancellationToken = default) => ExecuteAsync(
+            threadId, expectedProjectionEpoch, null, new ThreadCancelPiShellCommand(executionId), cancellationToken);
 
     public Task<CommandReceipt> CompactThreadContextAsync(
         ThreadId threadId,

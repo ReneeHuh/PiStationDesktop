@@ -12,7 +12,7 @@ using PiStation.PiRpc.Transport;
 
 namespace PiStation.Host.Threads;
 
-public static class ThreadProjectionReducer
+public static partial class ThreadProjectionReducer
 {
     public static ThreadProjection Create(
         EnvironmentId environmentId,
@@ -44,6 +44,9 @@ public static class ThreadProjectionReducer
         string? piSessionId = null,
         IReadOnlyDictionary<string, SentMessageContent>? sentMessages = null)
     {
+        var tree = entries.Any(entry => entry.TryGetProperty("parentId", out _));
+        entries = ActiveBranch(entries, leafId);
+        var activeIds = entries.Where(entry => entry.TryGetProperty("id", out _)).Select(entry => entry.GetProperty("id").GetString()).ToHashSet(StringComparer.Ordinal);
         var timeline = new List<TimelineItem>();
         var hydratedTurnIds = new List<TurnId>();
         TurnId? hydratedTurnId = null;
@@ -54,6 +57,13 @@ public static class ThreadProjectionReducer
         var messageCount = 0;
         foreach (var entry in entries)
         {
+            if (entry.TryGetProperty("type", out var kind) && kind.GetString() == "branch_summary")
+            {
+                var summaryId = entry.GetProperty("id").GetString()!;
+                timeline.Add(new MessageTimelineItem("summary-" + summaryId, null, summaryId, MessageRole.System,
+                    "Branch summary\n" + entry.GetProperty("summary").GetString(), true));
+                continue;
+            }
             if (!entry.TryGetProperty("type", out var entryType) || entryType.GetString() != "message" ||
                 !entry.TryGetProperty("message", out var message))
             {
@@ -126,6 +136,7 @@ public static class ThreadProjectionReducer
         }
 
         var hydratedCheckpoints = (checkpoints ?? current.Checkpoints)
+            .Where(checkpoint => !tree || checkpoint.PiEntryIdAfterTurn is { } id && activeIds.Contains(id))
             .OrderBy(static checkpoint => checkpoint.TurnCount)
             .Select(checkpoint => checkpoint.TurnCount > 0 && checkpoint.TurnCount <= hydratedTurnIds.Count
                 ? checkpoint with { TurnId = hydratedTurnIds[checkpoint.TurnCount - 1] }
@@ -149,6 +160,7 @@ public static class ThreadProjectionReducer
 
     public static ThreadProjection Apply(ThreadProjection projection, ThreadEvent @event) => @event switch
     {
+        PiShellChangedEvent changed => projection with { ShellExecution = changed.Execution, LastEntryId = changed.LastEntryId ?? projection.LastEntryId },
         PiPlanChangedEvent changed when changed.Plan.SessionId == projection.PiSessionId && changed.Plan.Revision >= (projection.Plan?.Revision ?? -1) => projection with { Plan = changed.Plan },
         PiAgentSetupChangedEvent changed when changed.Setup.SessionId == projection.PiSessionId => projection with { AgentSetup = changed.Setup },
         PiExtensionUiChangedEvent changed => projection with { ExtensionUi = (projection.ExtensionUi ?? PiExtensionUiState.Empty).Apply(changed.Update) },
@@ -255,6 +267,16 @@ public static class ThreadProjectionReducer
             : MessageRole.Assistant;
         var text = new StringBuilder();
         var thinking = new StringBuilder();
+        if (roleProperty.ValueKind == JsonValueKind.String && roleProperty.GetString() == "bashExecution")
+        {
+            return ReadShellMessage(messageId, message.GetProperty("command").GetString() ?? "",
+                message.GetProperty("output").GetString() ?? "",
+                message.TryGetProperty("excludeFromContext", out var excluded) && excluded.ValueKind == JsonValueKind.True,
+                message.TryGetProperty("cancelled", out var cancelled) && cancelled.ValueKind == JsonValueKind.True,
+                message.TryGetProperty("truncated", out var truncated) && truncated.ValueKind == JsonValueKind.True,
+                message.TryGetProperty("exitCode", out var exitCode) && exitCode.ValueKind == JsonValueKind.Number ? exitCode.GetInt32() : null,
+                message.TryGetProperty("fullOutputPath", out var fullPath) && fullPath.ValueKind == JsonValueKind.String ? fullPath.GetString() : null);
+        }
         if (message.TryGetProperty("content", out var content))
         {
             if (content.ValueKind == JsonValueKind.String)
@@ -288,6 +310,26 @@ public static class ThreadProjectionReducer
         }
 
         return new MessageProjection(messageId, role, sentContent?.Text ?? messageText, thinking.ToString(), isComplete, sentContent);
+    }
+
+    internal static MessageProjection ReadShellMessage(string id, string command, string output, bool excluded,
+        bool cancelled, bool truncated, int? exitCode, string? fullOutputPath)
+    {
+        var text = new StringBuilder("Pi shell: ").AppendLine(command)
+            .AppendLine(excluded ? "Excluded from model context" : "Included in model context");
+        if (cancelled) text.AppendLine("Cancelled");
+        if (exitCode is { } code) text.Append("Exit ").AppendLine(code.ToString(CultureInfo.InvariantCulture));
+        if (output.Length > PiShellExecution.MaximumOutputLength)
+        {
+            var start = output.Length - PiShellExecution.MaximumOutputLength;
+            if (char.IsLowSurrogate(output[start])) start++;
+            output = output[start..];
+            truncated = true;
+        }
+        if (truncated) text.AppendLine("Output truncated");
+        if (fullOutputPath is not null) text.Append("Full output on the host: ").AppendLine(fullOutputPath);
+        text.Append(output);
+        return new MessageProjection(id, MessageRole.System, text.ToString(), "", true);
     }
 
     private static ThreadProjection ApplyRuntimeStateChanged(

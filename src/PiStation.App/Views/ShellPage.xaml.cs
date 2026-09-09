@@ -204,6 +204,10 @@ public sealed partial class ShellPage : Page
                 _composerSurface.FocusPrompt();
                 return Task.CompletedTask;
             }, enableWhen: "threadOpen", defaultShortcut: "Ctrl+Shift+L");
+        Register("composer.externalEditor", "Edit Prompt in External Editor", "Thread", "Edit the prompt locally and bring saved text back into the composer.",
+            _composerSurface.OpenExternalEditorAsync, enableWhen: "connected && threadOpen && !terminalFocus && !editorFocus",
+            defaultShortcut: "Ctrl+G", canExecute: () => ViewModel.CanEditPromptExternally,
+            disabledReason: "Select a connected, editable draft first.");
         RegisterPanelCommand("workbench.changes", "Show Changes", WorkbenchPanelKind.Changes, "Ctrl+Shift+G", ["git", "diff"]);
         RegisterPanelCommand("workbench.files", "Show Files", WorkbenchPanelKind.Files, "Ctrl+Shift+E", ["workspace", "editor"]);
         RegisterPanelCommand("workbench.terminal", "Show Terminal", WorkbenchPanelKind.Terminal, "Ctrl+Shift+T", ["shell", "console"]);

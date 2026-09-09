@@ -30,6 +30,7 @@
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-agents.ts" Link="Fixtures\pistation-agents.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-plan.ts" Link="Fixtures\pistation-plan.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-resources.ts" Link="Fixtures\pistation-resources.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PiStation.App\PiExtensions\pistation-sessions.ts" Link="Fixtures\pistation-sessions.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\PiStation.App\PiExtensions\pistation-permissions.ts" Link="Fixtures\pistation-permissions.ts" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

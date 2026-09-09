@@ -18,6 +18,24 @@ public sealed partial class EnvironmentService
 {
     private readonly SemaphoreSlim _sessionCopyGate = new(1, 1);
 
+    public async Task<PiSessionSnapshot> SetPiSessionLabelAsync(SetPiSessionLabelRequest request, CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await controller.SetSessionLabelAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await controller.NavigateSessionAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default)
+    {
+        var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+        return await controller.CancelSessionNavigationAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(request.Offset);
@@ -56,12 +74,14 @@ public sealed partial class EnvironmentService
     public async Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default)
     {
         if (request.Offset < 0 || request.Limit is < 1 or > 5000) throw new ArgumentException("Invalid session page size or offset.");
+        if (!Enum.IsDefined(request.Filter) || request.SearchQuery?.Length > 1024) throw new ArgumentException("Choose a tree filter and a search of at most 1,024 characters.");
         var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
         return await controller.WithSessionAsync((document, path) =>
         {
             if (request.ExpectedRevision is not null && request.ExpectedRevision != document.Revision)
                 throw new InvalidDataException("The session changed while paging. Inspect it again to load a consistent tree.");
-            return Task.FromResult(CreateSessionSnapshot(request.ThreadId, path, document, request.Offset, request.Limit));
+            return Task.FromResult(CreateSessionSnapshot(request.ThreadId, path, document, request.Offset, request.Limit,
+                request.Filter, request.SearchQuery, request.ActiveBranchOnly));
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -185,21 +205,28 @@ public sealed partial class EnvironmentService
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static PiSessionSnapshot CreateSessionSnapshot(ThreadId threadId, string path, PiSessionDocument document, int offset = 0, int limit = 1000)
+    internal static PiSessionSnapshot CreateSessionSnapshot(ThreadId threadId, string path, PiSessionDocument document, int offset = 0, int limit = 1000,
+        PiSessionTreeFilter filter = PiSessionTreeFilter.All, string? searchQuery = null, bool activeBranchOnly = false)
     {
         var branch = document.Branch();
         var activeIds = branch.Select(entry => PiSessionDocument.Text(entry, "id")!).ToHashSet(StringComparer.Ordinal);
         var depths = new Dictionary<string, int>(StringComparer.Ordinal);
         var rows = new List<PiSessionTreeEntry>();
+        var labels = document.Labels();
+        var tokensToFind = (searchQuery ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var matching = 0;
         foreach (var entry in document.Entries)
         {
             var id = PiSessionDocument.Text(entry, "id")!;
             var parent = PiSessionDocument.Text(entry, "parentId");
             var depth = parent is null ? 0 : depths[parent] + 1;
             depths[id] = depth;
-            if (depths.Count > offset && rows.Count < limit) rows.Add(new(id, parent, depth, entry["message"] is JsonObject message
+            labels.TryGetValue(id, out var label);
+            if (activeBranchOnly && !activeIds.Contains(id) || !PiSessionTreeQuery.Matches(entry, label.Label, document.LeafId, filter, tokensToFind)) continue;
+            matching++;
+            if (matching > offset && rows.Count < limit) rows.Add(new(id, parent, depth, entry["message"] is JsonObject message
                 ? PiSessionDocument.Text(message, "role") ?? "message" : PiSessionDocument.Text(entry, "type")!,
-                PiSessionDocument.Preview(entry), activeIds.Contains(id), PiSessionDocument.CanFork(entry)));
+                PiSessionDocument.Preview(entry), activeIds.Contains(id), PiSessionDocument.CanFork(entry), label.Label, label.Timestamp));
         }
         var assistants = branch.Where(entry => entry["message"] is JsonObject message && PiSessionDocument.Text(message, "role") == "assistant").ToArray();
         long? tokens = 0;
@@ -213,7 +240,7 @@ public sealed partial class EnvironmentService
         return new(threadId, path, document.Revision, document.LeafId, rows, document.Entries.Count,
             branch.Count(entry => PiSessionDocument.Text(entry, "type") == "message"),
             configuration.Provider is { } provider && configuration.Model is { } model ? new(provider, model) : null,
-            configuration.Thinking, tokens, cost, offset + rows.Count < document.Entries.Count,
-            offset + rows.Count < document.Entries.Count ? offset + rows.Count : null);
+            configuration.Thinking, tokens, cost, offset + rows.Count < matching,
+            offset + rows.Count < matching ? offset + rows.Count : null, matching, filter, searchQuery, activeBranchOnly);
     }
 }

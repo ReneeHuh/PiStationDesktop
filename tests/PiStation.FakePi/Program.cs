@@ -1,5 +1,10 @@
 using PiStation.FakePi;
 
+if (args.Contains("--prompt-editor-probe", StringComparer.Ordinal))
+{
+    return await PromptEditorProbe.RunAsync(args);
+}
+
 if (args.Contains("--terminal-mouse-probe", StringComparer.Ordinal))
 {
     return TerminalMouseProbe.Run(

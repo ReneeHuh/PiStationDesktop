@@ -441,10 +441,15 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
             new JsonObject { ["cancelled"] = true },
             cancellationToken);
 
-    public async Task<PiRpcResponse> SendCommandAsync(
+    public Task<PiRpcResponse> SendCommandAsync(string command, JsonObject? arguments = null,
+        CancellationToken cancellationToken = default) => SendCommandCoreAsync(command, arguments, null, null, cancellationToken);
+
+    private async Task<PiRpcResponse> SendCommandCoreAsync(
         string command,
-        JsonObject? arguments = null,
-        CancellationToken cancellationToken = default)
+        JsonObject? arguments,
+        Action<string>? shellOutput,
+        Action? dispatched,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(command);
         EnsureRunning();
@@ -475,7 +480,7 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
             }
         }
 
-        var pending = new PendingRequest(command);
+        var pending = new PendingRequest(command, shellOutput);
         if (!_pending.TryAdd(id, pending))
         {
             throw new InvalidOperationException($"Duplicate Pi request id '{id}'.");
@@ -484,6 +489,7 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
         try
         {
             await _writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+            dispatched?.Invoke();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -589,6 +595,14 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
             }
 
             var type = typeProperty.GetString();
+            if (type == "bash_execution_update")
+            {
+                // Shell output is correlated and consumed directly: it is not agent tool output.
+                var id = GetOptionalString(root, "id");
+                if (id is not null && _pending.TryGetValue(id, out var shell) && shell.Command == "bash")
+                    shell.ShellOutput?.Invoke(GetRequiredString(root, "delta"));
+                return;
+            }
             if (type == "response")
             {
                 HandleResponse(root);
@@ -696,7 +710,7 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
         }
     }
 
-    private TimeSpan GetTimeout(string command) => command is "prompt" or "compact"
+    private TimeSpan GetTimeout(string command) => command == "bash" ? Timeout.InfiniteTimeSpan : command is "prompt" or "compact"
         ? _options.LongRunningCommandTimeout
         : _options.DefaultCommandTimeout;
 
@@ -862,9 +876,10 @@ public sealed partial class PiRpcConnection : IAsyncDisposable
         }
     }
 
-    private sealed class PendingRequest(string command)
+    private sealed class PendingRequest(string command, Action<string>? shellOutput = null)
     {
         public string Command { get; } = command;
+        public Action<string>? ShellOutput { get; } = shellOutput;
 
         public TaskCompletionSource<PiRpcResponse> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -159,6 +159,7 @@ internal static class ClientProjectionReducer
 {
     public static ThreadProjection Apply(ThreadProjection projection, ThreadEvent @event) => @event switch
     {
+        PiShellChangedEvent changed => projection with { ShellExecution = changed.Execution, LastEntryId = changed.LastEntryId ?? projection.LastEntryId },
         PiPlanChangedEvent changed when changed.Plan.SessionId == projection.PiSessionId && changed.Plan.Revision >= (projection.Plan?.Revision ?? -1) => projection with { Plan = changed.Plan },
         PiAgentSetupChangedEvent changed when changed.Setup.SessionId == projection.PiSessionId => projection with { AgentSetup = changed.Setup },
         PiExtensionUiChangedEvent changed => projection with { ExtensionUi = (projection.ExtensionUi ?? PiExtensionUiState.Empty).Apply(changed.Update) },

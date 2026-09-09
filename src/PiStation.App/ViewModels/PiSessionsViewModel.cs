@@ -16,7 +16,7 @@ public sealed class PiSessionTreeRow(PiSessionTreeEntry entry)
     public PiSessionTreeEntry Entry { get; } = entry;
     public string Title => $"{Entry.Kind} · {Entry.Preview}";
     public string Details => $"{(Entry.IsActiveBranch ? "Active branch" : "Other branch")} · entry {Entry.Id} · parent {Entry.ParentId ?? "root"}" +
-        (Entry.CanFork ? " · can fork here" : string.Empty);
+        (Entry.CanFork ? " · can fork here" : string.Empty) + (Entry.Label is null ? string.Empty : $" · Bookmark: {Entry.Label}");
     public Microsoft.UI.Xaml.Thickness Indent => new(Math.Min(Entry.Depth, 8) * 8, 0, 0, 0);
 }
 
@@ -26,17 +26,24 @@ public sealed class PiSessionsViewModel : ObservableObject
     private bool _allowOperations;
     private bool _hasPendingImport;
     private bool _canCancelTransfer;
+    private bool _canCancelNavigation;
+    private string _navigationPrompt = string.Empty;
     private string _status = "Import a Pi session, or inspect the selected idle thread.";
     private string _directory = string.Empty;
     private string _summary = string.Empty;
     private PiSessionCandidateRow? _selectedCandidate;
     private PiSessionTreeRow? _selectedEntry;
+    private string? _selectedEntryId;
+    private string _entryLabel = string.Empty;
+    private string _searchQuery = string.Empty;
+    private int _filterIndex;
+    private bool _activeBranchOnly;
     public ObservableCollection<PiSessionCandidateRow> Candidates { get; } = [];
     public ObservableCollection<PiSessionTreeRow> Entries { get; } = [];
     public PiSessionSnapshot? Snapshot { get; private set; }
     public int? BrowserNextOffset { get; private set; }
     public bool HasMoreCandidates => CanAct && BrowserNextOffset is not null;
-    public bool HasMoreEntries => CanAct && Snapshot?.NextOffset is not null;
+    public bool HasMoreEntries => CanAct && IsCurrentQuery && Snapshot?.NextOffset is not null;
     public string Directory { get => _directory; set => SetProperty(ref _directory, value); }
     public string Status { get => _status; internal set => SetProperty(ref _status, value); }
     public string Summary { get => _summary; private set => SetProperty(ref _summary, value); }
@@ -47,7 +54,32 @@ public sealed class PiSessionsViewModel : ObservableObject
     public bool CanAct => !IsBusy && AllowOperations;
     public bool CanRetryImport => CanAct && HasPendingImport;
     public PiSessionCandidateRow? SelectedCandidate { get => _selectedCandidate; set => SetProperty(ref _selectedCandidate, value); }
-    public PiSessionTreeRow? SelectedEntry { get => _selectedEntry; set => SetProperty(ref _selectedEntry, value); }
+    public PiSessionTreeRow? SelectedEntry
+    {
+        get => _selectedEntry;
+        set
+        {
+            if (!SetProperty(ref _selectedEntry, value)) return;
+            if (value is not null) _selectedEntryId = value.Entry.Id;
+            EntryLabel = value?.Entry.Label ?? string.Empty;
+            RaiseActionState();
+        }
+    }
+    public bool IsCurrentQuery => Snapshot is { } snapshot && snapshot.Filter == (PiSessionTreeFilter)FilterIndex &&
+        (snapshot.SearchQuery ?? string.Empty) == SearchQuery && snapshot.ActiveBranchOnly == ActiveBranchOnly;
+    public string SearchQuery { get => _searchQuery; set { if (SetProperty(ref _searchQuery, value)) RaiseActionState(); } }
+    public int FilterIndex { get => _filterIndex; set { if (SetProperty(ref _filterIndex, value)) RaiseActionState(); } }
+    public bool ActiveBranchOnly { get => _activeBranchOnly; set { if (SetProperty(ref _activeBranchOnly, value)) RaiseActionState(); } }
+    public string EntryLabel { get => _entryLabel; set { if (SetProperty(ref _entryLabel, value)) OnPropertyChanged(nameof(CanSaveLabel)); } }
+    public bool CanSaveLabel => CanNavigate && (string.IsNullOrWhiteSpace(EntryLabel) ? null : EntryLabel.Trim()) != SelectedEntry?.Entry.Label;
+    public bool CanRemoveLabel => CanNavigate && SelectedEntry?.Entry.Label is not null;
+    public bool CanNavigate => CanAct && IsCurrentQuery && SelectedEntry is not null;
+    public bool CanCancelNavigation { get => _canCancelNavigation; internal set => SetProperty(ref _canCancelNavigation, value); }
+    public bool SummarizeBranch { get; set; }
+    public string SummaryInstructions { get; set; } = string.Empty;
+    public bool ReplaceSummaryInstructions { get; set; }
+    public string NavigationPrompt { get => _navigationPrompt; internal set { SetProperty(ref _navigationPrompt, value); OnPropertyChanged(nameof(CanCopyNavigationPrompt)); } }
+    public bool CanCopyNavigationPrompt => NavigationPrompt.Length > 0;
     public string NewTitle { get; set; } = string.Empty;
 
     private void RaiseActionState()
@@ -56,6 +88,9 @@ public sealed class PiSessionsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRetryImport));
         OnPropertyChanged(nameof(HasMoreCandidates));
         OnPropertyChanged(nameof(HasMoreEntries));
+        OnPropertyChanged(nameof(CanNavigate));
+        OnPropertyChanged(nameof(CanSaveLabel));
+        OnPropertyChanged(nameof(CanRemoveLabel));
     }
 
     internal void Apply(PiSessionBrowserResult result, bool append = false)
@@ -72,22 +107,32 @@ public sealed class PiSessionsViewModel : ObservableObject
 
     internal void Apply(PiSessionSnapshot snapshot, bool append = false)
     {
+        if (append && (Snapshot?.Revision != snapshot.Revision || Snapshot.ThreadId != snapshot.ThreadId ||
+            Snapshot.Filter != snapshot.Filter || Snapshot.SearchQuery != snapshot.SearchQuery || Snapshot.ActiveBranchOnly != snapshot.ActiveBranchOnly))
+            throw new InvalidOperationException("The session search changed. Refresh the tree before loading more.");
+        var selectedId = _selectedEntryId;
+        var labelDraft = EntryLabel;
         Snapshot = snapshot;
-        SelectedEntry = null;
         if (!append) Entries.Clear();
-        foreach (var entry in snapshot.Entries) Entries.Add(new(entry));
+        var loadedIds = Entries.Select(row => row.Entry.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in snapshot.Entries.Where(entry => loadedIds.Add(entry.Id))) Entries.Add(new(entry));
+        SelectedEntry = Entries.FirstOrDefault(row => row.Entry.Id == selectedId);
+        if (append && SelectedEntry is not null) EntryLabel = labelDraft;
         Summary = $"{snapshot.ActiveMessageCount} messages in the active branch · {snapshot.TotalEntries} tree entries\n" +
             $"Model: {snapshot.Model?.ProviderId ?? "unknown"} / {snapshot.Model?.ModelId ?? "unknown"} · thinking: {snapshot.ThinkingLevel ?? "unknown"}\n" +
             $"Tokens: {snapshot.TotalTokens?.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) ?? "unknown"} · cost: {snapshot.Cost?.ToString("C4", System.Globalization.CultureInfo.GetCultureInfo("en-US")) ?? "unknown"}";
-        Status = snapshot.IsTruncated ? $"Showing {Entries.Count} of {snapshot.TotalEntries} entries. Load more to continue." : "Select a completed assistant response to fork, or copy the whole session.";
-        OnPropertyChanged(nameof(HasMoreEntries));
+        Status = $"Showing {Entries.Count} of {snapshot.MatchingEntries ?? snapshot.TotalEntries} matching entries." +
+            (snapshot.IsTruncated ? " Load more to continue." : Entries.Count == 0 ? " Change the search or filters to find entries." : " Select an entry to edit its bookmark or switch branches.");
+        RaiseActionState();
     }
 
     internal void ClearThread()
     {
         Snapshot = null;
+        NavigationPrompt = string.Empty;
         OnPropertyChanged(nameof(HasMoreEntries));
         SelectedEntry = null;
+        _selectedEntryId = null;
         Entries.Clear();
         Summary = string.Empty;
     }

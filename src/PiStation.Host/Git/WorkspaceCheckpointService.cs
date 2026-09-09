@@ -52,10 +52,9 @@ public sealed class WorkspaceCheckpointService(
         }
 
         var beforeRef = BeforeCheckpointRef(threadId, turnCount + 1);
-        if (!await HasRefAsync(projectRoot, beforeRef, cancellationToken).ConfigureAwait(false))
-        {
-            await CaptureRefAsync(projectRoot, beforeRef, cancellationToken).ConfigureAwait(false);
-        }
+        // A different session branch can reuse this turn ordinal. Capture the actual
+        // workspace before each new turn rather than reuse another branch's baseline.
+        await CaptureRefAsync(projectRoot, beforeRef, cancellationToken).ConfigureAwait(false);
 
         return true;
     }

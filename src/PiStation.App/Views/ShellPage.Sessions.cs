@@ -21,6 +21,17 @@ public sealed partial class ShellPage
     private async void OnImportSelectedPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync();
     private async void OnCopyPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(copyCurrent: true);
     private async void OnForkPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(forkAtSelection: true);
+    private async void OnNavigatePiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.NavigatePiSessionAsync();
+    private async void OnSavePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync();
+    private async void OnRemovePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync(remove: true);
+    private async void OnClearPiSessionFiltersClicked(object sender, RoutedEventArgs e) => await ViewModel.ClearSessionTreeFiltersAsync();
+    private async void OnCancelPiSessionNavigationClicked(object sender, RoutedEventArgs e) => await ViewModel.CancelPiSessionNavigationAsync();
+    private void OnCopyNavigationPromptClicked(object sender, RoutedEventArgs e)
+    {
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(ViewModel.PiSessions.NavigationPrompt);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+    }
     private async void OnRetryPiSessionImportClicked(object sender, RoutedEventArgs e) => await ViewModel.RetryPiSessionImportAsync();
     private void OnCancelPiSessionTransferClicked(object sender, RoutedEventArgs e) => ViewModel.CancelSessionTransfer();
 

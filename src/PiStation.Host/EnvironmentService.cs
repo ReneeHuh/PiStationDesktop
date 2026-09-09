@@ -919,6 +919,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         try
         {
             PiThreadController? controller = null;
+            long? navigationGeneration = null;
             if (request.Command is not (ThreadSaveDraftCommand or
                                         ThreadAddDraftAttachmentCommand or
                                         ThreadRemoveDraftAttachmentCommand or
@@ -933,6 +934,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                                         ThreadSetPinnedOrderCommand))
             {
                 controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
+                navigationGeneration = controller.NavigationGeneration;
                 ValidateExpectations(request, controller);
             }
 
@@ -972,7 +974,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                         promptAttachments,
                         request.ClientId,
                         request.CommandId,
-                        cancellationToken).ConfigureAwait(false);
+                        navigationGeneration, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadQueueSteeringCommand steering:
                     var steeringAttachments = await ResolveTurnAttachmentsAsync(
@@ -1135,6 +1137,13 @@ public sealed partial class EnvironmentService : IAsyncDisposable
                 case ThreadRegenerateTitleCommand regenerate:
                     await controller!.RegenerateTitleAsync(regenerate.ExpectedRevision, cancellationToken)
                         .ConfigureAwait(false);
+                    await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadRunPiShellCommand shell:
+                    await controller!.StartShellAsync(shell.Command, shell.ExcludeFromContext, request.ClientId, request.CommandId, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ThreadCancelPiShellCommand cancelShell:
+                    await controller!.CancelShellAsync(cancelShell.ExecutionId, cancellationToken).ConfigureAwait(false);
                     await CompleteReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                     break;
                 case ThreadCompactContextCommand compact:

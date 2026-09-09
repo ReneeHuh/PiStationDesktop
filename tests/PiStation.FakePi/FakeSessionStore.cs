@@ -112,6 +112,16 @@ internal sealed class FakeSessionStore
         ["usage"] = Usage(),
     };
 
+    public async Task AppendShellAsync(JsonObject message, CancellationToken token)
+    {
+        var (entries, leafId) = await ReadAsync(token).ConfigureAwait(false);
+        await AppendAsync(new JsonObject
+        {
+            ["type"] = "message", ["id"] = $"entry-{entries.Count + 1:D4}", ["parentId"] = leafId,
+            ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"), ["message"] = message.DeepClone(),
+        }, token).ConfigureAwait(false);
+    }
+
     public static JsonObject Usage() => new()
     {
         ["input"] = 1,

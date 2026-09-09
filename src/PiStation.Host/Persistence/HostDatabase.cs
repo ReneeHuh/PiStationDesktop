@@ -141,6 +141,12 @@ public sealed partial class HostDatabase
                     FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS PiShellExecutions (
+                    ThreadId TEXT PRIMARY KEY NOT NULL,
+                    ExecutionJson TEXT NOT NULL,
+                    FOREIGN KEY (ThreadId) REFERENCES Threads(ThreadId) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS PiAutomationSettings (
                     Id INTEGER PRIMARY KEY CHECK(Id=1), AutoCompaction INTEGER NULL, AutoRetry INTEGER NULL, Revision INTEGER NOT NULL);
                 INSERT OR IGNORE INTO PiAutomationSettings VALUES(1,NULL,NULL,0);
