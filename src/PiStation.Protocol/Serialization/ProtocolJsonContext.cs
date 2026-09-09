@@ -12,6 +12,7 @@ namespace PiStation.Protocol.Serialization;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(EnvironmentDescriptor))]
+[JsonSerializable(typeof(RemoteEndpointIdentity))]
 [JsonSerializable(typeof(RemoteUpdateMaintenanceDescriptor))]
 [JsonSerializable(typeof(OpenBrowserAutomationRequest))]
 [JsonSerializable(typeof(BrowserAutomationLease))]

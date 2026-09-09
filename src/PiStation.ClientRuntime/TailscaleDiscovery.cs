@@ -111,7 +111,7 @@ public static class TailscaleDiscovery
 
     private static string? Text(JsonElement element, string property) => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private static string? FindExecutable()
+    internal static string? FindExecutable()
     {
         var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tailscale", "tailscale.exe");
         if (File.Exists(installed)) return installed;
@@ -125,7 +125,7 @@ public static class TailscaleDiscovery
         return null;
     }
 
-    private static async Task<string> ReadBoundedAsync(StreamReader reader, int maximum, CancellationTokenSource cancellation)
+    internal static async Task<string> ReadBoundedAsync(StreamReader reader, int maximum, CancellationTokenSource cancellation)
     {
         var text = new StringBuilder();
         var buffer = new char[4096];

@@ -12,7 +12,7 @@ using PiStation.Protocol.Models;
 
 namespace PiStation.App.Composition;
 
-internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
+internal sealed partial class RemoteAccessController(string dataRoot) : IAsyncDisposable
 {
     private EnvironmentService? _environment;
     private RemoteAccessStore? _access;
@@ -25,9 +25,10 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
     public RemoteConnectionStore Connections { get; } = new(Path.Combine(dataRoot, "remote-connections.protected"));
     public PiStation.ClientRuntime.Ssh.SshConnectionStore SshConnections { get; } = new(Path.Combine(dataRoot, "ssh-connections.protected"));
     public bool IsSharing => _listener is not null;
-    public bool NeedsAddress => _listener is not null && !GetNetworkAddresses().Contains(_listener.Address.Host);
+    public bool NeedsAddress => _tailscaleServe is not null ? !_tailscaleServe.IsRunning
+        : _listener is not null && !GetNetworkAddresses().Contains(_listener.Address.Host);
     public bool CanHost => _environment is not null && _access is not null;
-    public string Address => _listener?.Address.AbsoluteUri ?? string.Empty;
+    public string Address => _tailscaleServe?.Address.AbsoluteUri ?? _listener?.Address.AbsoluteUri ?? string.Empty;
     public string Fingerprint => _certificate?.GetCertHashString(HashAlgorithmName.SHA256) ?? string.Empty;
     public string? StartupError { get; private set; }
     public RemoteAccessStore? Access => _access;
@@ -64,7 +65,11 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
                 settings = JsonSerializer.Deserialize(WindowsProtectedStorage.Read(settingsPath), RemoteSettingsJsonContext.Default.RemoteListenerSettings);
             }
             finally { _gate.Release(); }
-            if (settings is { Enabled: true }) await StartAsync(settings.Address, settings.Port);
+            if (settings is { Enabled: true })
+            {
+                if (settings.TailscaleServe) await StartTailscaleServeAsync(settings.Port);
+                else await StartAsync(settings.Address, settings.Port);
+            }
         }
         catch (Exception exception)
         {
@@ -107,13 +112,15 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
         try
         {
             var listener = _listener;
+            var serve = _tailscaleServe;
             // Clear the observable state before awaiting anything: callers must never see
             // sharing enabled after the listener has been asked to stop.
             _listener = null;
+            _tailscaleServe = null;
             try
             {
                 await DesktopLifecycle.StopSharingAsync(
-                    listener is null ? null : () => listener.DisposeAsync().AsTask(),
+                    () => DisposeSharingAsync(serve, listener),
                     () => { SaveSettings(new(false, string.Empty, 52740)); _access?.ClearInvitations(); });
             }
             catch (Exception exception)
@@ -133,9 +140,9 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_listener is null || _access is null) throw new InvalidOperationException("Start sharing first.");
-            var address = _listener.Address;
-            if (useTailscaleDns)
+            if (_listener is null || _access is null || NeedsAddress) throw new InvalidOperationException("Start sharing on an available connection first.");
+            var address = _tailscaleServe?.Address ?? _listener.Address;
+            if (useTailscaleDns && _tailscaleServe is null)
             {
                 if (tailscale is not { Running: true, Self: { DnsName: not null } self } || self.Address != address.Host)
                     throw new InvalidOperationException("Refresh Tailscale and share on its adapter, or turn off MagicDNS to use the IP address.");
@@ -153,7 +160,7 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
         try
         {
             _disposed = true;
-            try { if (_listener is not null) await _listener.DisposeAsync(); }
+            try { await DisposeSharingAsync(_tailscaleServe, _listener); }
             finally
             {
                 _access?.Dispose();
@@ -161,6 +168,7 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
                 _access = null;
                 _certificate = null;
                 _listener = null;
+                _tailscaleServe = null;
                 _environment = null;
             }
         }
@@ -171,6 +179,6 @@ internal sealed class RemoteAccessController(string dataRoot) : IAsyncDisposable
         Path.Combine(dataRoot, "remote-listener.protected"), JsonSerializer.SerializeToUtf8Bytes(settings, RemoteSettingsJsonContext.Default.RemoteListenerSettings));
 }
 
-internal sealed record RemoteListenerSettings(bool Enabled, string Address, int Port);
+internal sealed record RemoteListenerSettings(bool Enabled, string Address, int Port, bool TailscaleServe = false);
 [JsonSerializable(typeof(RemoteListenerSettings))]
 internal sealed partial class RemoteSettingsJsonContext : JsonSerializerContext;

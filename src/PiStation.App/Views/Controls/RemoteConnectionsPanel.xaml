@@ -20,6 +20,19 @@
                     <CheckBox x:Name="TailscaleMagicDns" Content="Use MagicDNS names (turn off to use Tailscale IP addresses)" IsChecked="True" />
                     <Button x:Name="UseTailscaleAdapter" Content="Use this computer's Tailscale adapter for sharing" IsEnabled="False" Click="OnUseTailscaleAdapter"
                         automation:AutomationProperties.AutomationId="UseTailscaleAdapterButton" />
+                    <StackPanel x:Name="TailscaleServeControls" Spacing="8">
+                        <TextBlock Text="Share through Tailscale Serve" FontWeight="SemiBold" />
+                        <TextBlock Text="Share PiStation over your existing Tailscale connection while this app is open. Pairing and device approvals still apply."
+                            TextWrapping="Wrap" />
+                        <NumberBox x:Name="TailscaleServePort" Header="Tailscale sharing port" Value="8443" Minimum="1024" Maximum="65535"
+                            automation:AutomationProperties.AutomationId="TailscaleServePort" />
+                        <Button x:Name="StartTailscaleServe" Content="Start Tailscale sharing" Click="OnStartTailscaleServe"
+                            automation:AutomationProperties.AutomationId="StartTailscaleServeButton" />
+                        <Button x:Name="VerifyTailscaleServe" Content="Check Tailscale connection" Click="OnVerifyTailscaleServe"
+                            automation:AutomationProperties.AutomationId="VerifyTailscaleServeButton" />
+                        <Button x:Name="StopTailscaleServe" Content="Stop Tailscale sharing" Click="OnStopSharing"
+                            automation:AutomationProperties.AutomationId="StopTailscaleServeButton" />
+                    </StackPanel>
                     <ComboBox x:Name="TailscalePeers" Header="Windows computers" DisplayMemberPath="Label" HorizontalAlignment="Stretch"
                         automation:AutomationProperties.AutomationId="TailscalePeers" />
                     <NumberBox x:Name="TailscalePort" Header="PiStation sharing port on the other computer" Value="52740" Minimum="1024" Maximum="65535" />

@@ -14,6 +14,38 @@ public sealed class RemoteHostWorkflowTests
     private static byte[] Icon => Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=");
 
     [Fact]
+    public async Task EndpointProbeChecksPinAndIdentityWithoutGrantingAnonymousAccess()
+    {
+        using var directory = new ClientTestDirectory();
+        var options = directory.CreateHostOptions();
+        await using var fixture = await RemoteFixture.StartAsync(options, directory);
+        var environmentId = fixture.Client.Descriptor!.EnvironmentId;
+        await RemoteEndpointProbe.VerifyAsync(fixture.Address, fixture.Fingerprint, environmentId);
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => RemoteEndpointProbe.VerifyAsync(fixture.Address, new string('0', 64), environmentId));
+        await Assert.ThrowsAsync<InvalidDataException>(() => RemoteEndpointProbe.VerifyAsync(fixture.Address, fixture.Fingerprint, Protocol.Identifiers.EnvironmentId.New()));
+        using var anonymous = new HttpClient(RemoteTransport.CreateHandler(fixture.Fingerprint)) { BaseAddress = fixture.Address };
+        using var identity = await anonymous.GetAsync(RemoteEndpointIdentity.Path);
+        Assert.Equal(HttpStatusCode.OK, identity.StatusCode);
+        using var body = JsonDocument.Parse(await identity.Content.ReadAsStringAsync());
+        Assert.Equal(2, body.RootElement.EnumerateObject().Count());
+        using var hub = await anonymous.PostAsync("/environment/negotiate?negotiateVersion=1", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, hub.StatusCode);
+        using var files = await anonymous.GetAsync("/threads/fixture/attachments/fixture");
+        Assert.Equal(HttpStatusCode.Unauthorized, files.StatusCode);
+        var advertised = new Uri("https://fixture.example.ts.net:8443/");
+        fixture.Listener.AdvertiseForwardedAddress(advertised);
+        if (OperatingSystem.IsWindows())
+        {
+            var discovered = await SshEnvironmentHost.TryDiscoverAsync(options.CanonicalDataRoot);
+            Assert.Equal(advertised, discovered!.PairingAddress);
+            Assert.Equal(fixture.Fingerprint, discovered.PairingCertificateFingerprint);
+        }
+        var project = await fixture.Client.AddProjectAsync(new(directory.CreateDirectory("preview-project")));
+        await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => fixture.Client.OpenRemotePreviewAsync(new(project.ProjectId, new Uri("https://localhost:8443/"))));
+        await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => fixture.Client.OpenRemotePreviewAsync(new(project.ProjectId, fixture.Address)));
+    }
+
+    [Fact]
     public async Task RemoteRuntimeSettingsRoundTripPreservesArgumentsVariablesExtensionsAndDiscoveryChoice()
     {
         using var directory = new ClientTestDirectory();
@@ -106,6 +138,9 @@ public sealed class RemoteHostWorkflowTests
         RemoteAccessStore access, X509Certificate2 certificate, EnvironmentClient client) : IAsyncDisposable
     {
         public EnvironmentClient Client => client;
+        public Uri Address => remote.Address;
+        public RemoteEnvironmentHost Listener => remote;
+        public string Fingerprint => certificate.GetCertHashString(HashAlgorithmName.SHA256);
         public static async Task<RemoteFixture> StartAsync(HostOptions options, ClientTestDirectory directory)
         {
             var local = await EmbeddedEnvironmentHost.StartAsync(options);

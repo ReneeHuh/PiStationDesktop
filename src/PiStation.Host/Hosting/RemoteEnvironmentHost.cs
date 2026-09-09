@@ -20,14 +20,23 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
 {
     private readonly WebApplication _application;
     private readonly EnvironmentService _environment;
+    private readonly object _forwardedPortOwner = new();
+    private readonly string _fingerprint;
     private RemoteEnvironmentHost(WebApplication application, EnvironmentService environment, Uri address, string fingerprint)
     {
-        _application = application; _environment = environment; Address = address;
+        _application = application; _environment = environment; Address = address; _fingerprint = fingerprint;
         environment.RegisterRemoteExposure(this, address, fingerprint);
         environment.PreviewLeases.RegisterControlPort(this, address.Port);
     }
 
     public Uri Address { get; }
+
+    public void AdvertiseForwardedAddress(Uri address)
+    {
+        RemoteEndpoint.Validate(address);
+        _environment.RegisterRemoteExposure(this, address, _fingerprint);
+        _environment.PreviewLeases.RegisterControlPort(_forwardedPortOwner, address.Port);
+    }
 
     public static async Task<RemoteEnvironmentHost> StartAsync(EnvironmentService environment,
         RemoteAccessStore access, IPAddress address, int port, X509Certificate2 certificate,
@@ -71,9 +80,13 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
         app.UseWebSockets();
         app.UseRateLimiter();
         RemotePairingEndpoints.Map(app, environment, access);
+        app.MapGet(RemoteEndpointIdentity.Path, () => Results.Json(
+            new RemoteEndpointIdentity(environment.GetDescriptor().EnvironmentId, Protocol.ProtocolVersion.Current),
+            ProtocolJsonContext.Default.RemoteEndpointIdentity));
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path == "/remote/pair" || context.Request.Path == "/remote/pair/status")
+            if (context.Request.Path == "/remote/pair" || context.Request.Path == "/remote/pair/status" ||
+                context.Request.Path == RemoteEndpointIdentity.Path)
             { await next(context).ConfigureAwait(false); return; }
             var header = context.Request.Headers.Authorization.ToString();
             var authorization = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
@@ -106,6 +119,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
     {
         _environment.UnregisterRemoteExposure(this);
         _environment.PreviewLeases.UnregisterControlPort(this);
+        _environment.PreviewLeases.UnregisterControlPort(_forwardedPortOwner);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try { await _application.StopAsync(timeout.Token).ConfigureAwait(false); }
         finally { await _application.DisposeAsync().ConfigureAwait(false); }

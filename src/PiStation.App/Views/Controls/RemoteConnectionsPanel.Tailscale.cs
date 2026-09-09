@@ -7,6 +7,34 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class RemoteConnectionsPanel
 {
+    private async void OnStartTailscaleServe(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    {
+        if (HostController is not { } controller) return;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        _pairing = cancellation;
+        try
+        {
+            Status.Text = "Starting and checking Tailscale sharing…";
+            await controller.StartTailscaleServeAsync(checked((int)TailscaleServePort.Value), cancellation.Token);
+            Status.Text = "Tailscale sharing is verified. Create a pairing link below for your other computer.";
+        }
+        finally { _pairing = null; }
+    });
+
+    private async void OnVerifyTailscaleServe(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    {
+        if (HostController is not { } controller) return;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        _pairing = cancellation;
+        try
+        {
+            Status.Text = "Checking the Tailscale endpoint…";
+            await controller.VerifyTailscaleServeAsync(cancellation.Token);
+            Status.Text = "Tailscale connection verified: host certificate, environment, and protocol match.";
+        }
+        finally { _pairing = null; }
+    });
+
     private async void OnRefreshTailscale(object sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));

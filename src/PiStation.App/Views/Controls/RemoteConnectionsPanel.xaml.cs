@@ -38,6 +38,7 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         GotFocus += OnChildGotFocus;
         HostControls.Visibility = remoteWindow ? Visibility.Collapsed : Visibility.Visible;
         UseTailscaleAdapter.Visibility = remoteWindow ? Visibility.Collapsed : Visibility.Visible;
+        TailscaleServeControls.Visibility = remoteWindow ? Visibility.Collapsed : Visibility.Visible;
         DeviceName.Text = Environment.MachineName;
         _refresh = DispatcherQueue.CreateTimer();
         _refresh.Interval = TimeSpan.FromSeconds(2);
@@ -104,19 +105,24 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         AllowRemoteUpdates.IsEnabled = !_busy && controller?.CanHost == true;
         StartSharing.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false };
         StopSharing.IsEnabled = !_busy && controller?.IsSharing == true;
-        CreatePairingLink.IsEnabled = !_busy && controller?.IsSharing == true;
+        CreatePairingLink.IsEnabled = !_busy && controller is { IsSharing: true, NeedsAddress: false };
         PairingLabel.IsEnabled = PairingLifetime.IsEnabled = PairingAccess.IsEnabled = CreatePairingLink.IsEnabled;
         ListenAddress.IsEnabled = ListenPort.IsEnabled = controller?.IsSharing != true && !_busy;
         UseTailscaleAdapter.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false } && _tailscale?.Self is not null;
+        StartTailscaleServe.IsEnabled = TailscaleServePort.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false };
+        StopTailscaleServe.IsEnabled = !_busy && controller?.UsesTailscaleServe == true;
+        VerifyTailscaleServe.IsEnabled = StopTailscaleServe.IsEnabled && controller?.NeedsAddress == false;
         UpdateApprovalState();
-        SharingState.Text = controller?.NeedsAddress == true ? "Sharing needs an address. The selected network address is unavailable. Stop sharing, then choose an active address."
+        SharingState.Text = controller is { UsesTailscaleServe: true, NeedsAddress: true }
+            ? "Tailscale sharing stopped. Stop sharing, check Tailscale, then start sharing again."
+            : controller?.NeedsAddress == true ? "Sharing needs an address. The selected network address is unavailable. Stop sharing, then choose an active address."
             : controller?.IsSharing == true
             ? $"Sharing at {controller.Address}\nCertificate: {controller.Fingerprint}"
             : controller?.CanHost == true ? "Remote sharing is off." : "This window is attached to an existing host. Manage direct sharing from the desktop that owns it; SSH access remains available.";
         var invitations = controller?.Access?.ListInvitations() ?? [];
         var pending = controller?.Access?.ListPending() ?? [];
         var devices = controller?.Access?.ListDevices() ?? [];
-        _pageState.Synchronize(invitations, controller?.IsSharing == true, DateTimeOffset.UtcNow);
+        _pageState.Synchronize(invitations, controller is { IsSharing: true, NeedsAddress: false }, DateTimeOffset.UtcNow);
         _updatingLists = true;
         try
         {

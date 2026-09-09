@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace PiStation.ClientRuntime.Ssh;
 
-/// <summary>Closing the desktop (including a crash) must not leave its SSH sessions running.</summary>
+/// <summary>Closing the desktop (including a crash) must not leave its SSH or Tailscale CLI sessions running.</summary>
 [SupportedOSPlatform("windows")]
 internal sealed class SshProcessJob : SafeHandleZeroOrMinusOneIsInvalid
 {
