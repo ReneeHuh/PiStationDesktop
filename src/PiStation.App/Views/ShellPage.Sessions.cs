@@ -22,6 +22,9 @@ public sealed partial class ShellPage
     private async void OnCopyPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(copyCurrent: true);
     private async void OnForkPiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.CopyPiSessionAsync(forkAtSelection: true);
     private async void OnNavigatePiSessionClicked(object sender, RoutedEventArgs e) => await ViewModel.NavigatePiSessionAsync();
+    private async void OnSavePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync();
+    private async void OnRemovePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync(remove: true);
+    private async void OnClearPiSessionFiltersClicked(object sender, RoutedEventArgs e) => await ViewModel.ClearSessionTreeFiltersAsync();
     private async void OnCancelPiSessionNavigationClicked(object sender, RoutedEventArgs e) => await ViewModel.CancelPiSessionNavigationAsync();
     private void OnCopyNavigationPromptClicked(object sender, RoutedEventArgs e)
     {

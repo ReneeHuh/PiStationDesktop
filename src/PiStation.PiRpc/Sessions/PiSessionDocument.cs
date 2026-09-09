@@ -131,6 +131,18 @@ public sealed class PiSessionDocument
         Text(message, "role") == "assistant" && Text(message, "stopReason") == "stop" &&
         !(message["content"] as JsonArray ?? []).OfType<JsonObject>().Any(block => Text(block, "type") == "toolCall");
 
+    public IReadOnlyDictionary<string, (string Label, string? Timestamp)> Labels()
+    {
+        var labels = new Dictionary<string, (string, string?)>(StringComparer.Ordinal);
+        foreach (var entry in _entries)
+        {
+            if (Text(entry, "type") != "label" || Text(entry, "targetId") is not { } target || !_byId.ContainsKey(target)) continue;
+            if (Text(entry, "label") is { Length: > 0 } label) labels[target] = (label, Text(entry, "timestamp"));
+            else labels.Remove(target);
+        }
+        return labels;
+    }
+
     public byte[] Copy(string newSessionId, string cwd, string sourcePath, string? leafId = null)
     {
         if (!Guid.TryParse(newSessionId, out _)) throw new ArgumentException("Invalid new session identity.", nameof(newSessionId));
@@ -143,20 +155,45 @@ public sealed class PiSessionDocument
         {
             if (!_byId.TryGetValue(leafId, out var leaf) || !CanFork(leaf))
                 throw new InvalidDataException("Choose a completed assistant response to fork. Tool calls and partial responses are not fork points.");
-            entries = Branch(leafId);
+            var branch = Branch(leafId).ToList();
+            // Labels are session-wide and may have been appended on another branch. Carry
+            // their current values into a fork so edits elsewhere apply to retained entries.
+            var labels = Labels();
+            string? parent = leafId;
+            foreach (var target in branch.ToArray())
+            {
+                if (!labels.TryGetValue(Text(target, "id")!, out var label)) continue;
+                var id = Guid.NewGuid().ToString("N");
+                branch.Add(new JsonObject { ["type"] = "label", ["id"] = id, ["parentId"] = parent,
+                    ["timestamp"] = label.Timestamp, ["targetId"] = Text(target, "id"), ["label"] = label.Label });
+                parent = id;
+            }
+            // Clear historical labels on this branch when their latest change cleared them elsewhere.
+            foreach (var target in branch.Where(entry => Text(entry, "type") == "label").Select(entry => Text(entry, "targetId")).Distinct().ToArray())
+            {
+                if (target is null || labels.ContainsKey(target)) continue;
+                var id = Guid.NewGuid().ToString("N");
+                branch.Add(new JsonObject { ["type"] = "label", ["id"] = id, ["parentId"] = parent,
+                    ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"), ["targetId"] = target });
+                parent = id;
+            }
+            entries = branch;
         }
         return Encoding.UTF8.GetBytes(header.ToJsonString() + "\n" + string.Concat(entries.Select(entry => entry.ToJsonString() + "\n")));
     }
 
     public string ToHtml(string title)
     {
+        var labels = Labels();
         var html = new StringBuilder("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>")
             .Append(WebUtility.HtmlEncode(title)).Append("</title><style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui}article{border-top:1px solid #ccc;padding:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}small{color:#666}</style><h1>")
             .Append(WebUtility.HtmlEncode(title)).Append("</h1><p>Active conversation branch. Referenced workspace files are external to this export.</p>");
         foreach (var entry in Branch().Where(entry => entry["message"] is JsonObject))
         {
             var message = (JsonObject)entry["message"]!;
+            var label = labels.TryGetValue(Text(entry, "id")!, out var bookmark) ? " · " + bookmark.Label : string.Empty;
             html.Append("<article><h2>").Append(WebUtility.HtmlEncode(Text(message, "role") ?? "Message"))
+                .Append(WebUtility.HtmlEncode(label))
                 .Append("</h2><small>").Append(WebUtility.HtmlEncode(Text(entry, "timestamp")))
                 .Append("</small><pre>").Append(WebUtility.HtmlEncode(MessageText(message))).Append("</pre></article>");
         }

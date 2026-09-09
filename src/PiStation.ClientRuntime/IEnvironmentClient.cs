@@ -129,6 +129,8 @@ public interface IEnvironmentClient : IAsyncDisposable
     Task<PiSessionBrowserResult> BrowsePiSessionsAsync(BrowsePiSessionsRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionSnapshot> InspectPiSessionAsync(ThreadId threadId, CancellationToken cancellationToken = default);
     Task<NavigatePiSessionResult> NavigatePiSessionAsync(NavigatePiSessionRequest request, CancellationToken cancellationToken = default);
+    Task<PiSessionSnapshot> SetPiSessionLabelAsync(SetPiSessionLabelRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Session labels are unavailable in this client.");
     Task<bool> CancelPiSessionNavigationAsync(CancelPiSessionNavigationRequest request, CancellationToken cancellationToken = default);
     Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Session pagination is unavailable in this client.");

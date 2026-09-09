@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void DesktopFeatureProtocolVersionIsFortyThree()
+    public void DesktopFeatureProtocolVersionIsFortyFour()
     {
-        Assert.Equal(43, ProtocolVersion.Current);
+        Assert.Equal(44, ProtocolVersion.Current);
     }
 }

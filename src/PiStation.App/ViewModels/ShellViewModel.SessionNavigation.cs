@@ -18,6 +18,7 @@ public sealed partial class ShellViewModel
         if (_pendingNavigation is null || _pendingNavigation with { OperationId = Guid.Empty } != request)
             _pendingNavigation = request with { OperationId = Guid.NewGuid() };
         var pending = _pendingNavigation;
+        var query = CreateSessionTreeRequest(thread.ThreadId);
         PiSessions.IsBusy = true;
         PiSessions.Status = "Saving the draft before switching branches…";
         try
@@ -30,8 +31,10 @@ public sealed partial class ShellViewModel
             var result = await client.NavigatePiSessionAsync(pending, cancellationToken);
             _pendingNavigation = null;
             if (SelectedThread?.ThreadId != thread.ThreadId) return;
-            PiSessions.Apply(result.Snapshot);
             PiSessions.NavigationPrompt = result.EditorText ?? string.Empty;
+            var refreshed = await client.InspectPiSessionPageAsync(query, cancellationToken);
+            if (SelectedThread?.ThreadId != thread.ThreadId) return;
+            PiSessions.Apply(refreshed);
             PiSessions.Status = result.Cancelled ? "Branch switch canceled. Your current draft is preserved."
                 : "Branch switched. Your draft and workspace files are preserved." +
                     (result.EditorText is null ? string.Empty : " The selected prompt is available below for copying.");

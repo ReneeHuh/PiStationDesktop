@@ -806,6 +806,19 @@
                                 <StackPanel Spacing="8">
                                     <Button Content="Refresh session tree" Click="OnInspectPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="InspectPiSessionButton" />
                                     <TextBlock Text="{x:Bind ViewModel.PiSessions.Summary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="PiSessionSummaryText" />
+                                    <TextBox Header="Search session tree" PlaceholderText="Words in messages or bookmarks" MaxLength="1024" Text="{x:Bind ViewModel.PiSessions.SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiSessionTreeSearch" />
+                                    <ComboBox Header="Show entries" SelectedIndex="{x:Bind ViewModel.PiSessions.FilterIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" HorizontalAlignment="Stretch" automation:AutomationProperties.AutomationId="PiSessionTreeFilter">
+                                        <ComboBoxItem Content="Conversation (Pi default)" />
+                                        <ComboBoxItem Content="Hide tool results" />
+                                        <ComboBoxItem Content="User messages only" />
+                                        <ComboBoxItem Content="Bookmarked entries only" />
+                                        <ComboBoxItem Content="All entries" />
+                                    </ComboBox>
+                                    <CheckBox Content="Active branch only" IsChecked="{x:Bind ViewModel.PiSessions.ActiveBranchOnly, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiSessionActiveBranchOnly" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Apply search and filters" Click="OnInspectPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="SearchPiSessionTreeButton" />
+                                        <Button Content="Clear filters" Click="OnClearPiSessionFiltersClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ClearPiSessionFiltersButton" />
+                                    </StackPanel>
                                     <TextBlock Text="Switch branch changes the conversation in this session. Your draft, attachments, context and workspace files are kept. Selecting a user message returns to its parent and makes that prompt available for copying. Fork creates an independent thread." TextWrapping="Wrap" FontSize="12" />
                                     <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Entries}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedEntry, Mode=TwoWay}" MaxHeight="300" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionTreeList">
                                         <ListView.ItemTemplate>
@@ -818,6 +831,11 @@
                                         </ListView.ItemTemplate>
                                     </ListView>
                                     <Button Content="Fork after selected response" Click="OnForkPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ForkPiSessionButton" />
+                                    <TextBox Header="Selected entry bookmark" PlaceholderText="Name this conversation point" MaxLength="256" Text="{x:Bind ViewModel.PiSessions.EntryLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiSessionEntryLabel" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Save bookmark" Click="OnSavePiSessionLabelClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanSaveLabel, Mode=OneWay}" automation:AutomationProperties.AutomationId="SavePiSessionLabelButton" />
+                                        <Button Content="Remove bookmark" Click="OnRemovePiSessionLabelClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanRemoveLabel, Mode=OneWay}" automation:AutomationProperties.AutomationId="RemovePiSessionLabelButton" />
+                                    </StackPanel>
                                     <CheckBox Content="Summarize the branch being left (uses the selected model)" IsChecked="{x:Bind ViewModel.PiSessions.SummarizeBranch, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="SummarizePiBranchCheckBox" />
                                     <TextBox Header="Summary instructions (optional)" Text="{x:Bind ViewModel.PiSessions.SummaryInstructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="16384" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
                                     <CheckBox Content="Use these instructions in place of Pi's default summary instructions" IsChecked="{x:Bind ViewModel.PiSessions.ReplaceSummaryInstructions, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />

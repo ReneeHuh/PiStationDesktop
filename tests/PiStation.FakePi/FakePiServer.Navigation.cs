@@ -27,14 +27,22 @@ internal sealed partial class FakePiServer
                 if (Convert.ToHexString(SHA256.HashData(bytes)) != request["expectedRevision"]?.ToString()) throw new InvalidDataException("The session changed.");
                 var (entries, leafId) = await _session.ReadAsync(cancellationToken).ConfigureAwait(false);
                 var target = entries.Single(entry => entry?["id"]?.ToString() == request["entryId"]?.ToString())!;
+                var labeling = request["action"]?.ToString() == "label";
+                if (labeling)
+                {
+                    var labelEntry = new JsonObject { ["type"] = "label", ["id"] = Guid.NewGuid().ToString("N"), ["parentId"] = leafId,
+                        ["targetId"] = target["id"]!.DeepClone(), ["label"] = request["label"]?.DeepClone(), ["timestamp"] = DateTimeOffset.UtcNow.ToString("O") };
+                    await File.AppendAllTextAsync(_session.SessionFile, labelEntry.ToJsonString() + "\n", cancellationToken).ConfigureAwait(false);
+                    leafId = labelEntry["id"]!.ToString();
+                }
                 var user = target["type"]?.ToString() == "custom_message" || target["message"]?["role"]?.ToString() == "user";
                 var content = target["message"]?["content"] ?? target["content"];
                 var text = content is JsonArray parts ? string.Join('\n', parts.Where(part => part?["type"]?.ToString() == "text").Select(part => part!["text"]!.ToString())) : content?.ToString();
                 var result = new JsonObject { ["cancelled"] = false, ["editorText"] = user ? text : null };
                 var marker = new JsonObject
                 {
-                    ["type"] = "custom", ["customType"] = "pistation.branch-navigation", ["id"] = Guid.NewGuid().ToString("N"),
-                    ["parentId"] = (user ? target["parentId"] : target["id"])?.DeepClone(), ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"),
+                    ["type"] = "custom", ["customType"] = labeling ? "pistation.session-label" : "pistation.branch-navigation", ["id"] = Guid.NewGuid().ToString("N"),
+                    ["parentId"] = labeling ? JsonValue.Create(leafId) : (user ? target["parentId"] : target["id"])?.DeepClone(), ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"),
                     ["data"] = new JsonObject { ["operationId"] = request["operationId"]!.DeepClone(),
                         ["requestHash"] = request["requestHash"]!.DeepClone(), ["result"] = result.DeepClone() },
                 };

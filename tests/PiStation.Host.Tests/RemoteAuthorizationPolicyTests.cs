@@ -20,6 +20,7 @@ public sealed class RemoteAuthorizationPolicyTests
     [InlineData(nameof(EnvironmentHub.GetComposerDiscovery))]
     [InlineData(nameof(EnvironmentHub.InspectPiSession))]
     [InlineData(nameof(EnvironmentHub.InspectPiSessionPage))]
+    [InlineData(nameof(EnvironmentHub.SetPiSessionLabel))]
     [InlineData(nameof(EnvironmentHub.ManagePiResources))]
     [InlineData(nameof(EnvironmentHub.ApplyPiAutomation))]
     [InlineData(nameof(EnvironmentHub.SubmitBackgroundTask))]

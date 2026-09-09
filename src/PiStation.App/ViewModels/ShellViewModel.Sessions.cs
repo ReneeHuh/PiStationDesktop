@@ -27,12 +27,13 @@ public sealed partial class ShellViewModel
         var thread = SelectedThread;
         if (thread is null) { PiSessions.Status = "Select a thread first."; return; }
         if (!PiSessions.CanAct) return;
+        if (loadMore && !PiSessions.HasMoreEntries) return;
         PiSessions.IsBusy = true;
         PiSessions.Status = "Reading the selected session tree…";
+        var request = CreateSessionTreeRequest(thread.ThreadId, loadMore);
         try
         {
-            var result = await RequireClient().InspectPiSessionPageAsync(new(thread.ThreadId,
-                loadMore ? PiSessions.Snapshot?.NextOffset ?? 0 : 0, ExpectedRevision: loadMore ? PiSessions.Snapshot?.Revision : null), cancellationToken).ConfigureAwait(false);
+            var result = await RequireClient().InspectPiSessionPageAsync(request, cancellationToken).ConfigureAwait(false);
             await RunOnUiThreadAsync(() => { if (SelectedThread?.ThreadId == thread.ThreadId) PiSessions.Apply(result, loadMore); }).ConfigureAwait(false);
         }
         catch (Exception exception) { RunOnUiThread(() => PiSessions.Status = exception.Message); }
@@ -51,7 +52,7 @@ public sealed partial class ShellViewModel
         if ((copyCurrent || forkAtSelection) && (snapshot is null || snapshot.ThreadId != sourceThread))
         { PiSessions.Status = "Refresh the selected session before copying or forking it."; return; }
         var entry = forkAtSelection ? PiSessions.SelectedEntry?.Entry : null;
-        if (forkAtSelection && entry?.CanFork != true) { PiSessions.Status = "Select a completed assistant response to fork."; return; }
+        if (forkAtSelection && (entry?.CanFork != true || !PiSessions.IsCurrentQuery)) { PiSessions.Status = "Apply the current search and select a completed assistant response to fork."; return; }
         var selectedSource = importPath ?? PiSessions.SelectedCandidate?.Session.Path;
         if (sourceThread is null && string.IsNullOrWhiteSpace(selectedSource)) { PiSessions.Status = "Choose a session to import."; return; }
         var request = new CopyPiSessionRequest(Guid.Empty, project.ProjectId, sourceThread is null ? selectedSource : null, sourceThread,
