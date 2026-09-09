@@ -5,12 +5,20 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Text;
 using PiStation.App.ViewModels;
 using PiStation.Protocol.Models;
-using Windows.System;
 
 namespace PiStation.App.Views;
 
 public sealed partial class ShellPage
 {
+    private ContentDialog? _hostingReviewDialog;
+
+    private async Task OpenHostingLinkAsync(Uri uri)
+    {
+        if (Composition.BrowserLinkRouter.ShouldOpenInApp(uri, ViewModel.Layout.BrowserLinkTarget,
+            ViewModel.Workspace.SelectedThread is not null, false)) _hostingReviewDialog?.Hide();
+        await ViewModel.OpenBrowserLinkAsync(uri);
+    }
+
     private async void OnHostingReviewRequested(object? sender, EventArgs e)
     {
         try
@@ -30,7 +38,7 @@ public sealed partial class ShellPage
             open.Click += async (_, _) =>
             {
                 if (pullRequests.SelectedItem is PullRequestDescriptor selected && Uri.TryCreate(selected.Url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
-                    await Launcher.LaunchUriAsync(uri);
+                    await OpenHostingLinkAsync(uri);
             };
             var link = new Button { Content = "Link to task" };
             link.Click += async (_, _) => { if (pullRequests.SelectedItem is PullRequestDescriptor selected) await SafeReviewActionAsync(() => ViewModel.LinkPullRequestAsync(selected)); };
@@ -104,9 +112,11 @@ public sealed partial class ShellPage
                 try { await review.SaveNowAsync(); }
                 catch (Exception exception) { ViewModel.Settings.Status = $"Review draft could not be saved: {exception.Message}"; }
             };
+            _hostingReviewDialog = dialog;
             try { await dialog.ShowAsync(); }
             finally
             {
+                _hostingReviewDialog = null;
                 refreshTimer.Stop();
                 refreshTimer.Tick -= OnLiveRefreshTick;
                 checkoutCancellation.Cancel();

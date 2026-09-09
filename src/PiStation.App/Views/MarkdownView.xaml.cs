@@ -35,6 +35,7 @@ public sealed partial class MarkdownView : UserControl
     }
 
     public event EventHandler<string>? WorkspaceLinkRequested;
+    public event EventHandler<BrowserLinkEventArgs>? BrowserLinkRequested;
     public event EventHandler<string>? SelectionQuoteRequested;
     public event EventHandler<string>? SelectionCiteRequested;
 
@@ -184,7 +185,7 @@ public sealed partial class MarkdownView : UserControl
                     target.Add(new Run { Text = task.Checked ? "☑ " : "☐ " });
                     break;
                 case AutolinkInline autoLink when TryCreateSafeUri(autoLink.IsEmail ? $"mailto:{autoLink.Url}" : autoLink.Url, out var autoUri):
-                    var autoHyperlink = new Hyperlink { NavigateUri = autoUri };
+                    var autoHyperlink = CreateBrowserHyperlink(autoUri);
                     autoHyperlink.Inlines.Add(new Run { Text = autoLink.Url });
                     target.Add(autoHyperlink);
                     break;
@@ -231,10 +232,7 @@ public sealed partial class MarkdownView : UserControl
                     }
                     break;
                 case LinkInline link when TryCreateSafeUri(link.Url, out var uri):
-                    var hyperlink = new Hyperlink
-                    {
-                        NavigateUri = uri,
-                    };
+                    var hyperlink = CreateBrowserHyperlink(uri);
                     AutomationProperties.SetName(hyperlink, $"Open link {InlineText(link, source)}");
                     AppendInlines(link, hyperlink.Inlines, source);
                     target.Add(hyperlink);
@@ -512,6 +510,23 @@ public sealed partial class MarkdownView : UserControl
         "sql" => "SQL",
         _ => language,
     };
+
+    private Hyperlink CreateBrowserHyperlink(Uri uri)
+    {
+        var link = new Hyperlink();
+        link.Click += async (_, _) =>
+        {
+            var forceSystem = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            if (BrowserLinkRequested is { } handler) handler(this, new(uri, forceSystem));
+            else
+            {
+                try { await Windows.System.Launcher.LaunchUriAsync(uri); }
+                catch (Exception error) { System.Diagnostics.Trace.TraceWarning("Link could not open: {0}", error.Message); }
+            }
+        };
+        return link;
+    }
 
     private static bool TryCreateSafeUri(string? value, out Uri uri)
     {

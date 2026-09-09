@@ -33,6 +33,10 @@
     <Compile Include="..\..\src\PiStation.App\Composition\ComposerPresentation.cs" Link="ComposerPresentation.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\ComposerImageConverter.cs" Link="ComposerImageConverter.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.cs" Link="ShellLayoutViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Browser.cs" Link="ShellLayoutViewModel.Browser.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\BrowserSettingsStore.cs" Link="BrowserSettingsStore.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\BrowserLinkRouter.cs" Link="BrowserLinkRouter.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\BrowserProfilePaths.cs" Link="BrowserProfilePaths.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Interaction.cs" Link="ShellLayoutViewModel.Interaction.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchPreviewViewModel.cs" Link="WorkbenchPreviewViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchTerminalViewModel.cs" Link="WorkbenchTerminalViewModel.cs" />

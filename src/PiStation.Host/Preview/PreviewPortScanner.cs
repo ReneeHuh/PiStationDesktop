@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.NetworkInformation;
 using PiStation.Protocol.Models;
 
 namespace PiStation.Host.Preview;
@@ -9,11 +8,18 @@ namespace PiStation.Host.Preview;
 public interface IPreviewListenerSource
 {
     IReadOnlyCollection<int> GetListeningPorts();
+    IReadOnlyCollection<PreviewListener> GetListeners() =>
+        GetListeningPorts().Select(port => new PreviewListener(port)).ToArray();
 }
+
+public sealed record PreviewListener(int Port, int? ProcessId = null, string? ProcessName = null,
+    string Host = "127.0.0.1");
 
 public interface IPreviewEndpointProbe
 {
     Task<DiscoveredPreviewServer?> ProbeAsync(int port, CancellationToken cancellationToken);
+    Task<DiscoveredPreviewServer?> ProbeAsync(PreviewListener listener, CancellationToken cancellationToken) =>
+        ProbeAsync(listener.Port, cancellationToken);
 }
 
 public sealed class PreviewPortScanner : IDisposable
@@ -27,29 +33,51 @@ public sealed class PreviewPortScanner : IDisposable
     private readonly IPreviewListenerSource _listenerSource;
     private readonly IPreviewEndpointProbe _probe;
     private readonly PreviewHttpEndpointProbe? _ownedProbe;
+    private readonly Func<IReadOnlyDictionary<int, PreviewTerminalOwner>> _processOwners;
+    private readonly ConcurrentDictionary<PreviewListener, (DateTimeOffset Expires, DiscoveredPreviewServer? Server)> _cache = new();
+    private readonly SemaphoreSlim _scanGate = new(1, 1);
 
-    public PreviewPortScanner()
+    public PreviewPortScanner(Func<IReadOnlyDictionary<int, PreviewTerminalOwner>>? processOwners = null)
     {
-        _listenerSource = new SystemPreviewListenerSource();
+        _listenerSource = new WindowsPreviewListenerSource();
+        _processOwners = processOwners ?? (() => new Dictionary<int, PreviewTerminalOwner>());
         var probe = new PreviewHttpEndpointProbe();
         _probe = probe;
         _ownedProbe = probe;
     }
 
-    public PreviewPortScanner(IPreviewListenerSource listenerSource, IPreviewEndpointProbe probe)
+    public PreviewPortScanner(IPreviewListenerSource listenerSource, IPreviewEndpointProbe probe,
+        Func<IReadOnlyDictionary<int, PreviewTerminalOwner>>? processOwners = null)
     {
         _listenerSource = listenerSource ?? throw new ArgumentNullException(nameof(listenerSource));
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
+        _processOwners = processOwners ?? (() => new Dictionary<int, PreviewTerminalOwner>());
     }
 
     public async Task<(IReadOnlyList<DiscoveredPreviewServer> Servers, bool IsTruncated)> ScanAsync(
         CancellationToken cancellationToken = default)
     {
-        var allCandidates = _listenerSource.GetListeningPorts()
-            .Concat(FallbackPorts)
-            .Where(static port => port is >= IPEndPoint.MinPort and <= IPEndPoint.MaxPort)
-            .Distinct()
-            .Order()
+        await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return await ScanCoreAsync(cancellationToken).ConfigureAwait(false); }
+        finally { _scanGate.Release(); }
+    }
+
+    private async Task<(IReadOnlyList<DiscoveredPreviewServer> Servers, bool IsTruncated)> ScanCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        var listeners = _listenerSource.GetListeners().Where(listener => listener.Port is > 0 and <= 65535)
+            .GroupBy(listener => listener.Port).ToDictionary(group => group.Key,
+                group => group.OrderBy(listener => listener.Host == "127.0.0.1" ? 0 : 1).First());
+        IReadOnlyDictionary<int, PreviewTerminalOwner> owners;
+        try { owners = _processOwners(); }
+        catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Preview process ownership is unavailable: {0}", error.Message);
+            owners = new Dictionary<int, PreviewTerminalOwner>();
+        }
+        var allCandidates = listeners.Keys.Concat(FallbackPorts).Distinct()
+            .OrderBy(port => listeners.GetValueOrDefault(port)?.ProcessId is { } pid && owners.ContainsKey(pid) ? 0 : 1)
+            .ThenBy(port => port)
             .ToArray();
         var candidatePorts = allCandidates
             .Take(PreviewDiscoveryDefaults.MaximumCandidatePorts)
@@ -65,12 +93,34 @@ public sealed class PreviewPortScanner : IDisposable
             },
             async (port, token) =>
             {
-                var server = await _probe.ProbeAsync(port, token).ConfigureAwait(false);
+                var listener = listeners.GetValueOrDefault(port) ?? new PreviewListener(port);
+                if (!_cache.TryGetValue(listener, out var cached) || cached.Expires <= DateTimeOffset.UtcNow)
+                {
+                    var probed = await _probe.ProbeAsync(listener, token).ConfigureAwait(false);
+                    cached = (DateTimeOffset.UtcNow.AddSeconds(15), probed);
+                    _cache[listener] = cached;
+                }
+                var server = cached.Server;
                 if (server is not null)
                 {
-                    found.Add(server);
+                    // Redirects can change ports. Attribute the resulting endpoint,
+                    // never the process serving the redirect on the original port.
+                    var endpoint = listeners.GetValueOrDefault(server.Port);
+                    // A DNS alias (including localhost) can select a different
+                    // address family or listener. Only claim the known endpoint.
+                    if (endpoint?.Host != server.Host) endpoint = null;
+                    found.Add(server with
+                    {
+                        ProcessId = endpoint?.ProcessId,
+                        ProcessName = endpoint?.ProcessName,
+                        Terminal = endpoint?.ProcessId is { } pid ? owners.GetValueOrDefault(pid) : null,
+                    });
                 }
             }).ConfigureAwait(false);
+
+        foreach (var key in _cache.Keys)
+            if (!candidatePorts.Contains(key.Port) || (listeners.GetValueOrDefault(key.Port) ?? new PreviewListener(key.Port)) != key)
+                _cache.TryRemove(key, out _);
 
         var ordered = found
             .OrderBy(static server => server.Port)
@@ -83,29 +133,6 @@ public sealed class PreviewPortScanner : IDisposable
     }
 
     public void Dispose() => _ownedProbe?.Dispose();
-
-    private sealed class SystemPreviewListenerSource : IPreviewListenerSource
-    {
-        public IReadOnlyCollection<int> GetListeningPorts()
-        {
-            try
-            {
-                return IPGlobalProperties.GetIPGlobalProperties()
-                    .GetActiveTcpListeners()
-                    .Where(static endpoint =>
-                        endpoint.Address.Equals(IPAddress.Any) ||
-                        endpoint.Address.Equals(IPAddress.IPv6Any) ||
-                        IPAddress.IsLoopback(endpoint.Address))
-                    .Select(static endpoint => endpoint.Port)
-                    .Distinct()
-                    .ToArray();
-            }
-            catch (NetworkInformationException)
-            {
-                return [];
-            }
-        }
-    }
 
     public sealed class PreviewHttpEndpointProbe : IPreviewEndpointProbe, IDisposable
     {
@@ -126,11 +153,13 @@ public sealed class PreviewPortScanner : IDisposable
 
         public async Task<DiscoveredPreviewServer?> ProbeAsync(
             int port,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken) => await ProbeAsync(new PreviewListener(port), cancellationToken).ConfigureAwait(false);
+
+        public async Task<DiscoveredPreviewServer?> ProbeAsync(PreviewListener listener, CancellationToken cancellationToken)
         {
             foreach (var scheme in new[] { Uri.UriSchemeHttp, Uri.UriSchemeHttps })
             {
-                var discovered = await ProbeSchemeAsync(scheme, port, cancellationToken).ConfigureAwait(false);
+                var discovered = await ProbeSchemeAsync(scheme, listener.Host, listener.Port, cancellationToken).ConfigureAwait(false);
                 if (discovered is not null)
                 {
                     return discovered;
@@ -144,10 +173,11 @@ public sealed class PreviewPortScanner : IDisposable
 
         private async Task<DiscoveredPreviewServer?> ProbeSchemeAsync(
             string scheme,
+            string host,
             int port,
             CancellationToken cancellationToken)
         {
-            var current = new UriBuilder(scheme, IPAddress.Loopback.ToString(), port).Uri;
+            var current = new UriBuilder(scheme, host, port).Uri;
             try
             {
                 for (var redirect = 0; redirect <= MaximumRedirects; redirect++)

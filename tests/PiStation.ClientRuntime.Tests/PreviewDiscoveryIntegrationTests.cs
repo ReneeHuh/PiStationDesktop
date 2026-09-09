@@ -10,6 +10,58 @@ namespace PiStation.ClientRuntime.Tests;
 public sealed class PreviewDiscoveryIntegrationTests
 {
     [Fact]
+    public async Task AuthenticatedDiscoveryAssociatesATerminalChildServerWithItsThread()
+    {
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        var token = timeout.Token;
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(directory.CreateHostOptions(), cancellationToken: token);
+        await using var client = new EnvironmentClient(new ClientRuntimeOptions { HubAddress = host.HubAddress, BearerCredential = host.BearerCredential });
+        await client.ConnectAsync(token);
+        var root = directory.CreateDirectory("owned-preview");
+        var project = await client.AddProjectAsync(new AddProjectRequest(root), token);
+        var thread = await client.CreateThreadAsync(new(project.ProjectId, "Preview ownership"), token);
+        await File.WriteAllTextAsync(Path.Combine(root, "preview-server.ps1"), """
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            [System.IO.File]::WriteAllText((Join-Path $PWD 'port.txt'), [string]$listener.LocalEndpoint.Port)
+            try {
+                while ($true) {
+                    $client = $listener.AcceptTcpClient()
+                    try {
+                        $stream = $client.GetStream()
+                        $buffer = [byte[]]::new(8192)
+                        $null = $stream.Read($buffer, 0, $buffer.Length)
+                        $response = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: text/html`r`nContent-Length: 2`r`nConnection: close`r`n`r`nOK")
+                        $stream.Write($response, 0, $response.Length)
+                    } finally { $client.Dispose() }
+                }
+            } finally { $listener.Stop() }
+            """, token);
+        var terminal = await client.StartTerminalSessionAsync(new(project.ProjectId, TerminalShellKind.CommandPrompt, ThreadId: thread.ThreadId), token);
+        try
+        {
+            await client.WriteTerminalInputAsync(new(terminal.TerminalSessionId,
+                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\\preview-server.ps1\r"), token);
+            var portPath = Path.Combine(root, "port.txt");
+            var port = 0;
+            while (!File.Exists(portPath) || !int.TryParse(await File.ReadAllTextAsync(portPath, token), out port)) await Task.Delay(50, token);
+            var result = await client.DiscoverProjectPreviewServersAsync(new(project.ProjectId, thread.ThreadId), token);
+            var server = Assert.Single(result.Servers, item => item.Port == port);
+            Assert.NotNull(server.Terminal);
+            Assert.Equal(terminal.TerminalSessionId, server.Terminal.TerminalSessionId);
+            Assert.Equal(thread.ThreadId, server.Terminal.ThreadId);
+            Assert.Equal(project.ProjectId, server.Terminal.ProjectId);
+            Assert.True(server.ProcessId > 0);
+            Assert.NotEqual(Environment.ProcessId, server.ProcessId);
+            var otherProject = await client.AddProjectAsync(new(directory.CreateDirectory("other-preview-project")), token);
+            await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() =>
+                client.DiscoverProjectPreviewServersAsync(new(otherProject.ProjectId, thread.ThreadId), token));
+        }
+        finally { await client.CloseTerminalSessionAsync(new(terminal.TerminalSessionId), CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task ClientDiscoversAnHtmlLoopbackServerThroughTheAuthenticatedHost()
     {
         using var temporaryDirectory = new ClientTestDirectory();
@@ -46,6 +98,8 @@ public sealed class PreviewDiscoveryIntegrationTests
         var discovered = Assert.Single(result.Servers, server => server.Port == previewServer.Port);
         Assert.Equal("http", discovered.Scheme);
         Assert.Equal(IPAddress.Loopback.ToString(), discovered.Host);
+        Assert.Equal(Environment.ProcessId, discovered.ProcessId);
+        Assert.Null(discovered.Terminal);
     }
 
     private sealed class LoopbackHtmlServer : IAsyncDisposable

@@ -21,7 +21,14 @@ public sealed record DiscoveredPreviewServer(
     int Port,
     string Scheme,
     string? ProcessName = null,
-    int? ProcessId = null);
+    int? ProcessId = null,
+    PreviewTerminalOwner? Terminal = null);
+
+public sealed record PreviewTerminalOwner(
+    TerminalSessionId TerminalSessionId,
+    ProjectId ProjectId,
+    ThreadId? ThreadId,
+    string TerminalName);
 
 public sealed record DiscoverProjectPreviewServersResult(
     ProjectId ProjectId,

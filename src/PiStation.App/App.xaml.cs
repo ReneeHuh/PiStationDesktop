@@ -71,6 +71,8 @@ public partial class App : Application
                 Path.Combine(_launchOptions.DataRoot, "layout-settings.json"),
                 Path.Combine(_launchOptions.DataRoot, "preview-captures"),
                 Path.Combine(_launchOptions.DataRoot, "browser-automation"));
+            viewModel.Layout.UseSharedBrowserSettings(Path.Combine(_launchOptions.DataRoot, "browser-settings.json"));
+            viewModel.BrowserDataRoot = _launchOptions.DataRoot;
         }
         catch (Exception exception)
         {
@@ -380,7 +382,10 @@ public partial class App : Application
         var folder = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id)));
         var root = Path.Combine(_launchOptions.DataRoot, "remote-environments", folder);
         var viewModel = AppBootstrapper.CreateShellViewModel(DispatcherQueue.GetForCurrentThread(),
-            layoutSettingsPath: Path.Combine(root, "layout-settings.json"), previewCaptureRoot: Path.Combine(root, "preview-captures"));
+            layoutSettingsPath: Path.Combine(root, "layout-settings.json"), previewCaptureRoot: Path.Combine(root, "preview-captures"),
+            browserAutomationRoot: Path.Combine(root, "browser-automation"));
+        viewModel.Layout.UseSharedBrowserSettings(Path.Combine(_launchOptions.DataRoot, "browser-settings.json"));
+        viewModel.BrowserDataRoot = _launchOptions.DataRoot;
         viewModel.ConfigureRemote(environment.Name, editorProfile);
         var client = new EnvironmentClient(ssh?.CreateOptions() ?? environment.CreateOptions());
         viewModel.Attach(client);

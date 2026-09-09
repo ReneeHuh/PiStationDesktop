@@ -49,6 +49,7 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        BrowserSettingsHost.Content = new BrowserSettingsPanel(ViewModel);
         _remoteConnectionsPanel = new RemoteConnectionsPanel(ViewModel.IsRemote);
         RemoteConnectionsHost.Content = _remoteConnectionsPanel;
         _sidebar = new AppSidebar(ViewModel);

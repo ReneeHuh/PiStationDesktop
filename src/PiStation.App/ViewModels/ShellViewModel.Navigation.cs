@@ -4,6 +4,24 @@ namespace PiStation.App.ViewModels;
 
 public sealed partial class ShellViewModel
 {
+    internal Func<Uri, Task>? OpenPreviewLink { get; set; }
+
+    public async Task OpenBrowserLinkAsync(Uri uri, bool forceSystem = false)
+    {
+        if (!uri.IsAbsoluteUri || uri.Scheme is not ("http" or "https" or "mailto")) return;
+        try
+        {
+            await Composition.BrowserLinkRouter.OpenAsync(uri, Layout.BrowserLinkTarget,
+                SelectedThread is not null && OpenPreviewLink is not null, forceSystem,
+                address => OpenPreviewLink!(address), async address =>
+                {
+                    if (!await Windows.System.Launcher.LaunchUriAsync(address))
+                        throw new InvalidOperationException("Windows could not open this link.");
+                });
+        }
+        catch (Exception error) { ReportRuntimeError(error); }
+    }
+
     public event EventHandler<string>? CitationRequested;
 
     public async Task OpenMarkdownLinkAsync(string value)

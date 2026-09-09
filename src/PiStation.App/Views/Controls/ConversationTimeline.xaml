@@ -69,6 +69,7 @@
                         <views:MarkdownView
                             automation:AutomationProperties.AutomationId="MarkdownMessageBody"
                             WorkspaceLinkRequested="OnWorkspaceLinkRequested"
+                            BrowserLinkRequested="OnBrowserLinkRequested"
                             SelectionQuoteRequested="OnSelectionQuoteRequested"
                             SelectionCiteRequested="OnSelectionCiteRequested"
                             Text="{x:Bind Text}" />

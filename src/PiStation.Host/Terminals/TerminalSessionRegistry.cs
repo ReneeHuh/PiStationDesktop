@@ -106,6 +106,27 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
                 session.Journal.CommitActivity(activity);
     }
 
+    internal IReadOnlyDictionary<int, PreviewTerminalOwner> GetPreviewProcessOwners()
+    {
+        var sessions = _sessions.Values.Select(session => (Session: session, Pid: session.ProcessId))
+            .Where(item => item.Pid is not null).ToArray();
+        if (sessions.Length == 0) return new Dictionary<int, PreviewTerminalOwner>();
+        // Capture on demand so exit/restart and newly spawned grandchildren do not
+        // depend on a stale activity label or a persisted PID registration.
+        var snapshot = _captureProcesses();
+        var owners = new Dictionary<int, PreviewTerminalOwner>();
+        foreach (var (session, pid) in sessions)
+        {
+            var ids = TerminalProcessInspector.Descendants(snapshot, pid!.Value);
+            if (session.ProcessId != pid || !_sessions.ContainsKey(session.Descriptor.TerminalSessionId)) continue;
+            var descriptor = session.Descriptor;
+            var owner = new PreviewTerminalOwner(descriptor.TerminalSessionId, descriptor.ProjectId,
+                descriptor.ThreadId, descriptor.Name);
+            foreach (var id in ids) owners.TryAdd(id, owner);
+        }
+        return owners;
+    }
+
     public async Task<TerminalSessionDescriptor> StartAsync(
         StartTerminalSessionRequest request,
         CancellationToken cancellationToken)

@@ -37,6 +37,20 @@ internal static class TerminalProcessInspector
         return new(child is not null, string.IsNullOrWhiteSpace(name) ? null : name);
     }
 
+    internal static IReadOnlyCollection<int> Descendants(IReadOnlyList<TerminalProcessEntry> entries, int shellId)
+    {
+        if (!entries.Any(entry => entry.Id == shellId)) return [];
+        var children = entries.ToLookup(entry => entry.ParentId);
+        var visited = new HashSet<int> { shellId };
+        var pending = new Stack<int>();
+        pending.Push(shellId);
+        while (pending.TryPop(out var parent))
+            foreach (var child in children[parent])
+                if (child.Id > 0 && visited.Add(child.Id)) pending.Push(child.Id);
+        // An idle shell has no registered server processes.
+        return visited.Count > 1 ? visited : [];
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ProcessEntry
     {

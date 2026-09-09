@@ -54,7 +54,7 @@ public sealed partial class ShellPage
         panel.Children.Add(Action("Open selected workflow", "PullRequestOpenWorkflow", nameof(review.CanApproveWorkflow), async () =>
         {
             if (Uri.TryCreate(review.SelectedWorkflow?.Url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
-                await Windows.System.Launcher.LaunchUriAsync(uri);
+                await OpenHostingLinkAsync(uri);
         }));
         panel.Children.Add(Action("Load more workflows", "PullRequestMoreWorkflows", nameof(review.CanLoadMoreWorkflows), () => review.LoadWorkflowsAsync(true)));
         var confirmWorkflow = Confirm("Allow the selected fork workflow to run", "PullRequestConfirmWorkflow");

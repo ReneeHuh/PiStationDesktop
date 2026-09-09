@@ -76,6 +76,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         WorkbenchChanges = new WorkbenchChangesViewModel();
         WorkbenchTerminal = new WorkbenchTerminalViewModel();
         WorkbenchPreview = new WorkbenchPreviewViewModel();
+        Layout.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ShellLayoutViewModel.BrowserDefaults))
+                WorkbenchPreview.SetDefaults(Layout.BrowserDefaults);
+            if (args.PropertyName is nameof(ShellLayoutViewModel.BrowserProfiles) or nameof(ShellLayoutViewModel.DefaultBrowserProfileId))
+                WorkbenchPreview.ReplaceProfiles(Layout.BrowserProfiles, Layout.DefaultBrowserProfileId);
+        };
         WorkbenchAgents = new WorkbenchAgentsViewModel(_dispatcherQueue);
         Composer = new ComposerViewModel(
             _dispatcherQueue,
@@ -141,6 +148,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     internal string PreviewCaptureRoot => _previewCaptureRoot;
 
     internal string BrowserAutomationRoot => _browserAutomationRoot;
+    internal string? BrowserDataRoot { get; set; }
 
     internal string PreviewProfileRoot => Path.Combine(
         Path.GetDirectoryName(_browserAutomationRoot) ?? _browserAutomationRoot,
@@ -1094,7 +1102,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             : Task.CompletedTask;
     }
 
-    public async Task RefreshWorkbenchPreviewServersAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshWorkbenchPreviewServersAsync(bool background = false, CancellationToken cancellationToken = default)
     {
         if (IsRemote && !CanOperate)
         {
@@ -1109,19 +1117,24 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
+        var threadId = SelectedThread?.ThreadId;
         var discoveryCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Interlocked.Exchange(ref _workbenchPreviewDiscoveryCancellation, discoveryCancellation)?.Cancel();
-        RunOnUiThread(WorkbenchPreview.BeginDiscovery);
+        RunOnUiThread(() =>
+        {
+            if (background) WorkbenchPreview.IsDiscovering = true;
+            else WorkbenchPreview.BeginDiscovery();
+        });
         try
         {
             var result = await RequireClient().DiscoverProjectPreviewServersAsync(
-                new DiscoverProjectPreviewServersRequest(project.ProjectId, SelectedThread?.ThreadId),
+                new DiscoverProjectPreviewServersRequest(project.ProjectId, threadId),
                 discoveryCancellation.Token).ConfigureAwait(false);
             await RunOnUiThreadAsync(() =>
             {
-                if (SelectedProject?.ProjectId == project.ProjectId)
+                if (SelectedProject?.ProjectId == project.ProjectId && SelectedThread?.ThreadId == threadId && !discoveryCancellation.IsCancellationRequested)
                 {
-                    WorkbenchPreview.ApplyDiscovery(result);
+                    WorkbenchPreview.ApplyDiscovery(result, threadId);
                 }
             }).ConfigureAwait(false);
         }
@@ -1132,7 +1145,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             RunOnUiThread(() =>
             {
-                if (SelectedProject?.ProjectId == project.ProjectId)
+                if (SelectedProject?.ProjectId == project.ProjectId && SelectedThread?.ThreadId == threadId && !discoveryCancellation.IsCancellationRequested)
                 {
                     WorkbenchPreview.FailDiscovery(exception.Message);
                 }
@@ -3516,6 +3529,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private async ValueTask DisposeCoreAsync()
     {
+        Layout.ReleaseBrowserSettings();
         // Cancel debounced and in-flight draft work before asynchronous subscription cleanup.
         Composer.CancelPendingOperations();
         _renderShutdown.Cancel();
@@ -4864,7 +4878,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Layout.DefaultBrowserProfileId,
             contextKey is null
                 ? PreviewAutomationAccess.Off
-                : Layout.GetPreviewAutomationPermission(contextKey));
+                : Layout.GetPreviewAutomationPermission(contextKey),
+            Layout.BrowserDefaults);
         if (project is not null &&
             Layout.SelectedPanel == WorkbenchPanelKind.Preview &&
             string.IsNullOrWhiteSpace(WorkbenchPreview.CurrentUrl))

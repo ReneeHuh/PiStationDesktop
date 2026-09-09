@@ -324,6 +324,8 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
         _browserProfiles.Add(new BrowserProfilePreference("default", "Default"));
         _defaultBrowserProfileId = "default";
         _previewDevToolsPolicy = PreviewDevToolsPolicy.Disabled;
+        SetBrowserDefaults(new());
+        BrowserLinkTargetIndex = 0;
         IsSidebarCollapsed = false;
         IsRightPanelOpen = false;
         SelectedPanel = WorkbenchPanelKind.Changes;
@@ -340,14 +342,15 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
             throw new ArgumentException("Browser profile names contain between 1 and 48 characters.", nameof(name));
         }
 
-        if (_browserProfiles.Count >= 12)
+        if (_browserProfiles.Count >= 25)
         {
-            throw new InvalidOperationException("At most 12 browser profiles may be retained.");
+            throw new InvalidOperationException("At most 24 custom browser profiles may be retained.");
         }
 
         var profile = new BrowserProfilePreference(Guid.NewGuid().ToString("N"), normalized);
         _browserProfiles.Add(profile);
         OnPropertyChanged(nameof(BrowserProfiles));
+        SaveBrowserSettings();
         Save();
         return profile;
     }
@@ -360,6 +363,7 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
         {
             _defaultBrowserProfileId = profileId;
             OnPropertyChanged(nameof(DefaultBrowserProfileId));
+            SaveBrowserSettings();
             Save();
         }
     }
@@ -710,8 +714,9 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
                 var name = profile?.Name?.Trim() ?? string.Empty;
                 if (id is { Length: > 0 and <= 64 } && name is { Length: > 0 and <= 48 } &&
                     !string.Equals(id, "default", StringComparison.Ordinal) &&
+                    id != "incognito" && !id.Any(char.IsControl) &&
                     !_browserProfiles.Any(candidate => candidate.Id == id) &&
-                    _browserProfiles.Count < 12)
+                    _browserProfiles.Count < 25)
                 {
                     _browserProfiles.Add(new BrowserProfilePreference(id, name));
                 }
@@ -720,6 +725,8 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
             _defaultBrowserProfileId = _browserProfiles.Any(profile => profile.Id == snapshot.DefaultBrowserProfileId)
                 ? snapshot.DefaultBrowserProfileId!
                 : "default";
+            _browserDefaults = (snapshot.BrowserDefaults ?? new()).Normalize();
+            _browserLinkTarget = Enum.IsDefined(snapshot.BrowserLinkTarget) ? snapshot.BrowserLinkTarget : BrowserLinkTarget.System;
             _previewDevToolsPolicy = snapshot.PreviewDevToolsPolicy is { } devToolsPolicy && Enum.IsDefined(devToolsPolicy)
                 ? devToolsPolicy
                 : PreviewDevToolsPolicy.Disabled;
@@ -791,7 +798,9 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
                 ProactivePanelsEnabled,
                 ComposerCollapseOnBlur,
                 ComposerCollapseOnScroll,
-                ShowSkillsInSlashMenu);
+                ShowSkillsInSlashMenu,
+                _browserDefaults,
+                _browserLinkTarget);
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(snapshot, SerializerOptions));
@@ -845,7 +854,9 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
         bool ProactivePanelsEnabled = false,
         bool ComposerCollapseOnBlur = true,
         bool ComposerCollapseOnScroll = true,
-        bool ShowSkillsInSlashMenu = true);
+        bool ShowSkillsInSlashMenu = true,
+        BrowserDefaults? BrowserDefaults = null,
+        BrowserLinkTarget BrowserLinkTarget = BrowserLinkTarget.System);
 }
 
 public sealed record ModelPickerPreference(PiModelSelection Model, bool Favorite = false, bool Hidden = false, int Order = 1000);

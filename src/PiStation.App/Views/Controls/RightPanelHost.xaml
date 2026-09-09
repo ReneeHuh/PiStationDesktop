@@ -1272,6 +1272,7 @@
                                 Style="{StaticResource PiToolbarButtonStyle}" />
                             <Button
                                 automation:AutomationProperties.AutomationId="SetDefaultPreviewProfileButton"
+                                IsEnabled="{x:Bind ViewModel.WorkbenchPreview.CanMakeDefaultProfile, Mode=OneWay}"
                                 Click="OnSetDefaultPreviewProfileClicked"
                                 Content="Make default"
                                 Style="{StaticResource PiToolbarButtonStyle}" />
@@ -1481,6 +1482,12 @@
                                             TextWrapping="WrapWholeWords"
                                             Visibility="{x:Bind ViewModel.WorkbenchPreview.DiscoveryStatusVisibility, Mode=OneWay}" />
                                     </StackPanel>
+                                    <ComboBox Header="Show servers" HorizontalAlignment="Stretch"
+                                        SelectedIndex="{x:Bind ViewModel.WorkbenchPreview.DiscoveryScopeIndex, Mode=TwoWay}"
+                                        automation:AutomationProperties.AutomationId="PreviewDiscoveryScopeSelector">
+                                        <ComboBoxItem Content="All servers on this host" />
+                                        <ComboBoxItem Content="Owned by this thread" />
+                                    </ComboBox>
                                     <ListView
                                         x:Name="PreviewServerList"
                                         MaxHeight="280"
@@ -1492,7 +1499,7 @@
                                         ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
                                         ItemsSource="{x:Bind ViewModel.WorkbenchPreview.DiscoveredServers}">
                                         <ListView.ItemTemplate>
-                                            <DataTemplate x:DataType="models:DiscoveredPreviewServer">
+                                            <DataTemplate x:DataType="viewModels:DiscoveredPreviewServerRow">
                                                 <Grid MinHeight="44" Padding="4" ColumnSpacing="8">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto" />
@@ -1511,7 +1518,7 @@
                                                         <TextBlock
                                                             FontSize="{StaticResource PiFontSizeCaption}"
                                                             Foreground="{ThemeResource PiTextMutedBrush}"
-                                                            Text="{x:Bind ProcessName}"
+                                                            Text="{x:Bind Ownership}"
                                                             TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
                                                 </Grid>

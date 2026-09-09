@@ -170,7 +170,6 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         var checkpoints = new WorkspaceCheckpointService(database, workspaceResolver, workspaceLocks);
         var gitCommands = new WorkspaceGitCommandService(database, git, workspaceResolver, options, workspaceLocks);
         var search = new GlobalSearchService(database, gitCommands, options, environment.EnvironmentId);
-        var preview = new PreviewDiscoveryService(database);
         var threads = new PiThreadRegistry(
             environment,
             database,
@@ -178,6 +177,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
             checkpoints,
             options);
         var terminals = new TerminalSessionRegistry(database, options, workspaceResolver);
+        var preview = new PreviewDiscoveryService(database, new PreviewPortScanner(terminals.GetPreviewProcessOwners));
         var setupScripts = new ProjectSetupScriptRunner(database, terminals);
         var sourceControl = sourceControlFactory?.Invoke(workspaceResolver, projects) ?? new SourceControlHostingService(workspaceResolver, projects,
             textGenerator: new PiSourceControlTextGenerator(options), writingSettings: new SourceControlWritingSettingsStore(options.CanonicalDataRoot));

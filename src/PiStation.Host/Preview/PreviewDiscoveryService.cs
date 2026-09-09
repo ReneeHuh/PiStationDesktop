@@ -35,6 +35,15 @@ public sealed class PreviewDiscoveryService : IDisposable
                 $"Project '{request.ProjectId}' was not found.");
         }
 
+        if (request.ThreadId is { } threadId &&
+            (await _database.GetThreadAsync(threadId, cancellationToken).ConfigureAwait(false))?.ProjectId != request.ProjectId)
+        {
+            throw new HostOperationException(ProtocolErrorCodes.PreviewDiscoveryInvalid,
+                "The preview thread must belong to the requested project.");
+        }
+
+        // Results are environment-wide. Only explicit process ownership attributes
+        // a listener to a project/thread; the request supplies UI context, not ownership.
         var (servers, isTruncated) = await _scanner.ScanAsync(cancellationToken).ConfigureAwait(false);
         return new DiscoverProjectPreviewServersResult(
             request.ProjectId,

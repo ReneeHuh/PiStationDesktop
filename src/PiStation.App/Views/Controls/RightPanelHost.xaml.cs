@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -36,7 +34,7 @@ public sealed partial class RightPanelHost : UserControl
         if (Uri.TryCreate(ViewModel.Workspace.SelectedThread?.PullRequest?.Url, UriKind.Absolute, out var uri) &&
             uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo))
         {
-            try { await Windows.System.Launcher.LaunchUriAsync(uri); }
+            try { await ViewModel.OpenBrowserLinkAsync(uri); }
             catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
         }
     }
@@ -74,12 +72,14 @@ public sealed partial class RightPanelHost : UserControl
     public RightPanelHost(ShellViewModel viewModel)
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        ViewModel.OpenPreviewLink = OpenBrowserLinkInPreviewAsync;
         InitializeComponent();
         _browserAutomationTimer = DispatcherQueue.CreateTimer();
         _browserAutomationTimer.Interval = TimeSpan.FromMilliseconds(250);
         _browserAutomationTimer.Tick += OnBrowserAutomationTimerTick;
         Loaded += (_, _) =>
         {
+            StartPreviewDiscoveryPolling();
             _browserAutomationTimer.Start();
             _ = SynchronizeBrowserAutomationPermissionAsync();
         };
@@ -118,6 +118,8 @@ public sealed partial class RightPanelHost : UserControl
 
     internal void StopBrowserAutomation()
     {
+        _previewDiscoveryTimer?.Stop();
+        foreach (var pending in _previewLinkLoads.Values) pending.TrySetCanceled();
         _browserAutomationTimer.Stop();
         _browserAutomationLifetime?.Cancel();
         _ = SynchronizeBrowserAutomationPermissionAsync();
@@ -221,7 +223,8 @@ public sealed partial class RightPanelHost : UserControl
             PreviewProfileDataPath(tab.ProfileId),
             ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated,
             tab.ZoomFactor,
-            tab.ColorScheme);
+            tab.ColorScheme,
+            tab.ProfileId == "incognito");
         surface.RemoteRouteFactory = ViewModel.OpenPreviewRouteAsync;
         _previewSurfaces[tab.TabId] = surface;
         surface.NavigationStarted -= OnPreviewNavigationStarted;
@@ -236,6 +239,7 @@ public sealed partial class RightPanelHost : UserControl
         {
             await NavigateTabIfNeededAsync(tab, surface);
         }
+        CompletePreviewLinkLoad(tab, surface);
     }
 
     private void OnPreviewBrowserUnloaded(object sender, RoutedEventArgs e)
@@ -424,7 +428,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnPreviewServerClicked(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is DiscoveredPreviewServer server)
+        if (e.ClickedItem is DiscoveredPreviewServerRow server)
         {
             await NavigatePreviewAsync(server.Url);
         }
@@ -553,7 +557,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private void OnSetDefaultPreviewProfileClicked(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.WorkbenchPreview.SelectedProfile is { } profile)
+        if (ViewModel.WorkbenchPreview.SelectedProfile is { Id: not "incognito" } profile)
         {
             ViewModel.SetDefaultWorkbenchPreviewProfile(profile.Id);
             ViewModel.SetWorkbenchPreviewCaptureStatus(
@@ -703,7 +707,8 @@ public sealed partial class RightPanelHost : UserControl
                 PreviewProfileDataPath(tab.ProfileId),
                 ViewModel.Layout.PreviewDevToolsPolicy == PreviewDevToolsPolicy.UserInitiated,
                 tab.ZoomFactor,
-                tab.ColorScheme);
+                tab.ColorScheme,
+                tab.ProfileId == "incognito");
             window = new Window
             {
                 Title = $"Preview • {tab.DocumentTitle}",
@@ -770,8 +775,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private string PreviewProfileDataPath(string profileId)
     {
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(profileId)));
-        return Path.Combine(ViewModel.PreviewProfileRoot, key);
+        return Composition.BrowserProfilePaths.ProfileDirectory(ViewModel.PreviewProfileRoot, profileId);
     }
 
     private async void OnPreviewAutomationPermissionSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1181,6 +1185,7 @@ public sealed partial class RightPanelHost : UserControl
         if (e.PropertyName is nameof(WorkspaceViewModel.SelectedProject) or
             nameof(WorkspaceViewModel.SelectedThread))
         {
+            foreach (var pending in _previewLinkLoads.Values) pending.TrySetCanceled();
             DispatcherQueue.TryEnqueue(async () =>
             {
                 await SynchronizeBrowserAutomationPermissionAsync();
@@ -1899,7 +1904,7 @@ public sealed partial class RightPanelHost : UserControl
         if (Uri.TryCreate(e.Text, UriKind.Absolute, out var uri) &&
             uri.Scheme is "http" or "https")
         {
-            await Launcher.LaunchUriAsync(uri);
+            await ViewModel.OpenBrowserLinkAsync(uri);
         }
     }
 

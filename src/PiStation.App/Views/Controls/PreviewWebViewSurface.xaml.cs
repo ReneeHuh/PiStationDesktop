@@ -25,6 +25,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     private string? _navigationContext;
     private string? _profileDataPath;
     private bool _allowDevTools;
+    private bool _inPrivate;
     private double _zoomFactor = 1;
     private PreviewColorScheme _colorScheme;
     private CancellationTokenSource? _recordingCancellation;
@@ -59,7 +60,8 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         string profileDataPath,
         bool allowDevTools,
         double zoomFactor,
-        PreviewColorScheme colorScheme)
+        PreviewColorScheme colorScheme,
+        bool inPrivate = false)
     {
         if (_initializationTask is not null &&
             !string.Equals(_profileDataPath, profileDataPath, StringComparison.OrdinalIgnoreCase))
@@ -68,6 +70,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
 
         _profileDataPath = Path.GetFullPath(profileDataPath);
+        _inPrivate = inPrivate;
         _allowDevTools = allowDevTools;
         _zoomFactor = NormalizeZoom(zoomFactor);
         _colorScheme = Enum.IsDefined(colorScheme) ? colorScheme : PreviewColorScheme.System;
@@ -132,10 +135,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             validate?.Invoke();
             if (_remoteRoute is { } route)
             {
-                var cookie = Browser.CoreWebView2.CookieManager.CreateCookie(route.CookieName, route.CookieValue, route.Address.Host, "/");
-                cookie.IsHttpOnly = true;
-                cookie.SameSite = CoreWebView2CookieSameSiteKind.Strict;
-                Browser.CoreWebView2.CookieManager.AddOrUpdateCookie(cookie);
+                RestoreRemoteRouteCookie();
                 normalized = route.ToBrowserUri(normalized);
             }
             Browser.CoreWebView2.Navigate(normalized.AbsoluteUri);
@@ -159,7 +159,22 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
     }
 
-    public void Reload() => Browser.CoreWebView2?.Reload();
+    public void Reload()
+    {
+        // Profile clearing also removes our short-lived transport cookie. Restore
+        // only this app-issued credential so Reload can reach the paired host.
+        RestoreRemoteRouteCookie();
+        Browser.CoreWebView2?.Reload();
+    }
+
+    private void RestoreRemoteRouteCookie()
+    {
+        if (Browser.CoreWebView2 is not { } core || _remoteRoute is not { } route) return;
+        var cookie = core.CookieManager.CreateCookie(route.CookieName, route.CookieValue, route.Address.Host, "/");
+        cookie.IsHttpOnly = true;
+        cookie.SameSite = CoreWebView2CookieSameSiteKind.Strict;
+        core.CookieManager.AddOrUpdateCookie(cookie);
+    }
 
     private void OnRouteReconnected(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
     {
@@ -440,7 +455,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await InitializeAsync();
-        Browser.CoreWebView2.Reload();
+        Reload();
     }
 
     public void Dispose()
@@ -504,10 +519,10 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             if (_profileDataPath is { } profileDataPath)
             {
                 Directory.CreateDirectory(profileDataPath);
-                var environment = await ProfileEnvironments.GetOrAdd(
-                    profileDataPath,
-                    static path => CoreWebView2Environment.CreateWithOptionsAsync(null, path, null).AsTask());
-                await Browser.EnsureCoreWebView2Async(environment);
+                var environment = await GetProfileEnvironmentAsync(profileDataPath);
+                var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
+                controllerOptions.IsInPrivateModeEnabled = _inPrivate;
+                await Browser.EnsureCoreWebView2Async(environment, controllerOptions);
             }
             else
             {

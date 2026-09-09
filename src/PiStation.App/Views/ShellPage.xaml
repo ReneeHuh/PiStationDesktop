@@ -1046,6 +1046,7 @@
                         Visibility="Collapsed">
                         <StackPanel Spacing="8">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Integrations" />
+                            <ContentControl x:Name="BrowserSettingsHost" HorizontalContentAlignment="Stretch" />
                             <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Hosting adapters use installed and authenticated provider CLIs: gh (GitHub), glab (GitLab), and az (Azure). Bitbucket hosting actions are not available yet. Availability and authentication failures appear in diagnostics without exporting secrets." TextWrapping="Wrap" />
                             <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Diagnostics, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>

@@ -155,6 +155,8 @@ public sealed partial class ConversationTimeline : UserControl
 
     private void OnCitationRequested(object? sender, string messageId) => DispatcherQueue.TryEnqueue(() => RevealMessage(messageId));
     private async void OnWorkspaceLinkRequested(object? sender, string link) => await ViewModel.OpenMarkdownLinkAsync(link);
+    private async void OnBrowserLinkRequested(object? sender, BrowserLinkEventArgs args) =>
+        await ViewModel.OpenBrowserLinkAsync(args.Uri, args.ForceSystem);
     private void OnSelectionQuoteRequested(object? sender, string text)
     {
         if (sender is MarkdownView { DataContext: MessageTimelineItemViewModel message }) ViewModel.QuoteResponse(message, text);

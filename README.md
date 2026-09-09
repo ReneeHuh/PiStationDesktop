@@ -156,6 +156,14 @@ host never proxies page content or receives browser navigation. WinUI owns the e
 permits only credential-free HTTP/HTTPS addresses, denies web permissions and downloads, blocks
 privileged host integration, and ignores stale discovery results after project switches.
 
+Protocol v48 adds terminal/process ownership to discovered preview servers, including
+descendants launched through npm or other shell commands. Preview can show all host
+servers or just servers owned by the current thread. **Settings → Integrations → Browser**
+provides the system-browser/app-preview link preference, defaults for new tabs, and
+profile create/rename/default/clear/remove controls shared across environment windows.
+Incognito is available per tab. Existing tabs keep their settings and profile identity.
+See [browser behavior and acceptance](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md).
+
 Protocol v16 adds T3-style per-turn checkpoints to the main coding loop. Immediately before a turn,
 the host snapshots the selected project with an isolated temporary Git index; after Pi settles, it
 writes the result to a hidden `refs/pistation/checkpoints/...` commit without moving `HEAD`, changing
@@ -293,7 +301,7 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 47, including saved terminal history, subprocess labels, and shared grouped-checkout icons alongside tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+Remote access uses protocol 48, including preview-server terminal ownership alongside saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md) and [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:

@@ -33,9 +33,19 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     private bool _isDiscovering;
     private WorkbenchPreviewTabViewModel? _activeTab;
     private string _defaultProfileId = "default";
+    private BrowserDefaults _defaults = new();
     private PreviewAutomationAccess _automationPermission;
 
-    public ObservableCollection<DiscoveredPreviewServer> DiscoveredServers { get; } = [];
+    private IReadOnlyList<DiscoveredPreviewServer> _allServers = [];
+    private PiStation.Protocol.Identifiers.ThreadId? _discoveryThreadId;
+    private bool _discoveryTruncated;
+    private int _discoveryScopeIndex;
+    public int DiscoveryScopeIndex
+    {
+        get => _discoveryScopeIndex;
+        set { if (SetProperty(ref _discoveryScopeIndex, value == 1 ? 1 : 0)) UpdateDiscoveredServers(); }
+    }
+    public ObservableCollection<DiscoveredPreviewServerRow> DiscoveredServers { get; } = [];
 
     public ObservableCollection<WorkbenchPreviewTabViewModel> Tabs { get; } = [];
 
@@ -223,7 +233,8 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     public BrowserProfilePreference? SelectedProfile => BrowserProfiles.FirstOrDefault(profile =>
         string.Equals(profile.Id, ActiveTab?.ProfileId, StringComparison.Ordinal));
 
-    public bool CanChangeProfile => ActiveTab is { CurrentUrl.Length: 0 };
+    public bool CanChangeProfile => ActiveTab is { CurrentUrl.Length: 0, HasNavigated: false };
+    public bool CanMakeDefaultProfile => SelectedProfile is { Id: not "incognito" };
 
     public bool IsRecording => ActiveTab?.IsRecording == true;
 
@@ -246,13 +257,17 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         string? legacySavedUrl = null,
         IReadOnlyList<BrowserProfilePreference>? browserProfiles = null,
         string defaultProfileId = "default",
-        PreviewAutomationAccess automationPermission = PreviewAutomationAccess.Off)
+        PreviewAutomationAccess automationPermission = PreviewAutomationAccess.Off,
+        BrowserDefaults? defaults = null)
     {
+        _defaults = (defaults ?? new()).Normalize();
         ActiveTab = null;
         Tabs.Clear();
         HasProject = hasProject;
         IsDiscovering = false;
         DiscoveredServers.Clear();
+        _allServers = [];
+        _discoveryThreadId = null;
         RecentUrls.Clear();
         BrowserProfiles.Clear();
         foreach (var profile in browserProfiles ?? [new BrowserProfilePreference("default", "Default")])
@@ -268,7 +283,8 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
             BrowserProfiles.Add(new BrowserProfilePreference("default", "Default"));
         }
 
-        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId)
+        BrowserProfiles.Add(new("incognito", "Incognito"));
+        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId && profile.Id != "incognito")
             ? defaultProfileId
             : BrowserProfiles[0].Id;
         _automationPermission = Enum.IsDefined(automationPermission)
@@ -329,10 +345,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         }
 
         var tab = new WorkbenchPreviewTabViewModel(Guid.NewGuid().ToString("N"), _defaultProfileId);
-        if (TryNormalizeAddress(initialUrl, out var uri, out _))
-        {
-            tab.Restore(uri.AbsoluteUri, uri.Host, PreviewViewportPreset.Responsive, 0, 0);
-        }
+        tab.Restore(initialUrl, null, _defaults.Viewport, 0, 0, _defaults.ZoomFactor, _defaults.Appearance);
 
         Tabs.Add(tab);
         ActiveTab = tab;
@@ -361,8 +374,8 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
     }
 
     internal PreviewWorkspacePreference CreatePreference() => new(
-        ActiveTab?.TabId,
-        Tabs.Select(static tab => tab.CreatePreference()).ToArray(),
+        ActiveTab?.ProfileId == "incognito" ? null : ActiveTab?.TabId,
+        Tabs.Where(static tab => tab.ProfileId != "incognito").Select(static tab => tab.CreatePreference()).ToArray(),
         RecentUrls.ToArray());
 
     internal void BeginDiscovery()
@@ -371,21 +384,30 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         DiscoveryStatus = "Looking for local development servers…";
     }
 
-    internal void ApplyDiscovery(DiscoverProjectPreviewServersResult result)
+    internal void ApplyDiscovery(DiscoverProjectPreviewServersResult result,
+        PiStation.Protocol.Identifiers.ThreadId? threadId = null)
     {
         ArgumentNullException.ThrowIfNull(result);
-        DiscoveredServers.Clear();
-        foreach (var server in result.Servers)
-        {
-            DiscoveredServers.Add(server);
-        }
-
+        _allServers = result.Servers;
+        _discoveryThreadId = threadId;
+        _discoveryTruncated = result.IsTruncated;
         IsDiscovering = false;
-        DiscoveryStatus = result.Servers.Count == 0
-            ? "No local web servers found. Start your development server, then refresh."
-            : result.IsTruncated
-                ? $"Showing the first {result.Servers.Count} local servers"
-                : $"{result.Servers.Count} local server" + (result.Servers.Count == 1 ? string.Empty : "s") + " found";
+        UpdateDiscoveredServers();
+    }
+
+    private void UpdateDiscoveredServers()
+    {
+        var rows = _allServers.Where(server => DiscoveryScopeIndex == 0 ||
+            _discoveryThreadId is not null && server.Terminal?.ThreadId == _discoveryThreadId)
+            .Select(server => new DiscoveredPreviewServerRow(server, _discoveryThreadId)).ToArray();
+        if (!DiscoveredServers.SequenceEqual(rows))
+        {
+            DiscoveredServers.Clear();
+            foreach (var row in rows) DiscoveredServers.Add(row);
+        }
+        DiscoveryStatus = DiscoveredServers.Count == 0
+            ? DiscoveryScopeIndex == 1 ? "No servers owned by terminals in this thread." : "No local web servers found. Start your development server, then refresh."
+            : $"{DiscoveredServers.Count} local server(s)" + (_discoveryTruncated ? " • results limited" : string.Empty);
     }
 
     internal void FailDiscovery(string message)
@@ -416,7 +438,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
 
         tab = ActiveTab ?? AddTab();
         tab.PrepareNavigation(normalized);
-        AddRecentUrl(normalized.AbsoluteUri);
+        if (tab.ProfileId != "incognito") AddRecentUrl(normalized.AbsoluteUri);
         uri = normalized;
         return true;
     }
@@ -492,12 +514,15 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
             BrowserProfiles.Add(profile);
         }
 
-        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId)
+        BrowserProfiles.Add(new("incognito", "Incognito"));
+        _defaultProfileId = BrowserProfiles.Any(profile => profile.Id == defaultProfileId && profile.Id != "incognito")
             ? defaultProfileId
             : BrowserProfiles.FirstOrDefault()?.Id ?? "default";
         OnPropertyChanged(nameof(BrowserProfiles));
         RaiseActiveTabProperties();
     }
+
+    internal void SetDefaults(BrowserDefaults defaults) => _defaults = defaults.Normalize();
 
     internal void SetAutomationPermission(PreviewAutomationAccess permission)
     {
@@ -670,6 +695,7 @@ public sealed class WorkbenchPreviewViewModel : ObservableObject
         OnPropertyChanged(nameof(ColorSchemeIndex));
         OnPropertyChanged(nameof(SelectedProfile));
         OnPropertyChanged(nameof(CanChangeProfile));
+        OnPropertyChanged(nameof(CanMakeDefaultProfile));
         OnPropertyChanged(nameof(IsRecording));
         OnPropertyChanged(nameof(RecordingLabel));
     }
@@ -707,6 +733,7 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
     }
 
     public string TabId { get; }
+    internal bool HasNavigated { get; private set; }
 
     public string AddressText
     {
@@ -890,6 +917,7 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         if (WorkbenchPreviewViewModel.TryNormalizeAddress(url, out var uri, out _))
         {
             CurrentUrl = uri.AbsoluteUri;
+            HasNavigated = true;
             AddressText = uri.AbsoluteUri;
             DocumentTitle = string.IsNullOrWhiteSpace(title) ? uri.Host : title.Trim();
         }
@@ -910,6 +938,7 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
 
     internal void PrepareNavigation(Uri uri)
     {
+        HasNavigated = true;
         CurrentUrl = uri.AbsoluteUri;
         AddressText = uri.AbsoluteUri;
         DocumentTitle = uri.Host;
@@ -1073,6 +1102,15 @@ public sealed class WorkbenchPreviewTabViewModel : ObservableObject
         OnPropertyChanged(nameof(SurfaceHeight));
         OnPropertyChanged(nameof(ViewportDescription));
     }
+}
+
+public sealed record DiscoveredPreviewServerRow(DiscoveredPreviewServer Server,
+    PiStation.Protocol.Identifiers.ThreadId? CurrentThreadId)
+{
+    public string Url => Server.Url;
+    public string Ownership => Server.Terminal is { } owner
+        ? $"{owner.TerminalName} • {(CurrentThreadId is not null && owner.ThreadId == CurrentThreadId ? "This thread" : owner.ThreadId is null ? "Project terminal" : "Another thread")} • {Server.ProcessName ?? "Process"}"
+        : $"{Server.ProcessName ?? "Server"} • No terminal owner";
 }
 
 public sealed record PreviewElementAnnotation(
