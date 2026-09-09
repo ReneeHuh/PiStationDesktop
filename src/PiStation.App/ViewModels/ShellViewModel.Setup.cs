@@ -18,6 +18,7 @@ public sealed partial class ShellViewModel
         Settings.PiEnvironment = PiStation.ClientRuntime.PiLaunchEditor.FormatEnvironment(launch);
         Settings.PiCommandTimeout = launch.CommandTimeoutSeconds;
         Settings.PiShutdownTimeout = launch.ShutdownTimeoutSeconds;
+        Settings.ToolSelection.Apply(launch.Tools);
         _runtimeSettingsLoaded = true;
         OnPropertyChanged(nameof(CanConfigurePiRuntime));
     });
@@ -51,7 +52,8 @@ public sealed partial class ShellViewModel
         {
             var client = RequireClient();
             var launch = PiStation.ClientRuntime.PiLaunchEditor.Parse(Settings.PiArguments, Settings.PiEnvironment,
-                checked((int)Settings.PiCommandTimeout), checked((int)Settings.PiShutdownTimeout), _loadedLaunchConfiguration);
+                checked((int)Settings.PiCommandTimeout), checked((int)Settings.PiShutdownTimeout), _loadedLaunchConfiguration)
+                with { Tools = Settings.ToolSelection.Create() };
             var result = await client.ConfigurePiRuntimeAsync(new ConfigurePiRuntimeRequest(path, extensions, launch), cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => { Settings.RuntimeSetupStatus = result.Message; if (result.Available) { RequiresPiSetup = false; _loadedLaunchConfiguration = launch; } });
             if (!result.Available) return;

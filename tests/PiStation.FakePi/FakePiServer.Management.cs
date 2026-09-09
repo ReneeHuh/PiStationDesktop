@@ -57,6 +57,14 @@ internal sealed partial class FakePiServer
                     ["confirmedLoaded"] = _resourceEnabledAtStart, ["canToggle"] = true, ["revision"] = revision,
                 }),
                 ["providers"] = providers, ["diagnostics"] = new JsonArray(),
+                ["toolInventory"] = new JsonObject
+                {
+                    ["tools"] = new JsonArray(
+                        new JsonObject { ["name"] = "read", ["description"] = "Read files", ["source"] = "builtin", ["active"] = true },
+                        new JsonObject { ["name"] = "powershell", ["description"] = "Windows shell fixture", ["source"] = "fixture", ["active"] = false }),
+                    ["selection"] = JsonNode.Parse(Environment.GetEnvironmentVariable("PISTATION_TOOL_SELECTION") ?? "{\"mode\":0}"),
+                    ["truncated"] = false,
+                },
             },
         };
         await _writer.WriteAsync(new JsonObject

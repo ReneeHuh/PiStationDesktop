@@ -3814,6 +3814,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void ApplyThreadProjection(ThreadProjection? projection)
     {
+        if (Thread.Projection?.ProjectionEpoch != projection?.ProjectionEpoch ||
+            Thread.Projection?.Plan?.Revision != projection?.Plan?.Revision ||
+            _lastProjectionRuntimeState != projection?.RuntimeState)
+            PiResources.ToolInventory.Clear();
         var previousRuntimeState = _lastProjectionRuntimeState;
         _lastProjectionRuntimeState = projection?.RuntimeState;
         Thread.ApplyProjection(projection, SelectedThread is not null);
@@ -4277,6 +4281,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void ClearPiConfiguration(string status)
     {
+        PiResources.ToolInventory.Clear();
         PiConfiguration.Clear(status);
         RaisePiConfigurationStateChanged();
     }

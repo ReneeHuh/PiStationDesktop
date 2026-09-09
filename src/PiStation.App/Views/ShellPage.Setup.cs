@@ -53,6 +53,9 @@ public sealed partial class ShellPage
         }
     }
     private async void OnRefreshPiResourcesClicked(object sender, RoutedEventArgs e) => await ViewModel.RefreshPiResourcesAsync();
+    private void OnReadOnlyToolsClicked(object sender, RoutedEventArgs e) => ViewModel.Settings.ToolSelection.UseReadOnlyPreset();
+    private void OnWindowsToolsClicked(object sender, RoutedEventArgs e) => ViewModel.Settings.ToolSelection.UseWindowsPreset();
+    private void OnAddPowerShellToolClicked(object sender, RoutedEventArgs e) => ViewModel.Settings.ToolSelection.AddPowerShell();
     private async void OnTogglePiResourceClicked(object sender, RoutedEventArgs e)
     {
         if (sender is Microsoft.UI.Xaml.Controls.Button { DataContext: ViewModels.PiResourceRow row })

@@ -65,13 +65,16 @@ public sealed partial class EnvironmentService
             var extensions = PiRuntimeSettingsStore.Validate(request.Extensions ?? _options.Extensions);
             var launch = PiRuntimeSettingsStore.ValidateLaunch(request.Launch ?? _options.LaunchConfiguration);
             var installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = path }, cancellationToken).ConfigureAwait(false);
+            if (PiToolSelectionRules.IsManaged(launch.Tools) && installation.PiVersion < new SemanticVersion(0, 85, 0))
+                throw new ArgumentException("Dedicated tool selection requires Pi 0.85.0 or later. Update Pi manually, or use Pi defaults without exclusions.");
+            PiToolSelectionRules.ValidateArguments(launch.Tools, _options.AdditionalPiArguments.Concat(launch.Arguments ?? []));
             await PiRuntimeSettingsStore.SaveAsync(_options.CanonicalDataRoot, new(path, extensions, launch), cancellationToken).ConfigureAwait(false);
             _options.PiInstallation = installation;
             _options.ConfiguredPiExecutablePath = path;
             _options.Extensions = extensions;
             _options.LaunchConfiguration = launch;
             return new PiRuntimeSetupResult(true, path, installation.PiVersion.ToString(),
-                $"Pi {installation.PiVersion} is ready. Extension changes apply to new runtimes. Restart an idle thread to apply them there.", extensions);
+                $"Pi {installation.PiVersion} is ready. Runtime, tool, and extension settings apply to new runtimes. Restart each idle thread to apply them there, then refresh its effective tool inventory.", extensions);
         }
         catch (Exception exception) when (exception is PiDiscoveryException or IOException or UnauthorizedAccessException or ArgumentException)
         {

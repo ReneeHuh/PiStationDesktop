@@ -1641,7 +1641,7 @@
                                                 <TextBox Header="Instructions" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxHeight="140" MaxLength="8192"
                                                     Text="{x:Bind ViewModel.Agents.Instructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetInstructionsTextBox" />
                                                 <TextBox Header="Tools (comma separated)" Text="{x:Bind ViewModel.Agents.Tools, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetToolsTextBox" />
-                                                <TextBlock Text="Supported tools: read, grep, find, ls, bash, edit, write." TextWrapping="WrapWholeWords" FontSize="{StaticResource PiFontSizeCaption}" />
+                                                <TextBlock Text="Supported tools: read, grep, find, ls, bash, powershell (Windows), edit, write. Dedicated host tool restrictions also apply to child presets." TextWrapping="WrapWholeWords" FontSize="{StaticResource PiFontSizeCaption}" />
                                                 <TextBox Header="Model (optional provider/model)" MaxLength="240" PlaceholderText="Inherit from parent"
                                                     Text="{x:Bind ViewModel.Agents.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetModelTextBox" />
                                                 <StackPanel Orientation="Horizontal" Spacing="8">

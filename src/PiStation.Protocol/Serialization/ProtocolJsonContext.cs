@@ -38,6 +38,7 @@ namespace PiStation.Protocol.Serialization;
 [JsonSerializable(typeof(SetPullRequestThreadResolvedRequest))]
 [JsonSerializable(typeof(PullRequestReviewDraft))]
 [JsonSerializable(typeof(PiRuntimeConfiguration))]
+[JsonSerializable(typeof(PiToolSelection))]
 [JsonSerializable(typeof(PiPlanState))]
 [JsonSerializable(typeof(PiPlanChangedEvent))]
 [JsonSerializable(typeof(ThreadManagePlanCommand))]

@@ -12,6 +12,22 @@ namespace PiStation.Host.Tests;
 public sealed class PiResourcesIntegrationTests
 {
     [Fact]
+    public async Task ProcessFactoryPassesDedicatedPolicyIntoRuntimeReadback()
+    {
+        using var directory = new HostTestDirectory();
+        var options = directory.CreateOptions("resource-management");
+        options.PiInstallation = options.PiInstallation! with { PiVersion = new SemanticVersion(0, 85, 0) };
+        options.LaunchConfiguration = new(Tools: new(PiToolSelectionMode.Allowlist, ["read", "powershell"], ["write"]));
+        await using var host = await EmbeddedEnvironmentHost.StartAsync(options);
+        var project = await host.Environment.AddProjectAsync(new(directory.CreateDirectory("project")));
+        var thread = await host.Environment.CreateThreadAsync(new(project.ProjectId));
+        var snapshot = await host.Environment.ManagePiResourcesAsync(new(thread.ThreadId));
+        Assert.Equal(PiToolSelectionMode.Allowlist, snapshot.ToolInventory!.Selection!.Mode);
+        Assert.Equal(["read", "powershell"], snapshot.ToolInventory.Selection.Allowed);
+        Assert.Equal(["write"], snapshot.ToolInventory.Selection.Excluded);
+    }
+
+    [Fact]
     public async Task AuthenticatedHubManagesResourcesWithoutChangingDraftOrTranscript()
     {
         using var directory = new HostTestDirectory();
@@ -29,6 +45,9 @@ public sealed class PiResourcesIntegrationTests
         var snapshot = await connection.InvokeAsync<PiResourcesSnapshot>("ManagePiResources", new ManagePiResourcesRequest(thread.ThreadId), timeout.Token);
         var resource = Assert.Single(snapshot.Resources);
         Assert.True(resource.ConfirmedLoaded);
+        Assert.True(snapshot.ToolInventory!.Tools.Single(tool => tool.Name == "read").Active);
+        Assert.False(snapshot.ToolInventory.Tools.Single(tool => tool.Name == "powershell").Active);
+        Assert.Equal(PiToolSelectionMode.PiDefault, snapshot.ToolInventory.Selection!.Mode);
         var saved = await connection.InvokeAsync<PiResourcesSnapshot>("ManagePiResources",
             new ManagePiResourcesRequest(thread.ThreadId, "toggle", resource.Id, false, resource.Revision), timeout.Token);
         Assert.False(Assert.Single(saved.Resources).Enabled);

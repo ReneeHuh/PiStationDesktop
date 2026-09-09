@@ -254,6 +254,17 @@ pwsh .\Invoke-PullRequestTests.ps1
 winapp run .\src\PiStation.App\PiStation.App.csproj --configuration Debug --arch x64
 ```
 
+## Agent tools and Windows PowerShell
+
+Settings → Pi / runtime → **Agent tools and Windows PowerShell** now provides Pi
+defaults, an explicit allowlist, or no tools, with exclusions taking precedence.
+The Windows coding preset includes PowerShell. Save and connect, restart each idle
+thread, then refresh its registered/active tool inventory; existing runtimes retain
+their launch policy. Dedicated controls require Pi 0.85.0+ and operate access on
+the selected host. PiStation child presets also respect dedicated restrictions.
+Planning/approval checks still apply; this is not an OS sandbox or a restriction
+on user-run terminals. See [tool configuration and verification](Docs/PI-TOOL-CONFIGURATION-2026-09-09.md).
+
 ## Shell and composer preferences
 
 Settings → Appearance → **Shell and composer** saves these preferences on this PC:
@@ -277,7 +288,7 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 45 for persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+Remote access uses protocol 46, including tool-selection settings/inventory alongside persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:

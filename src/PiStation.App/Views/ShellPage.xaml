@@ -668,6 +668,58 @@
                             <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="{x:Bind ViewModel.PiExecutablePathHeader}" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
                             <CheckBox Content="Discover installed Pi extensions" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />
+                            <Expander Header="Agent tools and Windows PowerShell" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}"
+                                automation:AutomationProperties.AutomationId="PiToolSettingsExpander">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Host settings for new/restarted runtimes (Pi 0.85.0+). Explicit allowlists include only the named built-in or extension tools; an empty allowlist enables none. Exclusions win, including equivalent planning readers. Existing threads keep their current policy until restarted."
+                                        TextWrapping="Wrap" />
+                                    <StackPanel Spacing="8">
+                                        <ComboBox Header="Tool selection" HorizontalAlignment="Stretch"
+                                            SelectedIndex="{x:Bind ViewModel.Settings.ToolSelection.ModeIndex, Mode=TwoWay}"
+                                            automation:AutomationProperties.AutomationId="PiToolSelectionMode">
+                                            <ComboBoxItem Content="Pi defaults / existing launch flags" />
+                                            <ComboBoxItem Content="Only the listed tools" />
+                                            <ComboBoxItem Content="No agent tools" />
+                                        </ComboBox>
+                                        <TextBox Header="Allowed tools (exact names, comma-separated or one per line)" AcceptsReturn="True" MinHeight="60" MaxHeight="160"
+                                            IsEnabled="{x:Bind ViewModel.Settings.ToolSelection.IsAllowlist, Mode=OneWay}"
+                                            Text="{x:Bind ViewModel.Settings.ToolSelection.Allowed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            automation:AutomationProperties.AutomationId="PiAllowedToolsInput" />
+                                        <TextBox Header="Excluded tools (exact names; no wildcards)" AcceptsReturn="True" MinHeight="48" MaxHeight="120"
+                                            Text="{x:Bind ViewModel.Settings.ToolSelection.Excluded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            automation:AutomationProperties.AutomationId="PiExcludedToolsInput" />
+                                        <WrapGrid Orientation="Horizontal" MaximumRowsOrColumns="2">
+                                            <Button Content="Read/search preset" Click="OnReadOnlyToolsClicked" automation:AutomationProperties.AutomationId="PiReadOnlyToolsPreset" />
+                                            <Button Content="Windows coding preset" Click="OnWindowsToolsClicked" automation:AutomationProperties.AutomationId="PiWindowsToolsPreset" />
+                                            <Button Content="Add PowerShell to allowlist" Click="OnAddPowerShellToolClicked"
+                                                IsEnabled="{x:Bind ViewModel.Settings.ToolSelection.IsAllowlist, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiAddPowerShellTool" />
+                                        </WrapGrid>
+                                        <TextBlock Text="Presets fill the allowlist without clearing exclusions. Save and connect below, restart each idle thread, then refresh its inventory. Remove conflicting --tools/--exclude-tools flags from advanced arguments when using these controls."
+                                            TextWrapping="Wrap" FontSize="12" />
+                                    </StackPanel>
+                                    <TextBlock Text="PowerShell requires a Windows host with pwsh.exe or powershell.exe. Dedicated restrictions also intersect PiStation child-agent presets. This is tool selection, not an OS sandbox: trusted extension code and user-run shell/terminal commands are separate."
+                                        TextWrapping="Wrap" FontSize="12" />
+                                    <Button Content="Refresh selected thread's tool inventory" Click="OnRefreshPiResourcesClicked" HorizontalAlignment="Left"
+                                        IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" automation:AutomationProperties.AutomationId="RefreshPiToolsButton" />
+                                    <TextBlock Text="{x:Bind ViewModel.PiResources.Status, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{x:Bind ViewModel.PiResources.ToolInventory.Summary, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                        automation:AutomationProperties.AutomationId="PiToolInventorySummary" />
+                                    <TextBlock Text="{x:Bind ViewModel.PiResources.ToolInventory.PowerShell, Mode=OneWay}" TextWrapping="Wrap"
+                                        automation:AutomationProperties.AutomationId="PiPowerShellToolStatus" />
+                                    <ListView ItemsSource="{x:Bind ViewModel.PiResources.ToolInventory.Tools}" MaxHeight="280" SelectionMode="None"
+                                        automation:AutomationProperties.AutomationId="PiToolInventoryList">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="viewModels:PiToolRow">
+                                                <StackPanel Spacing="2" Padding="4">
+                                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{x:Bind State}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" MaxLines="3" FontSize="12" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Expander>
                             <Expander automation:AutomationProperties.AutomationId="AdvancedPiRuntimeExpander" Header="Advanced runtime settings" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" HorizontalAlignment="Stretch">
                                 <StackPanel Spacing="8">
                                     <TextBox automation:AutomationProperties.AutomationId="PiArgumentsInput" Header="Launch arguments (one argument per line)" Text="{x:Bind ViewModel.Settings.PiArguments, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />

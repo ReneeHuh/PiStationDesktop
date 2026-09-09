@@ -26,7 +26,14 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
         var additionalArguments = _options.AdditionalPiArguments.ToList();
         var launch = PiRuntimeSettingsStore.ValidateLaunch(_options.LaunchConfiguration);
         additionalArguments.AddRange(launch.Arguments ?? []);
+        PiToolSelectionRules.ValidateArguments(launch.Tools, additionalArguments);
+        if (PiToolSelectionRules.IsManaged(launch.Tools) && installation.PiVersion < new PiStation.PiRpc.Discovery.SemanticVersion(0, 85, 0))
+            throw new InvalidOperationException("Dedicated tool selection requires Pi 0.85.0 or later. Update Pi manually, or use Pi defaults without exclusions.");
+        additionalArguments.AddRange(PiToolSelectionRules.LaunchArguments(launch.Tools));
         var environmentVariables = new Dictionary<string, string?>(launch.EnvironmentVariables ?? new Dictionary<string, string?>(), StringComparer.OrdinalIgnoreCase);
+        // Always replace inherited policy; an old parent-process value must not leak into a new runtime.
+        environmentVariables["PISTATION_TOOL_SELECTION"] = System.Text.Json.JsonSerializer.Serialize(
+            launch.Tools ?? new(), PiStation.Protocol.Serialization.ProtocolJsonContext.Default.PiToolSelection);
         environmentVariables["PISTATION_PERMISSION_MODE"] = "full-access";
         var extensions = _options.Extensions;
         if (_options.PlanExtensionPath is { } planPath)

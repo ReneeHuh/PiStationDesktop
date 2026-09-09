@@ -55,7 +55,8 @@ public sealed class RemoteHostWorkflowTests
         await File.WriteAllTextAsync(extension, "export default () => {};");
         options.Extensions = new(true, [extension]);
         options.LaunchConfiguration = new(["--provider", "test", "--append-system-prompt", ""], new Dictionary<string, string?>
-        { ["CUSTOM_VALUE"] = " value=with equals ", ["EMPTY_VALUE"] = "", ["REMOVE_VALUE"] = null, ["MULTILINE"] = "first\nsecond" }, 75, 8);
+        { ["CUSTOM_VALUE"] = " value=with equals ", ["EMPTY_VALUE"] = "", ["REMOVE_VALUE"] = null, ["MULTILINE"] = "first\nsecond" }, 75, 8,
+            new PiToolSelection(Allowed: ["read", "powershell"]));
         await PiRuntimeSettingsStore.SaveAsync(options.CanonicalDataRoot, new(options.PiInstallation!.ExecutablePath, options.Extensions, options.LaunchConfiguration));
         await using var fixture = await RemoteFixture.StartAsync(options, directory);
         var loaded = await fixture.Client.GetPiRuntimeConfigurationAsync();
@@ -71,6 +72,8 @@ public sealed class RemoteHostWorkflowTests
         Assert.Equal(loaded.Launch.EnvironmentVariables, after.Launch.EnvironmentVariables);
         Assert.Equal(90, after.Launch.CommandTimeoutSeconds);
         Assert.Equal(8, after.Launch.ShutdownTimeoutSeconds);
+        Assert.Equal(loaded.Launch.Tools!.Mode, after.Launch.Tools!.Mode);
+        Assert.Equal(loaded.Launch.Tools.Allowed, after.Launch.Tools.Allowed);
         var saved = PiRuntimeSettingsStore.Load(options.CanonicalDataRoot);
         Assert.Equal(after.Launch.EnvironmentVariables, saved.Launch!.EnvironmentVariables);
     }

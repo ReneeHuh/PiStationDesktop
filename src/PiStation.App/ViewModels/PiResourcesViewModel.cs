@@ -28,6 +28,7 @@ public sealed class PiResourcesViewModel : ObservableObject
     private string _providerSummary = string.Empty;
     public ThreadId? ThreadId { get; private set; }
     public PiResourcesSnapshot? Snapshot { get; private set; }
+    public PiToolInventoryViewModel ToolInventory { get; } = new();
     public ObservableCollection<PiResourceRow> Resources { get; } = [];
     public ObservableCollection<PiPackageDescriptor> Packages { get; } = [];
     public ObservableCollection<PiPackageSearchItem> PackageSearchResults { get; } = [];
@@ -63,6 +64,7 @@ public sealed class PiResourcesViewModel : ObservableObject
     {
         ThreadId = threadId;
         Snapshot = snapshot;
+        ToolInventory.Apply(snapshot.ToolInventory);
         if (snapshot.PackageSearchResults is not null)
         {
             foreach (var item in snapshot.PackageSearchResults.Where(item => !PackageSearchResults.Any(existing => existing.Source == item.Source))) PackageSearchResults.Add(item);
@@ -90,6 +92,7 @@ public sealed class PiResourcesViewModel : ObservableObject
     {
         ThreadId = null;
         Snapshot = null;
+        ToolInventory.Clear();
         Packages.Clear(); Providers.Clear(); SelectedProvider = null;
         ResetPackageSearch();
         Resources.Clear();

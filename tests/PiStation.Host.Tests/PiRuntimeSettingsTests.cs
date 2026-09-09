@@ -5,6 +5,36 @@ namespace PiStation.Host.Tests;
 
 public sealed class PiRuntimeSettingsTests
 {
+    [Fact]
+    public async Task DedicatedToolPolicyPersistsAndValidatesBeforeLaunch()
+    {
+        using var directory = new HostTestDirectory();
+        var tools = new PiToolSelection(PiToolSelectionMode.Allowlist, ["read", "powershell", "read"], ["write"]);
+        var launch = PiRuntimeSettingsStore.ValidateLaunch(new(Tools: tools));
+        await PiRuntimeSettingsStore.SaveAsync(directory.Path, new(null, new(), launch));
+        var restored = PiRuntimeSettingsStore.Load(directory.Path).Launch!.Tools!;
+        Assert.Equal(["read", "powershell"], restored.Allowed);
+        Assert.Equal(["write"], restored.Excluded);
+        Assert.Equal(PiToolSelectionMode.Allowlist, restored.Mode);
+        Assert.Throws<ArgumentException>(() => PiRuntimeSettingsStore.ValidateLaunch(new(["--tools", "bash"], Tools: tools)));
+        Assert.Throws<ArgumentException>(() => PiRuntimeSettingsStore.ValidateLaunch(new(Tools: new(Excluded: ["*"]))));
+    }
+
+    [Fact]
+    public async Task OlderPiRejectsManagedSelectionWithoutReplacingSavedSettings()
+    {
+        using var directory = new HostTestDirectory();
+        var options = directory.CreateOptions();
+        await PiRuntimeSettingsStore.SaveAsync(options.CanonicalDataRoot, new(null, new(), new(CommandTimeoutSeconds: 75)));
+        await using var host = await PiStation.Host.Hosting.EmbeddedEnvironmentHost.StartAsync(options);
+        var result = await host.Environment.ConfigurePiRuntimeAsync(new(options.PiInstallation!.ExecutablePath,
+            Launch: new(Tools: new(PiToolSelectionMode.Allowlist, ["powershell"]))));
+        Assert.False(result.Available);
+        Assert.Contains("0.85.0", result.Message);
+        Assert.Equal(75, PiRuntimeSettingsStore.Load(options.CanonicalDataRoot).Launch!.CommandTimeoutSeconds);
+        Assert.Null((await host.Environment.GetPiRuntimeConfigurationAsync()).Launch!.Tools);
+    }
+
     [Theory]
     [InlineData("--")]
     [InlineData("--mode=interactive")]

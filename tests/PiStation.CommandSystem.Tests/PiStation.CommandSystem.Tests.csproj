@@ -38,6 +38,7 @@
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchTerminalViewModel.cs" Link="WorkbenchTerminalViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchFilesViewModel.cs" Link="WorkbenchFilesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\PiSessionsViewModel.cs" Link="PiSessionsViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\PiToolsViewModel.cs" Link="PiToolsViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchChangesViewModel.cs" Link="WorkbenchChangesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\RemotePairingPageState.cs" Link="RemotePairingPageState.cs" />
   </ItemGroup>

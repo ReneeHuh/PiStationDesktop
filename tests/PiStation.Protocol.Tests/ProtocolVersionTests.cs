@@ -7,6 +7,6 @@ public sealed class ProtocolVersionTests
     [Fact]
     public void CombinedDesktopAndRemoteProtocolVersionIsFortyFive()
     {
-        Assert.Equal(45, ProtocolVersion.Current);
+        Assert.Equal(46, ProtocolVersion.Current);
     }
 }

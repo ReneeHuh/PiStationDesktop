@@ -3,7 +3,7 @@ namespace PiStation.Protocol.Models;
 public sealed record PiExtensionConfiguration(bool DiscoverInstalled = false, IReadOnlyList<string>? Paths = null);
 public sealed record PiLaunchConfiguration(IReadOnlyList<string>? Arguments = null,
     IReadOnlyDictionary<string, string?>? EnvironmentVariables = null, int CommandTimeoutSeconds = 30,
-    int ShutdownTimeoutSeconds = 3);
+    int ShutdownTimeoutSeconds = 3, PiToolSelection? Tools = null);
 public sealed record PiRuntimeConfiguration(string? ExecutablePath, PiExtensionConfiguration Extensions,
     PiLaunchConfiguration? Launch = null);
 public sealed record ConfigurePiRuntimeRequest(string? ExecutablePath, PiExtensionConfiguration? Extensions = null,

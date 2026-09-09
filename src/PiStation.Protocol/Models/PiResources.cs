@@ -10,7 +10,8 @@ public sealed record PiResourcesSnapshot(string AgentDirectory, string ProjectDi
     bool? SavedProjectTrust, IReadOnlyList<PiResourceDescriptor> Resources, IReadOnlyList<PiProviderStatus> Providers,
     IReadOnlyList<string> Diagnostics, string ModelsRevision, string Message,
     IReadOnlyList<PiPackageDescriptor>? Packages = null,
-    IReadOnlyList<PiPackageSearchItem>? PackageSearchResults = null, int? NextPackageSearchOffset = null);
+    IReadOnlyList<PiPackageSearchItem>? PackageSearchResults = null, int? NextPackageSearchOffset = null,
+    PiToolInventory? ToolInventory = null);
 public sealed record PiPackageSearchItem(string Name, string Version, string Description, string Source);
 public sealed record PiPackageDescriptor(string Source, string Scope, bool Filtered, string? InstalledPath);
 public sealed record PiCustomModel(string ProviderId, string ModelId, string DisplayName, string BaseUrl, string Api,

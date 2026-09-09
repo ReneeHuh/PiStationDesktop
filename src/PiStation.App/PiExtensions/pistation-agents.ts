@@ -1,14 +1,16 @@
 // Native subagents use isolated Pi SDK sessions in the owned runtime.
 import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import * as PiSdk from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { reviewToolCall } from "./pistation-permissions.ts";
+import { filterChildTools, reviewToolCall } from "./pistation-permissions.ts";
 
 const command = "pistation-desktop-agents";
 const toolName = "pistation_subagent";
-const builtins = ["read", "grep", "find", "ls", "bash", "edit", "write"];
+const builtins = ["read", "grep", "find", "ls", "bash", "edit", "write",
+  ...(process.platform === "win32" && typeof PiSdk.createPowerShellTool === "function" ? ["powershell"] : [])];
 type Preset = { name: string; description: string; systemPrompt: string; tools: string[]; model?: string | null };
 const defaults: Preset[] = [
   { name: "scout", description: "Find relevant code and summarize evidence", systemPrompt: "Investigate the task using read/search tools. Return concise findings with file references. Do not make changes.", tools: builtins.slice(0, 4) },
@@ -53,8 +55,11 @@ export default function (pi: any) {
     if (new Set(presets.map((p: Preset) => p.name)).size !== presets.length) throw new Error("Agent names must be unique.");
     return { enabled: value.enabled, presets, revision: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
   };
-  const snapshot = (ctx: any) => ({ sessionId: ctx.sessionManager.getSessionId(), available: !!root && !!settingsPath,
-    ...settings(), message: "Bundled Pi SDK integration. Children use their preset's built-in tools and share the workspace. Model and thinking settings inherit from the parent unless the preset specifies a model." });
+  const registered = () => pi.getAllTools().some((tool: any) => tool.name === toolName);
+  const snapshot = (ctx: any) => ({ sessionId: ctx.sessionManager.getSessionId(), available: !!root && !!settingsPath && registered(),
+    ...settings(), message: !registered()
+      ? "The pistation_subagent tool is not registered in this runtime. Review the host allowlist/exclusions and restart before delegating. Presets can still be edited."
+      : "Bundled Pi SDK integration. Children use their preset's built-in tools intersected with dedicated host tool restrictions and share the workspace. Model and thinking settings inherit from the parent unless the preset specifies a model." });
   pi.registerCommand(command, { description: "PiStation agent setup and child controls", handler: async (payload: string, ctx: any) => {
     let request: any;
     try {
@@ -72,6 +77,7 @@ export default function (pi: any) {
         if (request.expectedRevision !== current.revision) throw new Error("Agent settings changed. Refresh before saving.");
         if (request.action === "prepare") {
           if (!current.enabled) throw new Error("Agent workflows are disabled.");
+          if (!pi.getActiveTools().includes(toolName)) throw new Error("The pistation_subagent tool is not active. Review tool selection and planning state before delegating.");
           prepared = request.workflow;
         } else if (request.action === "enable") current.enabled = true;
         else if (request.action === "disable") current.enabled = false;
@@ -185,7 +191,7 @@ export default function (pi: any) {
             appendSystemPrompt: [preset.systemPrompt] });
           await loader.reload();
           ({ session } = await createAgentSession({ cwd: ctx.cwd, modelRuntime: runtime, model,
-            thinkingLevel: ctx.thinkingLevel, tools: preset.tools, sessionManager: manager, settingsManager: memorySettings, resourceLoader: loader }));
+            thinkingLevel: ctx.thinkingLevel, tools: filterChildTools(preset.tools), sessionManager: manager, settingsManager: memorySettings, resourceLoader: loader }));
           const sessionFile = manager.getSessionFile();
           if (!sessionFile) throw new Error("The child session has no persistence path.");
           atomic(join(root!, result.controlId, "child.json"), { preset, sessionFile: sessionFile.replaceAll("\\", "/").split("/").at(-1) });

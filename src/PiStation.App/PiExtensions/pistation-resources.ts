@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { DefaultPackageManager, getAgentDir, ModelRuntime, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { getPermissionMode, permissionModes, reviewToolCall, setPermissionMode } from "./pistation-permissions.ts";
+import { getPermissionMode, getToolSelection, permissionModes, reviewToolCall, setPermissionMode } from "./pistation-permissions.ts";
 import registerSessions from "./pistation-sessions.ts";
 
 const commandName = "pistation-desktop-resources";
@@ -254,11 +254,20 @@ export default function (pi: any) {
         catch (error) { diagnostics.push(limit((error as Error).message)); }
         if (ctx.modelRegistry.getError()) diagnostics.push(limit(ctx.modelRegistry.getError()));
         if (resources.length > 1024) diagnostics.push("Resource list truncated to 1024 entries.");
+        const activeTools = new Set<string>(pi.getActiveTools());
+        const allTools = pi.getAllTools();
+        const toolInventory = {
+          selection: getToolSelection(), truncated: allTools.length > 256,
+          tools: allTools.slice(0, 256).map((tool: any) => ({ name: limit(tool.name, 128),
+            description: limit(tool.description, 240),
+            source: limit(tool.sourceInfo?.source ?? "unattributed", 256), active: activeTools.has(tool.name) })),
+        };
+        if (toolInventory.truncated) diagnostics.push("Tool inventory truncated to 256 registered entries.");
         const data = {
           agentDirectory: agentDir, projectDirectory: ctx.cwd, projectTrusted: trusted,
           savedProjectTrust: new ProjectTrustStore(agentDir).get(ctx.cwd),
           resources: resources.slice(0, 1024).map(({ metadata, originalPath, ...resource }) => resource),
-          providers, diagnostics, modelsRevision, message, packages: packageManager.listConfiguredPackages(),
+          providers, diagnostics, modelsRevision, message, packages: packageManager.listConfiguredPackages(), toolInventory,
         };
         ctx.ui.setStatus("pistation-management:" + request.id, JSON.stringify({ success: true, data }));
       } catch (error) {

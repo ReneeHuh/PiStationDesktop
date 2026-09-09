@@ -35,6 +35,16 @@ public sealed partial class PiThreadController
                 result = refreshed.Deserialize(ProtocolJsonContext.Default.PiResourcesSnapshot)! with { Message = result.Message };
             }
             // Pi logs resource load failures on stderr, outside the command-discovery contract.
+            if (result.ToolInventory is { } inventory)
+            {
+                if (inventory.Tools is null || inventory.Tools.Count > 256 || inventory.Tools.Any(tool => tool is null ||
+                    string.IsNullOrWhiteSpace(tool.Name) || tool.Name.Length > 128 ||
+                    tool.Description is null || tool.Description.Length > 240 || tool.Source is null || tool.Source.Length > 256) ||
+                    inventory.Tools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count() != inventory.Tools.Count)
+                    throw new JsonException("Pi returned an invalid tool inventory.");
+                try { if (inventory.Selection is not null) PiToolSelectionRules.Normalize(inventory.Selection); }
+                catch (ArgumentException exception) { throw new JsonException("Pi returned an invalid runtime tool policy.", exception); }
+            }
             var diagnostics = result.Diagnostics.ToList();
             if (!string.IsNullOrWhiteSpace(_process.StandardError)) diagnostics.Add(_process.StandardError);
             var resources = result.Resources.ToList();

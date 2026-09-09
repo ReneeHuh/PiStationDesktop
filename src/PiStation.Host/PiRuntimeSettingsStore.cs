@@ -69,6 +69,8 @@ public static class PiRuntimeSettingsStore
                 throw new ArgumentException("Enter valid environment-variable names. PISTATION_ variables are managed by the desktop.");
         if (configuration.CommandTimeoutSeconds is < 5 or > 600 || configuration.ShutdownTimeoutSeconds is < 1 or > 30)
             throw new ArgumentException("Command timeout must be 5–600 seconds; shutdown timeout must be 1–30 seconds.");
-        return configuration;
+        var tools = configuration.Tools is null ? null : PiToolSelectionRules.Normalize(configuration.Tools);
+        PiToolSelectionRules.ValidateArguments(tools, configuration.Arguments ?? []);
+        return configuration with { Tools = tools };
     }
 }
