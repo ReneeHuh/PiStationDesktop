@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PiStation.ClientRuntime.Tests" />
+    <InternalsVisibleTo Include="PiStation.RemoteUiFixture" />
   </ItemGroup>
 
   <ItemGroup>

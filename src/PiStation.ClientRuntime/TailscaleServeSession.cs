@@ -34,6 +34,7 @@ public sealed class TailscaleServeSession : IAsyncDisposable
         TailscaleServeConfiguration.EnsurePortAvailable(await query(StatusArguments, deadline.Token).ConfigureAwait(false), servePort);
         // Deliberately omit --bg, --https, --yes, and Funnel. Raw forwarding preserves
         // TLS end to end; the foreground lease removes only this app's mapping on exit.
+        deadline.Token.ThrowIfCancellationRequested();
         var process = start(["serve", "--tcp=" + servePort.ToString(CultureInfo.InvariantCulture),
             "tcp://127.0.0.1:" + localPort.ToString(CultureInfo.InvariantCulture)]);
         var ready = false;

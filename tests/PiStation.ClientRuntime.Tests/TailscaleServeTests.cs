@@ -81,6 +81,16 @@ public sealed class TailscaleServeTests
     }
 
     [Fact]
+    public async Task CancellationAfterPreflightNeverStartsSharing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => TailscaleServeSession.StartAsync(Self, 12345, 8443,
+            async (_, _) => { await cancellation.CancelAsync(); return "{}"; },
+            _ => throw new Xunit.Sdk.XunitException("Canceled sharing must not start."),
+            (_, _) => throw new Xunit.Sdk.XunitException("Must not probe."), cancellation.Token));
+    }
+
+    [Fact]
     public async Task FailedIdentityProbeClosesOnlyTheOwnedProcess()
     {
         var process = new FakeProcess();

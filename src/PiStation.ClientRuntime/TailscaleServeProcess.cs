@@ -20,10 +20,11 @@ internal sealed class TailscaleServeProcess : ITailscaleServeProcess
     private readonly Task<string> _errors;
     private int _disposed;
 
-    public TailscaleServeProcess(IReadOnlyList<string> arguments)
+    public TailscaleServeProcess(IReadOnlyList<string> arguments) : this(FindExecutable(), arguments) { }
+
+    internal TailscaleServeProcess(string executable, IReadOnlyList<string> arguments)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Tailscale sharing requires Windows.");
-        var executable = TailscaleDiscovery.FindExecutable() ?? throw new InvalidOperationException("Install and connect Tailscale on this computer first.");
         var start = new ProcessStartInfo(executable)
         {
             UseShellExecute = false, CreateNoWindow = true,
@@ -48,15 +49,25 @@ internal sealed class TailscaleServeProcess : ITailscaleServeProcess
 
     public bool HasExited => _lifetime.IsCancellationRequested || _process.HasExited;
 
-    public static async Task<string> QueryAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    public static Task<string> QueryAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
-        await using var process = new TailscaleServeProcess(arguments);
+        cancellationToken.ThrowIfCancellationRequested();
+        return QueryAsync(FindExecutable(), arguments, cancellationToken);
+    }
+
+    internal static async Task<string> QueryAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var process = new TailscaleServeProcess(executable, arguments);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(8));
         await Task.WhenAll(process._output, process._errors, process._process.WaitForExitAsync(deadline.Token)).WaitAsync(deadline.Token).ConfigureAwait(false);
         if (process._process.ExitCode != 0) throw new InvalidOperationException("Tailscale Serve status is unavailable. Check the Tailscale Windows app and service.");
         return await process._output.ConfigureAwait(false);
     }
+
+    private static string FindExecutable() => TailscaleDiscovery.FindExecutable()
+        ?? throw new InvalidOperationException("Install and connect Tailscale on this computer first.");
 
     private void Kill()
     {

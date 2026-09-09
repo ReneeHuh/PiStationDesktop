@@ -21,6 +21,8 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length == 3 && args[0] == "--serve-process-fixture")
+            return await ServeProcessFixture.RunAsync(args[1], args[2]);
         if (args.Length < 2 || args[0] is not ("serve" or "smoke" or "verify"))
         {
             Console.Error.WriteLine("Usage: PiStation.RemoteUiFixture serve|smoke NEW_ROOT FAKE_PI_EXE | verify ROOT");
