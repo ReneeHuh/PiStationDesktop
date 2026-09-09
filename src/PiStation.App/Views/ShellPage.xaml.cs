@@ -59,6 +59,7 @@ public sealed partial class ShellPage : Page
         _rightPanel.HostingReviewRequested += OnHostingReviewRequested;
         _conversationTimeline = new ConversationTimeline(ViewModel);
         _composerSurface = new ComposerSurface(ViewModel);
+        _conversationTimeline.ReadingHistoryChanged += OnReadingHistoryChanged;
         ShellLayout.Sidebar = _sidebar;
         ShellLayout.RightPanel = _rightPanel;
         ConversationTimelineHost.Content = _conversationTimeline;
@@ -94,6 +95,8 @@ public sealed partial class ShellPage : Page
 
     public bool IsSidebarCollapsed => _sidebar.IsCollapsed;
 
+    private void OnReadingHistoryChanged(object? sender, bool readingHistory) => _composerSurface.SetReadingHistory(readingHistory);
+
     public event EventHandler? SidebarCollapsedChanged;
 
     public Task OpenCommandPaletteAsync() =>
@@ -108,6 +111,7 @@ public sealed partial class ShellPage : Page
 
         _disposed = true;
         _rightPanel.StopBrowserAutomation();
+        _conversationTimeline.ReadingHistoryChanged -= OnReadingHistoryChanged;
         _remoteConnectionsPanel?.Deactivate();
         _paletteSearchCancellation?.Cancel();
         _paletteSearchCancellation?.Dispose();

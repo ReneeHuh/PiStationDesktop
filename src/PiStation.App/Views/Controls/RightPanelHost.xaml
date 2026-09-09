@@ -437,8 +437,19 @@
                             automation:AutomationProperties.Name="Git diff content"
                             Text="{x:Bind ViewModel.WorkbenchChanges.DiffContent, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.WorkbenchChanges.DiffContentVisibility, Mode=OneWay}" />
-                        <Button Grid.Row="7" HorizontalAlignment="Stretch" Click="OnHostingReviewClicked" Content="Pull requests…"
+                        <StackPanel Grid.Row="7" Spacing="8">
+                        <Border Padding="8" Style="{StaticResource PiElevatedSurfaceStyle}"
+                            Visibility="{x:Bind ViewModel.Workspace.LinkedPullRequestVisibility, Mode=OneWay}"
+                            automation:AutomationProperties.AutomationId="LinkedPullRequestCard">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Linked pull request" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Workspace.LinkedPullRequestSummary, Mode=OneWay}" TextWrapping="Wrap" MaxLines="4" TextTrimming="CharacterEllipsis" />
+                                <Button Content="Open linked PR" Click="OnOpenLinkedPullRequest" Style="{StaticResource PiSecondaryButtonStyle}" />
+                            </StackPanel>
+                        </Border>
+                        <Button HorizontalAlignment="Stretch" Click="OnHostingReviewClicked" Content="Pull requests…"
                             automation:AutomationProperties.AutomationId="HostingReviewButton" Style="{StaticResource PiSecondaryButtonStyle}" />
+                        </StackPanel>
                     </Grid>
 
                     <Grid

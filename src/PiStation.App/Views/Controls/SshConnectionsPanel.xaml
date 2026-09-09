@@ -46,8 +46,6 @@
             <Button x:Name="ForgetConnection" Content="Forget" Click="OnForgetConnection" Style="{StaticResource PiSecondaryButtonStyle}"
                 automation:AutomationProperties.AutomationId="ForgetSshConnectionButton" />
         </StackPanel>
-        <Button x:Name="UpdateConnection" Content="Update / reconnect with bundled host" Visibility="Collapsed" Click="OnUpdateConnection" Style="{StaticResource PiSecondaryButtonStyle}"
-            automation:AutomationProperties.AutomationId="UpdateSshConnectionButton" />
         <Button x:Name="CheckSavedSetup" Content="Check saved connection" Click="OnCheckSavedSetup" Style="{StaticResource PiSecondaryButtonStyle}"
             automation:AutomationProperties.AutomationId="CheckSavedSshSetupButton" />
         <StackPanel x:Name="SetupResults" Spacing="8" Visibility="Collapsed">
@@ -66,9 +64,8 @@
         </StackPanel>
         <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
             automation:AutomationProperties.AutomationId="SshConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />
-        <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Install owner-managed update" Click="OnInstallOwnerUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
-            <Button Content="Check update status" Click="OnCheckOwnerUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
-        </StackPanel>
+        <TextBlock Text="Install and update PiStation on the other computer yourself, then start its host and choose Open / retry here. Disconnecting leaves that host running."
+            TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
+            automation:AutomationProperties.AutomationId="SshManualUpdateGuidance" />
     </StackPanel>
 </UserControl>

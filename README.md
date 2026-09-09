@@ -254,9 +254,30 @@ pwsh .\Invoke-PullRequestTests.ps1
 winapp run .\src\PiStation.App\PiStation.App.csproj --configuration Debug --arch x64
 ```
 
+## Shell and composer preferences
+
+Settings → Appearance → **Shell and composer** saves these preferences on this PC:
+
+- **Ctrl+Q:** close the current window immediately, hold for 1.2 seconds and release Q (default), or press twice within 0.5 seconds. The title-bar close button and Alt+F4 retain normal behavior. Unsaved plan confirmation and draft/file recovery still apply.
+- **Proactive panels:** off by default. When enabled, newly completed turns with changed-file checkpoints open their diff, and a newly linked PR shows its summary in Changes. Existing Files, Terminal, Preview, or Agents panels are not taken over; old completions are not replayed when switching threads.
+- **Resting composer:** independent collapse-on-blur and collapse-while-reading-history switches, both on by default. Click the compact preview, or focus it and press Enter, to expand. Text, attachments, context, and Stop remain available; open composer dropdowns/flyouts and draft recovery conflicts keep the editor expanded.
+- **Slash-menu skills:** on by default. Hiding skills from `/` suggestions does not hide them from `$` search.
+
+Adding, dropping, or pasting HEIC/HEIF files converts the first image to JPEG using
+the Windows HEIF/HEVC codec. Inputs are limited to 50 MiB and 100 megapixels; output
+respects image orientation, fits within 4096 pixels per edge, and must fit within
+10 MiB. A fresh JPEG is created without copying source metadata. The original file
+is unchanged. Unsupported codecs or damaged files produce a recoverable error;
+export a JPEG/PNG in Windows Photos if necessary. Uploads retain the original draft
+owner if selection changes during conversion.
+
+Native keyboard/focus, rendering, and picker/drop/clipboard acceptance for this
+slice is still pending. See [the acceptance checklist](Docs/SHELL-COMPOSER-ACCEPTANCE.md)
+and [the tracker](tracking.md) for the verified implementation boundary.
+
 ## Remote access
 
-Remote access now uses protocol 20 for persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, scoped preview forwarding and owner-managed updates. See [remote access usage and qualification](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) for workflows, package tooling and outstanding release checks.
+Remote access uses protocol 45 for persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:
@@ -323,13 +344,13 @@ the saved connection; host-side revocation removes authorization.
 
 See [the implementation plan and T3 review](Docs/PISTATION-REMOTE-ACCESS-PLAN.md).
 
-### Managed SSH to a Windows host
+### SSH to a running Windows host
 
-**Settings → Connections → Managed SSH** connects to a Windows computer's running
-PiStation desktop/server or starts a headless host with the same projects and
-threads. The default data directory is `%LOCALAPPDATA%\PiStationDesktop` for both.
-The desktop can also attach to an already running headless host. The process that
-started the host controls its lifetime; attaching never takes ownership.
+**Settings → Connections → SSH** connects to a Windows computer's already running
+PiStation desktop/server. Install PiStation on that computer and start its desktop
+or headless host first, under the Windows account used for SSH. The default data
+directory is `%LOCALAPPDATA%\PiStationDesktop` for both. Attaching never takes
+ownership of that host's lifetime.
 
 Older saved SSH profiles keep their original `%LOCALAPPDATA%\PiStation\ssh-host`
 directory. They are not silently switched to a different environment. Older
@@ -353,39 +374,24 @@ Keys/agent are tried first; an authentication failure offers up to two in-app
 password/passphrase attempts. The secret is held only for that connection and
 passed to OpenSSH's password helper, never saved or placed in command arguments.
 
-Enter the alias or `user@host`. Leave the server path empty to transfer the
-matching self-contained Windows x64 host bundled with the desktop; the remote
-computer does not need a separate .NET installation or access to a package feed.
-Alternatively, enter an existing remote `PiStation.Server.exe` path. Optionally
-choose a host data directory and Pi executable path. Select
+Enter the alias or `user@host` and, optionally, the running host's data directory. Select
 **Connect and save**. The host is authenticated over SSH, and the forwarded
 HTTPS/SignalR connection additionally checks its certificate and environment
 identity. Profiles are Windows-protected; ephemeral ports and bearer credentials
 are not saved on the client. No PiStation application port is exposed to the
-network, but SSH itself must be reachable. PiStation installs only its host files;
-it does not install Pi/Node, change SSH configuration, open firewall ports or
-establish a relay.
+network, but SSH itself must be reachable. Remote installation and update automation
+are outside the current product scope.
 
-Bundled hosts are cached by SHA-256 under `%LOCALAPPDATA%\PiStation\ssh-hosts`.
-Uploads are checksum-verified before a complete version directory becomes
-available. Existing versions and environment data are never overwritten by the
-installer. An incomplete upload is not activated.
+To update, finish active work, update the software on each computer manually,
+restart the host, then select **Open / retry**. Incompatible protocols are rejected;
+both computers must run compatible PiStation builds. Preserve the host data directory
+when updating. Database migrations are not automatically rolled back.
 
-**Update / reconnect with bundled host** uses the version in the current desktop
-installation, not an online "latest" feed. It asks before stopping a host owned
-by that connection because active agents and terminals can be interrupted.
-A reused desktop or independently running server is left running by this command;
-use Install owner-managed update for an update-capable, opted-in owner. Incompatible protocols
-are rejected. Older installed folders remain available for manual rollback;
-database migrations are not automatically rolled back.
-
-An SSH control session owns a host it starts. **Disconnect**, closing its remote
-window, or **Forget** closes the tunnel and stops that owned host. Other clients
-reusing that managed host will also disconnect when its owner stops it. To share
-a host independently of any client, start an installed server yourself and leave it running:
+**Disconnect**, closing the remote window, or **Forget** closes the SSH connection
+and leaves the host running. To run a headless host, start an installed server yourself:
 
 ```powershell
-C:\Tools\PiStation\PiStation.Server.exe supervise --enable-remote-updates true
+C:\Tools\PiStation\PiStation.Server.exe supervise
 ```
 
 Such a separately running host is reused through a current-user Windows named
@@ -397,8 +403,6 @@ For a manual host deployment, publish and copy the entire output directory:
 dotnet publish .\src\PiStation.Server\PiStation.Server.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\ssh-host
 ```
 
-Normal desktop builds/publishes create and include `SshHost\host-win-x64.zip`
-automatically, together with the installer and password helper.
 Normal transport failures use persistent capped retries and re-establish
 SSH at the same local endpoint. A forwarding-only failure preserves the healthy
 control session and does not restart its host. **Open / retry** requests an immediate attempt;

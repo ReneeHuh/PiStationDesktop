@@ -67,6 +67,23 @@
         </VisualStateManager.VisualStateGroups>
 
         <Grid>
+        <Grid x:Name="RestingComposerSurface" Visibility="Collapsed" ColumnSpacing="8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <Button x:Name="RestingComposerButton" HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Stretch" Click="OnExpandComposer" Padding="8"
+            Style="{StaticResource PiToolbarButtonStyle}"
+            automation:AutomationProperties.AutomationId="ExpandComposerButton"
+            automation:AutomationProperties.Name="Expand message composer">
+            <StackPanel Spacing="4">
+                <TextBlock x:Name="RestingComposerPreview" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="Click or press Enter to edit" FontSize="12" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+            </StackPanel>
+        </Button>
+        <Button Grid.Column="1" Content="Stop" Click="OnStopTurnClicked" IsEnabled="{x:Bind ViewModel.CanStop, Mode=OneWay}"
+            Style="{StaticResource PiToolbarButtonStyle}" automation:AutomationProperties.AutomationId="RestingStopTurnButton"
+            automation:AutomationProperties.Name="Stop current turn" />
+        </Grid>
+        <Grid x:Name="ExpandedComposer">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -352,7 +369,7 @@
                         Content="Context"
                         Style="{StaticResource PiToolbarButtonStyle}">
                         <Button.Flyout>
-                            <MenuFlyout>
+                            <MenuFlyout Opening="OnComposerPopupOpened" Closed="OnComposerPopupClosed">
                                 <MenuFlyoutItem Click="OnAddTerminalContextClicked" Text="Terminal output" />
                                 <MenuFlyoutItem Click="OnAddDiffContextClicked" Text="Selected diff" />
                             </MenuFlyout>
@@ -368,7 +385,7 @@
                         Content="Stash"
                         Style="{StaticResource PiToolbarButtonStyle}">
                         <Button.Flyout>
-                            <Flyout Placement="Top">
+                            <Flyout Placement="Top" Opening="OnComposerPopupOpened" Closed="OnComposerPopupClosed">
                                 <StackPanel Width="320" MaxHeight="360" Spacing="8">
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -407,6 +424,7 @@
                         Visibility="{x:Bind ViewModel.Workspace.PiConfigurationVisibility, Mode=OneWay}">
                         <ComboBox
                             x:Name="PiModelSelector"
+                            DropDownOpened="OnComposerPopupOpened" DropDownClosed="OnComposerPopupClosed"
                             MinWidth="128"
                             automation:AutomationProperties.AutomationId="PiModelSelector"
                             automation:AutomationProperties.Name="Pi model"
@@ -420,6 +438,7 @@
                             Visibility="{x:Bind ViewModel.PiConfiguration.ModelSelectorVisibility, Mode=OneWay}" />
                         <ComboBox
                             x:Name="PiThinkingLevelSelector"
+                            DropDownOpened="OnComposerPopupOpened" DropDownClosed="OnComposerPopupClosed"
                             MinWidth="108"
                             automation:AutomationProperties.AutomationId="PiThinkingLevelSelector"
                             automation:AutomationProperties.Name="Reasoning level"
@@ -433,6 +452,7 @@
                             Visibility="{x:Bind ViewModel.PiConfiguration.ThinkingLevelSelectorVisibility, Mode=OneWay}" />
                         <Button Content="Models…" Click="OnOpenModelPicker" IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}" Style="{StaticResource PiToolbarButtonStyle}" />
                         <ComboBox x:Name="PiPermissionSelector" DisplayMemberPath="DisplayName"
+                            DropDownOpened="OnComposerPopupOpened" DropDownClosed="OnComposerPopupClosed"
                             ItemsSource="{x:Bind ViewModel.PiConfiguration.RuntimeModes}" SelectedItem="{x:Bind ViewModel.PiConfiguration.SelectedRuntimeMode, Mode=OneWay}"
                             SelectionChanged="OnPiPermissionModeChanged" IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.PiConfiguration.RuntimeModeVisibility, Mode=OneWay}"
@@ -661,6 +681,7 @@
                         automation:AutomationProperties.AutomationId="KeepHostDraft" />
                 </StackPanel>
             </StackPanel>
+        </Grid>
         </Grid>
     </Border>
 </UserControl>

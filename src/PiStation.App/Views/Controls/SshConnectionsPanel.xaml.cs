@@ -52,7 +52,6 @@ public sealed partial class SshConnectionsPanel : UserControl
         var selected = SavedConnections.SelectedItem is SshConnectionProfile;
         OpenConnection.IsEnabled = DisconnectConnection.IsEnabled = ForgetConnection.IsEnabled = !busy && selected;
         CheckSavedSetup.IsEnabled = !busy && selected;
-        UpdateConnection.IsEnabled = false; // Automatic setup is deferred.
         ConnectionName.IsEnabled = Target.IsEnabled = ServerPath.IsEnabled = DataRoot.IsEnabled = PiExecutable.IsEnabled = !busy;
         SshPort.IsEnabled = DiscoveredHosts.IsEnabled = DiscoverHosts.IsEnabled = !busy;
         SavedConnections.IsEnabled = !busy;
@@ -162,41 +161,12 @@ public sealed partial class SshConnectionsPanel : UserControl
         }
     });
 
-    private async void OnUpdateConnection(object sender, RoutedEventArgs e) => await RunAsync(async token =>
-    {
-        if (SavedConnections.SelectedItem is not SshConnectionProfile profile || CurrentApp is not { } app) return;
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot, Title = "Update SSH host?",
-            Content = "This reconnects using the host bundled with this desktop. A server owned by this connection will stop, interrupting active agents and terminals. Saved projects and threads remain. A reused desktop or separate server will not be stopped; update that host at its source if its version differs.",
-            PrimaryButtonText = "Update and reconnect", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
-        };
-        using var canceled = token.Register(() => DispatcherQueue.TryEnqueue(dialog.Hide));
-        if (await app.ShowConnectionDialogAsync(dialog, token) != ContentDialogResult.Primary) return;
-        token.ThrowIfCancellationRequested();
-        await app.OpenSshEnvironmentAsync(profile, new Progress<string>(message => { if (_active) Status.Text = message; }),
-            token, XamlRoot, updateWithBundledHost: true);
-    });
-
     private async Task DiscoverAsync()
     {
         var found = await SshHostDiscovery.DiscoverAsync();
         if (!_active) return;
         _discovered = found;
         DiscoveredHosts.ItemsSource = _discovered;
-    }
-
-    private async void OnInstallOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(false, token));
-    private async void OnCheckOwnerUpdate(object sender, RoutedEventArgs e) => await RunAsync(token => RunOwnerUpdateAsync(true, token));
-    private async Task RunOwnerUpdateAsync(bool historyOnly, CancellationToken cancellationToken)
-    {
-        if (SavedConnections.SelectedItem is not SshConnectionProfile profile || CurrentApp is not { } app) return;
-        var progress = new Progress<string>(message => { if (_active) Status.Text = message; });
-        await using var connection = ManagedSshConnection.ForHostUpdate(profile, progress,
-            (request, token) => app.RequestSshPasswordAsync(profile.Id, request, XamlRoot, token));
-        await connection.EnsureConnectedAsync(cancellationToken);
-        await using var updates = new PiStation.ClientRuntime.RemoteUpdateClient(connection.CreateOptions());
-        await PiStation.App.Composition.RemoteUpdateWorkflow.RunAsync(updates, XamlRoot, progress, historyOnly, cancellationToken);
     }
 
     private async void OnDiscoverHosts(object sender, RoutedEventArgs e) => await RunAsync(async _ =>

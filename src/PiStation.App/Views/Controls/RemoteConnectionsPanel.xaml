@@ -42,8 +42,6 @@
                 </StackPanel>
             </Expander>
             <StackPanel x:Name="HostControls" Spacing="8">
-                <ToggleSwitch x:Name="AllowRemoteUpdates" Header="Allow approved operate devices to request host updates"
-                    Toggled="OnAllowRemoteUpdatesChanged" />
                 <TextBlock Text="Share this computer" FontWeight="SemiBold" />
                 <TextBlock Text="Allow approved devices on your LAN or VPN to use this environment. Keep this window open while sharing."
                     TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
@@ -173,10 +171,9 @@
             </StackPanel>
             <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
                 automation:AutomationProperties.AutomationId="RemoteConnectionStatus" automation:AutomationProperties.LiveSetting="Polite" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Install host update" Click="OnInstallHostUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
-                <Button Content="Check update status" Click="OnCheckHostUpdate" Style="{StaticResource PiSecondaryButtonStyle}" />
-            </StackPanel>
+            <TextBlock Text="Update PiStation and Pi on each computer manually. After updating the host, start it again and open the saved environment. Both computers need compatible PiStation versions."
+                TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}"
+                automation:AutomationProperties.AutomationId="RemoteManualUpdateGuidance" />
             <controls:SshConnectionsPanel x:Name="SshConnections" />
         </StackPanel>
     </Border>

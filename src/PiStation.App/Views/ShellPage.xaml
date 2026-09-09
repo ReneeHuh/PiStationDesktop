@@ -551,6 +551,31 @@
                         </Grid>
                     </Border>
 
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Shell and composer" />
+                            <ComboBox Header="Close window shortcut (Ctrl+Q)" HorizontalAlignment="Stretch"
+                                SelectedIndex="{x:Bind ViewModel.Layout.QuitConfirmationModeIndex, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="QuitConfirmationModeSelector">
+                                <ComboBoxItem Content="Close immediately" />
+                                <ComboBoxItem Content="Hold for 1.2 seconds, then release" />
+                                <ComboBoxItem Content="Press twice within half a second" />
+                            </ComboBox>
+                            <TextBlock Text="The title-bar close button and Alt+F4 work normally. Unsaved plan edits always require confirmation; drafts and file edits are preserved."
+                                TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                            <ToggleSwitch Header="Open changes or linked PR details automatically" IsOn="{x:Bind ViewModel.Layout.ProactivePanelsEnabled, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="ProactivePanelsToggle" />
+                            <ToggleSwitch Header="Collapse resting composer when focus leaves" IsOn="{x:Bind ViewModel.Layout.ComposerCollapseOnBlur, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="ComposerCollapseOnBlurToggle" />
+                            <ToggleSwitch Header="Collapse resting composer when reading older messages" IsOn="{x:Bind ViewModel.Layout.ComposerCollapseOnScroll, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="ComposerCollapseOnScrollToggle" />
+                            <ToggleSwitch Header="Show skills in the slash menu" IsOn="{x:Bind ViewModel.Layout.ShowSkillsInSlashMenu, Mode=TwoWay}"
+                                automation:AutomationProperties.AutomationId="ShowSkillsInSlashMenuToggle" />
+                            <TextBlock Text="Skills remain available through $ search. Composer preferences keep your text, attachments, and context intact."
+                                TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
                     <Border Tag="PiRuntime" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <Grid RowSpacing="6">
                             <Grid.RowDefinitions>
@@ -969,7 +994,7 @@
                         Visibility="Collapsed">
                         <StackPanel Spacing="8">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Integrations" />
-                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Hosting adapters use installed and authenticated provider CLIs: gh, glab, bb, and az. Availability and authentication failures appear in diagnostics without exporting secrets." TextWrapping="Wrap" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Hosting adapters use installed and authenticated provider CLIs: gh (GitHub), glab (GitLab), and az (Azure). Bitbucket hosting actions are not available yet. Availability and authentication failures appear in diagnostics without exporting secrets." TextWrapping="Wrap" />
                             <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Diagnostics, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:RuntimeDiagnostic">

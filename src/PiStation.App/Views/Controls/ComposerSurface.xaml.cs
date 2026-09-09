@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PiStation.App.ViewModels;
 using PiStation.Protocol.Models;
+using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Projections;
 using Windows.Storage.Pickers;
 using Windows.Storage;
@@ -38,11 +39,20 @@ public sealed partial class ComposerSurface : UserControl
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        Loaded += OnRestingLoaded;
+        Unloaded += OnRestingUnloaded;
+        GotFocus += OnComposerFocusChanged;
+        LostFocus += OnComposerFocusChanged;
     }
 
     public ShellViewModel ViewModel { get; }
 
-    public void FocusPrompt() => PromptInput.Focus(FocusState.Programmatic);
+    public void FocusPrompt()
+    {
+        _scrollCollapsed = false;
+        SetResting(false);
+        PromptInput.Focus(FocusState.Programmatic);
+    }
 
     private void OnRestoreRecoveredDraft(object sender, RoutedEventArgs e) => ViewModel.Composer.RestoreRecoveredDraft();
 
@@ -91,6 +101,7 @@ public sealed partial class ComposerSurface : UserControl
 
     private void UpdatePromptHeight()
     {
+        if (_resting) return;
         const double estimatedCharacterWidth = 7.4;
         const double additionalLineHeight = 20;
         var availableWidth = Math.Max(estimatedCharacterWidth * 24, PromptInput.ActualWidth - 16);
@@ -264,6 +275,13 @@ public sealed partial class ComposerSurface : UserControl
 
     private async void OnAttachFilesClicked(object sender, RoutedEventArgs e)
     {
+        try { await PickAttachmentsAsync(); }
+        catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
+    }
+
+    private async Task PickAttachmentsAsync()
+    {
+        var targetThread = ViewModel.Workspace.SelectedThread?.ThreadId;
         var window = (Application.Current as App)?.FindWindow(XamlRoot);
         if (window is null)
         {
@@ -276,7 +294,7 @@ public sealed partial class ComposerSurface : UserControl
             picker,
             WinRT.Interop.WindowNative.GetWindowHandle(window));
         var files = await picker.PickMultipleFilesAsync();
-        await AddStorageFilesAsync(files.OfType<StorageFile>());
+        await AddStorageFilesAsync(files.OfType<StorageFile>(), targetThread);
     }
 
     private async void OnRemoveAttachmentClicked(object sender, RoutedEventArgs e)
@@ -304,11 +322,18 @@ public sealed partial class ComposerSurface : UserControl
 
     private async void OnComposerDrop(object sender, DragEventArgs e)
     {
+        try { await HandleComposerDropAsync(e); }
+        catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
+    }
+
+    private async Task HandleComposerDropAsync(DragEventArgs e)
+    {
+        var targetThread = ViewModel.Workspace.SelectedThread?.ThreadId;
         if (e.DataView.Contains(RightPanelHost.WorkspaceFileDragFormat))
         {
             e.Handled = true;
             var value = await e.DataView.GetDataAsync(RightPanelHost.WorkspaceFileDragFormat);
-            if (value is string relativePath && !string.IsNullOrWhiteSpace(relativePath))
+            if (IsAttachmentTargetCurrent(targetThread) && value is string relativePath && !string.IsNullOrWhiteSpace(relativePath))
             {
                 InsertFileMentionAtCaret(relativePath);
             }
@@ -320,19 +345,26 @@ public sealed partial class ComposerSurface : UserControl
         {
             e.Handled = true;
             var items = await e.DataView.GetStorageItemsAsync();
-            await AddStorageFilesAsync(items.OfType<StorageFile>());
+            await AddStorageFilesAsync(items.OfType<StorageFile>(), targetThread);
             return;
         }
 
         if (e.DataView.Contains(StandardDataFormats.Bitmap))
         {
             e.Handled = true;
-            await AddBitmapAsync(await e.DataView.GetBitmapAsync());
+            await AddBitmapAsync(await e.DataView.GetBitmapAsync(), targetThread);
         }
     }
 
     private async Task<bool> TryPasteImageOrFilesAsync()
     {
+        try { return await PasteImageOrFilesAsync(); }
+        catch (Exception exception) { ViewModel.ReportRuntimeError(exception); return true; }
+    }
+
+    private async Task<bool> PasteImageOrFilesAsync()
+    {
+        var targetThread = ViewModel.Workspace.SelectedThread?.ThreadId;
         var content = Clipboard.GetContent();
         if (content.Contains(StandardDataFormats.StorageItems))
         {
@@ -340,31 +372,39 @@ public sealed partial class ComposerSurface : UserControl
             var files = items.OfType<StorageFile>().ToArray();
             if (files.Length != 0)
             {
-                await AddStorageFilesAsync(files);
+                await AddStorageFilesAsync(files, targetThread);
                 return true;
             }
         }
 
         if (content.Contains(StandardDataFormats.Bitmap))
         {
-            await AddBitmapAsync(await content.GetBitmapAsync());
+            await AddBitmapAsync(await content.GetBitmapAsync(), targetThread);
             return true;
         }
 
         return false;
     }
 
-    private async Task AddStorageFilesAsync(IEnumerable<StorageFile> files)
+    private bool IsAttachmentTargetCurrent(ThreadId? targetThread)
+    {
+        if (targetThread is { } id && ViewModel.Workspace.SelectedThread?.ThreadId == id && ViewModel.Composer.OwnsDraft(id)) return true;
+        ViewModel.ReportRuntimeError("The active draft changed while reading the attachment. Select the intended conversation and attach it again.");
+        return false;
+    }
+
+    private async Task AddStorageFilesAsync(IEnumerable<StorageFile> files, ThreadId? targetThread)
     {
         foreach (var file in files)
         {
-            if (!ViewModel.Composer.CanAttach)
+            if (!ViewModel.CanAttachFiles || !IsAttachmentTargetCurrent(targetThread))
             {
                 break;
             }
 
             var properties = await file.GetBasicPropertiesAsync();
             await using var content = await file.OpenStreamForReadAsync();
+            if (!IsAttachmentTargetCurrent(targetThread)) return;
             await ViewModel.AddAttachmentAsync(
                 file.Name,
                 file.ContentType,
@@ -373,15 +413,16 @@ public sealed partial class ComposerSurface : UserControl
         }
     }
 
-    private async Task AddBitmapAsync(RandomAccessStreamReference bitmap)
+    private async Task AddBitmapAsync(RandomAccessStreamReference bitmap, ThreadId? targetThread)
     {
-        if (!ViewModel.Composer.CanAttach)
+        if (!ViewModel.CanAttachFiles || !IsAttachmentTargetCurrent(targetThread))
         {
             return;
         }
 
         using var randomAccessStream = await bitmap.OpenReadAsync();
         await using var content = randomAccessStream.AsStreamForRead();
+        if (!IsAttachmentTargetCurrent(targetThread)) return;
         var mediaType = string.IsNullOrWhiteSpace(randomAccessStream.ContentType)
             ? "image/png"
             : randomAccessStream.ContentType;

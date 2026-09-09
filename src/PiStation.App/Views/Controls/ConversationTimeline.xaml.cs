@@ -22,6 +22,7 @@ public sealed partial class ConversationTimeline : UserControl
     }
 
     public ShellViewModel ViewModel { get; }
+    public event EventHandler<bool>? ReadingHistoryChanged;
 
     public void RevealMessage(string messageId)
     {
@@ -94,6 +95,7 @@ public sealed partial class ConversationTimeline : UserControl
         _scrollThread = next;
         var saved = next is { } id && _positions.TryGetValue(id, out var position) ? position : (Offset: 0d, Follow: true);
         _followOutput = saved.Follow;
+        ReadingHistoryChanged?.Invoke(this, !_followOutput);
         _restoreOffset = saved.Follow ? null : saved.Offset;
         JumpToLatestButton.Visibility = Visibility.Collapsed;
         QueueScroll();
@@ -109,6 +111,7 @@ public sealed partial class ConversationTimeline : UserControl
         if (_followOutput && heightChanged && !offsetChanged) { QueueScroll(); return; }
         _followOutput = _scrollViewer.ScrollableHeight - _scrollViewer.VerticalOffset <= 40;
         JumpToLatestButton.Visibility = _followOutput ? Visibility.Collapsed : Visibility.Visible;
+        ReadingHistoryChanged?.Invoke(this, !_followOutput);
         RememberPosition();
     }
 
@@ -145,6 +148,7 @@ public sealed partial class ConversationTimeline : UserControl
     {
         _restoreOffset = null;
         _followOutput = true;
+        ReadingHistoryChanged?.Invoke(this, false);
         JumpToLatestButton.Visibility = Visibility.Collapsed;
         QueueScroll();
     }

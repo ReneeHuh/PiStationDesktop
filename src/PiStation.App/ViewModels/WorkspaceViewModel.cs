@@ -43,6 +43,8 @@ public sealed class WorkspaceViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(HasSelectedThread));
                 OnPropertyChanged(nameof(ActiveThreadTitle));
+                OnPropertyChanged(nameof(LinkedPullRequestSummary));
+                OnPropertyChanged(nameof(LinkedPullRequestVisibility));
                 OnPropertyChanged(nameof(PiConfigurationVisibility));
                 OnPropertyChanged(nameof(NoThreadEmptyStateVisibility));
             }
@@ -58,6 +60,12 @@ public sealed class WorkspaceViewModel : ObservableObject
     public string ActiveProjectPath => SelectedProject?.CanonicalPath ?? "No project selected";
 
     public string ActiveThreadTitle => SelectedThread?.Title ?? "No active thread";
+
+    public string LinkedPullRequestSummary => SelectedThread?.PullRequest is { } link
+        ? $"{link.Provider} · {link.Repository} #{link.Number}\n{link.Title}\n{link.State}" : string.Empty;
+
+    public Visibility LinkedPullRequestVisibility => SelectedThread?.PullRequest is not null
+        ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility NoProjectEmptyStateVisibility => HasSelectedProject
         ? Visibility.Collapsed

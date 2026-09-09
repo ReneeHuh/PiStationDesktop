@@ -40,6 +40,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly string _attachmentCacheRoot;
     private readonly string _browserAutomationRoot;
     private ThreadRuntimeState? _lastProjectionRuntimeState;
+    private readonly PiStation.App.Composition.ProactivePanels _proactivePanels = new();
     private readonly EditingRecoveryStore? _editingRecovery;
 
     public ShellViewModel(
@@ -84,7 +85,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             RemoveDraftAttachmentAsync,
             ClearDraftAsync,
             _editingRecovery);
-        ComposerPower = new ComposerPowerViewModel(Composer);
+        ComposerPower = new ComposerPowerViewModel(Composer, Layout);
         Composer.PropertyChanged += OnComposerPropertyChanged;
         Composer.SaveFailed += OnComposerSaveFailed;
         InitializeInbox();
@@ -213,11 +214,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         set
         {
             var previousThreadId = Workspace.SelectedThread?.ThreadId;
+            var openLinkedPanel = Layout.ProactivePanelsEnabled &&
+                PiStation.App.Composition.ProactivePanels.IsNewLink(Workspace.SelectedThread, value);
             if (!Equals(Workspace.SelectedThread, value))
             {
                 Workspace.SelectedThread = value;
                 if (previousThreadId != value?.ThreadId)
                 {
+                    _proactivePanels.Reset();
                     ClearPiConfiguration(value is null ? string.Empty : "Loading Pi settings…");
                     ResetWorkbenchFiles(SelectedProject);
                     ResetWorkbenchChanges(SelectedProject);
@@ -226,6 +230,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 }
 
                 RaiseCommandStateChanged();
+                if (openLinkedPanel && (!Layout.IsRightPanelOpen || Layout.SelectedPanel == WorkbenchPanelKind.Changes))
+                {
+                    Layout.SelectedPanel = WorkbenchPanelKind.Changes;
+                    Layout.IsRightPanelOpen = true;
+                }
             }
         }
     }
@@ -3821,6 +3830,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             _ = RefreshThreadMetadataAsync(selectedThread.ThreadId);
         }
+        var completedTurn = _proactivePanels.Observe(projection,
+            Layout.ProactivePanelsEnabled && projection?.ThreadId == SelectedThread?.ThreadId &&
+            (!Layout.IsRightPanelOpen || Layout.SelectedPanel == WorkbenchPanelKind.Changes));
+        if (completedTurn is { } turnCount) _ = OpenCheckpointDiffAsync(turnCount, CheckpointDiffScope.Turn);
     }
 
     private void ClearError()
@@ -3941,7 +3954,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 if (SelectedThread is not null &&
                     threads.FirstOrDefault(item => item.ThreadId == SelectedThread.ThreadId) is { } visibleSelected)
                 {
-                    Workspace.SelectedThread = visibleSelected;
+                    SelectedThread = visibleSelected;
                     OnPropertyChanged(nameof(SelectedThread));
                 }
 

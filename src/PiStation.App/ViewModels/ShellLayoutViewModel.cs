@@ -42,7 +42,7 @@ public enum PreviewAutomationAccess
     Interact,
 }
 
-public sealed class ShellLayoutViewModel : ObservableObject
+public sealed partial class ShellLayoutViewModel : ObservableObject
 {
     public const double DefaultRightPanelWidth = 420;
     public const double MinimumRightPanelWidth = 360;
@@ -635,6 +635,11 @@ public sealed class ShellLayoutViewModel : ObservableObject
             _themePreference = Enum.IsDefined(snapshot.ThemePreference)
                 ? snapshot.ThemePreference
                 : AppThemePreference.Dark;
+            _quitConfirmationModeIndex = Math.Clamp(snapshot.QuitConfirmationModeIndex, 0, 2);
+            _proactivePanelsEnabled = snapshot.ProactivePanelsEnabled;
+            _composerCollapseOnBlur = snapshot.ComposerCollapseOnBlur;
+            _composerCollapseOnScroll = snapshot.ComposerCollapseOnScroll;
+            _showSkillsInSlashMenu = snapshot.ShowSkillsInSlashMenu;
             _terminalFontFamily = NormalizeTerminalFontFamily(snapshot.TerminalFontFamily);
             _terminalFontSize = NormalizeTerminalFontSize(
                 snapshot.TerminalFontSize ?? DefaultTerminalFontSize);
@@ -781,7 +786,12 @@ public sealed class ShellLayoutViewModel : ObservableObject
                 LastModel,
                 LastThinkingLevel,
                 _modelPreferences,
-                Sidebar);
+                Sidebar,
+                QuitConfirmationModeIndex,
+                ProactivePanelsEnabled,
+                ComposerCollapseOnBlur,
+                ComposerCollapseOnScroll,
+                ShowSkillsInSlashMenu);
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(snapshot, SerializerOptions));
@@ -830,7 +840,12 @@ public sealed class ShellLayoutViewModel : ObservableObject
         PiModelSelection? LastModel = null,
         PiThinkingLevel? LastThinkingLevel = null,
         IReadOnlyList<ModelPickerPreference>? ModelPreferences = null,
-        SidebarPreferences? Sidebar = null);
+        SidebarPreferences? Sidebar = null,
+        int QuitConfirmationModeIndex = 1,
+        bool ProactivePanelsEnabled = false,
+        bool ComposerCollapseOnBlur = true,
+        bool ComposerCollapseOnScroll = true,
+        bool ShowSkillsInSlashMenu = true);
 }
 
 public sealed record ModelPickerPreference(PiModelSelection Model, bool Favorite = false, bool Hidden = false, int Order = 1000);

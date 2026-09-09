@@ -100,9 +100,6 @@ public sealed partial class RemoteConnectionsPanel : UserControl
     {
         if (!_active) return;
         var controller = HostController;
-        if (!_busy && AllowRemoteUpdates.IsOn != (controller?.AllowsRemoteUpdates == true))
-            AllowRemoteUpdates.IsOn = controller?.AllowsRemoteUpdates == true;
-        AllowRemoteUpdates.IsEnabled = !_busy && controller?.CanHost == true;
         StartSharing.IsEnabled = !_busy && controller is { CanHost: true, IsSharing: false };
         StopSharing.IsEnabled = !_busy && controller?.IsSharing == true;
         CreatePairingLink.IsEnabled = !_busy && controller is { IsSharing: true, NeedsAddress: false };
@@ -319,13 +316,6 @@ public sealed partial class RemoteConnectionsPanel : UserControl
 
     private void OnCancelPairing(object sender, RoutedEventArgs e) => _pairing?.Cancel();
 
-    private void OnAllowRemoteUpdatesChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_active || _busy || HostController is not { CanHost: true } controller) return;
-        try { controller.AllowsRemoteUpdates = AllowRemoteUpdates.IsOn; }
-        catch (Exception exception) { Status.Text = exception.Message; }
-    }
-
     private async void OnCopyDiagnostics(object sender, RoutedEventArgs e) => await RunAsync(() =>
     {
         if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment saved && Application.Current is App app)
@@ -374,20 +364,6 @@ public sealed partial class RemoteConnectionsPanel : UserControl
         if (SavedEnvironments.SelectedItem is SavedRemoteEnvironment environment && Application.Current is App app)
             await app.OpenRemoteEnvironmentAsync(environment);
     });
-
-    private async void OnInstallHostUpdate(object sender, RoutedEventArgs e) => await RunAsync(() => RunUpdateAsync(false));
-    private async void OnCheckHostUpdate(object sender, RoutedEventArgs e) => await RunAsync(() => RunUpdateAsync(true));
-
-    private async Task RunUpdateAsync(bool historyOnly)
-    {
-        if (SavedEnvironments.SelectedItem is not SavedRemoteEnvironment saved || Application.Current is not App app) return;
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(30));
-        _pairing = cancellation;
-        var existing = app.FindRemoteClient(saved.EnvironmentId.ToString());
-        var client = existing ?? new EnvironmentClient(saved.CreateOptions());
-        try { await RemoteUpdateWorkflow.RunAsync(client, XamlRoot, new Progress<string>(message => Status.Text = message), historyOnly, cancellation.Token); }
-        finally { _pairing = null; if (existing is null) await client.DisposeAsync(); }
-    }
 
     private async void OnDisconnectEnvironment(object sender, RoutedEventArgs e) => await RunAsync(async () =>
     {

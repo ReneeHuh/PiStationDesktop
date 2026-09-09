@@ -8,10 +8,12 @@ namespace PiStation.App.ViewModels;
 public sealed class ComposerPowerViewModel : ObservableObject
 {
     private readonly ComposerViewModel _composer;
+    private readonly ShellLayoutViewModel _layout;
 
-    public ComposerPowerViewModel(ComposerViewModel composer)
+    public ComposerPowerViewModel(ComposerViewModel composer, ShellLayoutViewModel layout)
     {
         _composer = composer;
+        _layout = layout;
         ContextChips.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ContextChipsVisibility));
     }
     private bool _isBusy;
@@ -87,12 +89,8 @@ public sealed class ComposerPowerViewModel : ObservableObject
             return;
         }
 
-        var sourceFilter = prefix == '$' ? ComposerCommandSource.Skill : (ComposerCommandSource?)null;
-        foreach (var command in Commands
-                     .Where(command => sourceFilter is null || command.Source == sourceFilter)
-                     .Where(command => command.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                         command.Description.Contains(query, StringComparison.OrdinalIgnoreCase))
-                     .Take(12))
+        foreach (var command in PiStation.App.Composition.ComposerPresentation.Suggestions(
+                     Commands, prefix, query, _layout.ShowSkillsInSlashMenu))
         {
             Suggestions.Add(command);
         }

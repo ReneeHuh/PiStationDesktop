@@ -297,6 +297,7 @@ public sealed partial class ComposerViewModel : ObservableObject, IAsyncDisposab
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentNullException.ThrowIfNull(content);
+        var targetThreadId = _threadId;
         CancelPendingDelay();
         await SaveCurrentAsync(cancellationToken).ConfigureAwait(false);
         using var operationCancellation = CreateLifetimeCancellation(cancellationToken);
@@ -304,19 +305,15 @@ public sealed partial class ComposerViewModel : ObservableObject, IAsyncDisposab
         try
         {
             var draft = await RunOnUiThreadAsync(() => _draft).ConfigureAwait(false);
-            if (draft is null)
+            if (draft is null || draft.ThreadId != targetThreadId)
             {
                 return;
             }
 
-            await RunOnUiThreadAsync(() => Status = $"Uploading {fileName}").ConfigureAwait(false);
-            var saved = await _uploadAttachment(
-                draft,
-                fileName,
-                mediaType,
-                content,
-                byteLength,
-                operationCancellation.Token).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() => Status = PiStation.App.Composition.ComposerImageConverter.IsHeif(fileName, mediaType)
+                ? $"Converting {fileName} to JPEG…" : $"Uploading {fileName}").ConfigureAwait(false);
+            var saved = await PiStation.App.Composition.ComposerImageConverter.UploadAsync(draft,
+                fileName, mediaType, content, byteLength, _uploadAttachment, operationCancellation.Token).ConfigureAwait(false);
             await RunOnUiThreadAsync(() => ApplySavedDraft(saved)).ConfigureAwait(false);
         }
         catch (Exception exception)

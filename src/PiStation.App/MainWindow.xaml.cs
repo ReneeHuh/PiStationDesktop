@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
         _viewModel = viewModel;
         _textScalePercent = textScalePercent;
         InitializeComponent();
+        InitializeQuitGesture();
         _expandedSidebarWidth = TitleBarSidebarColumn.Width;
         ApplyTheme();
         _viewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
@@ -64,8 +65,11 @@ public sealed partial class MainWindow : Window
         catch { ResumeEditing(); throw; }
     }
 
-    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) =>
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
         _viewModel.SetWindowActive(args.WindowActivationState != WindowActivationState.Deactivated);
+        if (args.WindowActivationState == WindowActivationState.Deactivated) ResetQuitGesture();
+    }
 
     internal void ResumeEditing() => _shellPage.IsEnabled = _chatHeader.IsEnabled = true;
 
@@ -105,6 +109,7 @@ public sealed partial class MainWindow : Window
 
     private void OnLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ShellLayoutViewModel.QuitConfirmationModeIndex)) ResetQuitGesture();
         if (e.PropertyName == nameof(ShellLayoutViewModel.ThemePreference))
         {
             ApplyTheme();
@@ -113,6 +118,8 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
+        ResetQuitGesture();
+        if (_quitTimer is not null) _quitTimer.Tick -= OnQuitTick;
         Activated -= OnReadWindowActivated;
         _viewModel.SetReadWindowActive(false);
         AppWindow.Closing -= OnAppWindowClosing;

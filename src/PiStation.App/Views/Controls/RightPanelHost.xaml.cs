@@ -31,6 +31,15 @@ public sealed partial class RightPanelHost : UserControl
 {
     public event EventHandler? HostingReviewRequested;
     private void OnHostingReviewClicked(object sender, RoutedEventArgs e) => HostingReviewRequested?.Invoke(this, EventArgs.Empty);
+    private async void OnOpenLinkedPullRequest(object sender, RoutedEventArgs e)
+    {
+        if (Uri.TryCreate(ViewModel.Workspace.SelectedThread?.PullRequest?.Url, UriKind.Absolute, out var uri) &&
+            uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo))
+        {
+            try { await Windows.System.Launcher.LaunchUriAsync(uri); }
+            catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
+        }
+    }
     private readonly HashSet<TerminalWebViewSurface> _terminalInitializationStarted = [];
     private readonly HashSet<PreviewWebViewSurface> _previewInitializationStarted = [];
     private readonly Dictionary<string, PreviewWebViewSurface> _previewSurfaces = new(StringComparer.Ordinal);

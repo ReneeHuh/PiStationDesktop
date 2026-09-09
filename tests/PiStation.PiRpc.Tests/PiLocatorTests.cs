@@ -93,6 +93,42 @@ public sealed class PiLocatorTests
     }
 
     [Theory]
+    [InlineData("pi.ps1", false)]
+    [InlineData("pi.cmd", false)]
+    [InlineData("pi", false)]
+    [InlineData("pi.ps1", true)]
+    public async Task NpmLocalShimResolvesSiblingPackageInsteadOfProjectPackage(string launcherName, bool useCandidatePaths)
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var project = temporaryDirectory.CreateDirectory("project");
+        var bin = temporaryDirectory.CreateDirectory("project/node_modules/.bin");
+        var package = temporaryDirectory.CreateDirectory("project/node_modules/@earendil-works/pi-coding-agent");
+        var launcher = Path.Combine(bin, launcherName);
+        var node = temporaryDirectory.GetPath("node.exe");
+        var entrypoint = Path.Combine(package, "cli.js");
+        File.WriteAllText(Path.Combine(project, "package.json"), """{"name":"user-project"}""");
+        File.WriteAllText(Path.Combine(package, "package.json"), """
+            {"name":"@earendil-works/pi-coding-agent","version":"0.84.4",
+             "bin":{"pi":"cli.js"},"engines":{"node":">=22.19.0"}}
+            """);
+        File.WriteAllBytes(launcher, []);
+        File.WriteAllBytes(node, []);
+        File.WriteAllBytes(entrypoint, []);
+
+        var installation = await new PiLocator(new FakeProbe((node, "v22.23.2"))).LocateAsync(
+            new PiLocatorOptions
+            {
+                ExplicitPiPath = useCandidatePaths ? null : launcher,
+                CandidatePiPaths = useCandidatePaths ? [launcher] : [],
+                SearchPath = bin,
+                ExplicitNodePath = node,
+            });
+
+        Assert.Equal(PiInstallationKind.NodePackage, installation.Kind);
+        Assert.Equal(Path.GetFullPath(entrypoint), Assert.Single(installation.LaunchPrefixArguments));
+    }
+
+    [Theory]
     [InlineData("v0.84.4", 0, 84, 4)]
     [InlineData("22.19.0+build", 22, 19, 0)]
     public void SemanticVersionParsesSupportedForms(string value, int major, int minor, int patch)

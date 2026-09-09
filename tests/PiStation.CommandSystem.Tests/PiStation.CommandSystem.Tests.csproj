@@ -28,6 +28,14 @@
   <ItemGroup>
     <Compile Include="..\..\src\PiStation.App\Commands\CommandSystem.cs" Link="CommandSystem.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\DesktopLifecycle.cs" Link="DesktopLifecycle.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\QuitGesture.cs" Link="QuitGesture.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\ProactivePanels.cs" Link="ProactivePanels.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\ComposerPresentation.cs" Link="ComposerPresentation.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\ComposerImageConverter.cs" Link="ComposerImageConverter.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.cs" Link="ShellLayoutViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Interaction.cs" Link="ShellLayoutViewModel.Interaction.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchPreviewViewModel.cs" Link="WorkbenchPreviewViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchTerminalViewModel.cs" Link="WorkbenchTerminalViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchFilesViewModel.cs" Link="WorkbenchFilesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\PiSessionsViewModel.cs" Link="PiSessionsViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchChangesViewModel.cs" Link="WorkbenchChangesViewModel.cs" />

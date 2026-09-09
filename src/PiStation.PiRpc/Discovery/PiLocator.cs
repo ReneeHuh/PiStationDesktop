@@ -294,6 +294,18 @@ public sealed partial class PiLocator
             string.Equals(Path.GetExtension(candidatePath), ".ps1", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Path.GetFileName(candidatePath), "pi", StringComparison.OrdinalIgnoreCase))
         {
+            // npm's project-local shims live in node_modules/.bin; the package
+            // is beside .bin, not below it. Check this before walking up to the
+            // application's (unrelated) package.json.
+            if (startDirectory is not null &&
+                string.Equals(Path.GetFileName(startDirectory), ".bin", StringComparison.OrdinalIgnoreCase) &&
+                Path.GetDirectoryName(startDirectory) is { } modulesDirectory &&
+                string.Equals(Path.GetFileName(modulesDirectory), "node_modules", StringComparison.OrdinalIgnoreCase))
+            {
+                var sibling = Path.Combine(modulesDirectory, "@earendil-works", "pi-coding-agent");
+                if (File.Exists(Path.Combine(sibling, "package.json"))) return sibling;
+            }
+
             var nested = startDirectory is null
                 ? null
                 : Path.Combine(startDirectory, "node_modules", "@earendil-works", "pi-coding-agent");

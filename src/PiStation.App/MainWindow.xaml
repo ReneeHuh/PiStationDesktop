@@ -76,5 +76,9 @@
             Grid.Row="1"
             HorizontalContentAlignment="Stretch"
             VerticalContentAlignment="Stretch" />
+        <InfoBar x:Name="QuitShortcutHint" Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center"
+            Margin="16" MaxWidth="480" IsOpen="False" IsClosable="False" Severity="Informational"
+            automation:AutomationProperties.AutomationId="QuitShortcutHint"
+            automation:AutomationProperties.LiveSetting="Polite" />
     </Grid>
 </Window>
