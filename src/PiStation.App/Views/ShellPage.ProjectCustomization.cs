@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
 using PiStation.Protocol.Models;
 using Windows.Storage.Pickers;
 
@@ -17,9 +18,12 @@ public sealed partial class ShellPage
         var uploadStatus = new TextBlock { TextWrapping = TextWrapping.Wrap };
         icon.TextChanged += (_, _) => { upload = null; uploadStatus.Text = ""; };
         var browse = new Button { Content = ViewModel.IsRemote ? "Upload image from this computer…" : "Choose image…" };
+        AutomationProperties.SetAutomationId(icon, "ProjectIconInput");
+        AutomationProperties.SetAutomationId(browse, "BrowseProjectIconButton");
+        AutomationProperties.SetAutomationId(uploadStatus, "ProjectIconUploadStatus");
         browse.Click += async (_, _) =>
         {
-            if ((Application.Current as App)?.MainWindow is not { } window) return;
+            if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window) return;
             var picker = new FileOpenPicker();
             foreach (var extension in new[] { ".png", ".jpg", ".jpeg", ".ico", ".webp", ".gif" }) picker.FileTypeFilter.Add(extension);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
@@ -73,6 +77,7 @@ public sealed partial class ShellPage
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Customize " + project.DisplayName,
             Content = new ScrollViewer { Content = panel, MaxHeight = 560 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel",
             SecondaryButtonText = ViewModel.IsRemote ? "Choose image on host…" : "" };
+        AutomationProperties.SetAutomationId(dialog, "ProjectCustomizationDialog");
         dialog.PrimaryButtonClick += (_, args) =>
         {
             if (selected is not null || !string.IsNullOrWhiteSpace(name.Text) || !string.IsNullOrWhiteSpace(command.Text))

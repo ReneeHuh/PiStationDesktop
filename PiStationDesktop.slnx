@@ -33,6 +33,9 @@
     <Project Path="tests/PiStation.FakePi/PiStation.FakePi.csproj">
       <Platform Project="Any CPU" />
     </Project>
+    <Project Path="tests/PiStation.RemoteUiFixture/PiStation.RemoteUiFixture.csproj">
+      <Platform Project="Any CPU" />
+    </Project>
     <Project Path="tests/PiStation.Host.Tests/PiStation.Host.Tests.csproj">
       <Platform Project="Any CPU" />
     </Project>

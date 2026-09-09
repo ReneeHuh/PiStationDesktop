@@ -918,7 +918,7 @@ public sealed partial class ShellPage : Page
 
     private async void OnExportDiagnosticsClicked(object sender, RoutedEventArgs e)
     {
-        var window = (Application.Current as App)?.MainWindow;
+        var window = (Application.Current as App)?.FindWindow(XamlRoot);
         if (window is null)
         {
             return;

@@ -13,7 +13,7 @@ public sealed partial class ShellPage
 
     private async void OnExportPlanClicked(object sender, RoutedEventArgs e)
     {
-        if ((Application.Current as App)?.MainWindow is not { } window || ViewModel.Plan.Snapshot is not { } plan) return;
+        if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window || ViewModel.Plan.Snapshot is not { } plan) return;
         var picker = new FileSavePicker { SuggestedFileName = "pistation-plan" };
         picker.FileTypeChoices.Add("Markdown plan", [".md"]);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));

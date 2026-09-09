@@ -599,7 +599,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnPreviewImportCookiesClicked(object sender, RoutedEventArgs e)
     {
-        var window = (Application.Current as App)?.MainWindow;
+        var window = (Application.Current as App)?.FindWindow(XamlRoot);
         var surface = ActivePreviewSurface;
         if (window is null || surface is null)
         {
@@ -1290,7 +1290,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private async void OnOpenExternalReadOnlyFileClicked(object sender, RoutedEventArgs e)
     {
-        var window = (Application.Current as App)?.MainWindow;
+        var window = (Application.Current as App)?.FindWindow(XamlRoot);
         if (window is null)
         {
             return;

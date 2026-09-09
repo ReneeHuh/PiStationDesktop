@@ -88,7 +88,7 @@ public sealed partial class ShellPage
             if (selected is not null) ViewModel.Settings.PiExecutablePath = selected;
             return;
         }
-        if ((Application.Current as App)?.MainWindow is not { } window) return;
+        if ((Application.Current as App)?.FindWindow(XamlRoot) is not { } window) return;
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add("*");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));

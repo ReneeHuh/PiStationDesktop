@@ -614,7 +614,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="OnSaveProjectDefaultsClicked" Content="Save defaults" Style="{StaticResource PiPrimaryButtonStyle}" />
                                 <Button Click="OnRemoveProjectClicked" Content="Remove project" Style="{StaticResource PiSecondaryButtonStyle}" />
-                                <Button Click="OnCustomizeProjectClicked" Content="Icon and scripts…" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button automation:AutomationProperties.AutomationId="CustomizeProjectButton" Click="OnCustomizeProjectClicked" Content="Icon and scripts…" Style="{StaticResource PiSecondaryButtonStyle}" />
                             </StackPanel>
                             <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Project icons are loaded from iconPath in t3.json, then common favicon locations. Named t3.json scripts appear in the Add menu." TextWrapping="Wrap" />
                         </StackPanel>
@@ -643,18 +643,18 @@
                             <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="{x:Bind ViewModel.PiExecutablePathHeader}" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
                             <CheckBox Content="Discover installed Pi extensions" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />
-                            <Expander Header="Advanced runtime settings" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" HorizontalAlignment="Stretch">
+                            <Expander automation:AutomationProperties.AutomationId="AdvancedPiRuntimeExpander" Header="Advanced runtime settings" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" HorizontalAlignment="Stretch">
                                 <StackPanel Spacing="8">
-                                    <TextBox Header="Launch arguments (one argument per line)" Text="{x:Bind ViewModel.Settings.PiArguments, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
-                                    <TextBox Header="Environment variables (NAME=value; NAME alone removes an inherited variable)" Text="{x:Bind ViewModel.Settings.PiEnvironment, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
-                                    <NumberBox Header="Command timeout in seconds" Minimum="5" Maximum="600" Value="{x:Bind ViewModel.Settings.PiCommandTimeout, Mode=TwoWay}" />
-                                    <NumberBox Header="Shutdown timeout in seconds" Minimum="1" Maximum="30" Value="{x:Bind ViewModel.Settings.PiShutdownTimeout, Mode=TwoWay}" />
+                                    <TextBox automation:AutomationProperties.AutomationId="PiArgumentsInput" Header="Launch arguments (one argument per line)" Text="{x:Bind ViewModel.Settings.PiArguments, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
+                                    <TextBox automation:AutomationProperties.AutomationId="PiEnvironmentInput" Header="Environment variables (NAME=value; NAME alone removes an inherited variable)" Text="{x:Bind ViewModel.Settings.PiEnvironment, Mode=TwoWay}" AcceptsReturn="True" MinHeight="60" MaxHeight="180" />
+                                    <NumberBox automation:AutomationProperties.AutomationId="PiCommandTimeoutInput" Header="Command timeout in seconds" Minimum="5" Maximum="600" Value="{x:Bind ViewModel.Settings.PiCommandTimeout, Mode=TwoWay}" />
+                                    <NumberBox automation:AutomationProperties.AutomationId="PiShutdownTimeoutInput" Header="Shutdown timeout in seconds" Minimum="1" Maximum="30" Value="{x:Bind ViewModel.Settings.PiShutdownTimeout, Mode=TwoWay}" />
                                 </StackPanel>
                             </Expander>
                             <TextBlock Text="Discovery follows Pi's saved project trust decisions. Explicit paths below load code you choose to trust. The bundled browser extension stays available with its per-thread browser permission controls." TextWrapping="Wrap" Foreground="{ThemeResource PiTextSecondaryBrush}" />
                             <TextBox Header="Additional trusted extensions (one absolute host path per line)" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" Text="{x:Bind ViewModel.Settings.PiExtensionPaths, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="72" MaxHeight="160" TextWrapping="Wrap" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PiExtensionPathsInput" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="OnBrowsePiExecutableClicked" Content="{x:Bind ViewModel.PiExecutableBrowseLabel}" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
+                                <Button automation:AutomationProperties.AutomationId="BrowsePiExecutableButton" Click="OnBrowsePiExecutableClicked" Content="{x:Bind ViewModel.PiExecutableBrowseLabel}" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
                                 <Button automation:AutomationProperties.AutomationId="ConfigurePiRuntimeButton" Click="OnConfigurePiRuntimeClicked" Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" Style="{StaticResource PiPrimaryButtonStyle}" />
                             </StackPanel>
                             <Button HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RestartConfiguredPiButton" Click="OnRestartConfiguredPiClicked" Content="Restart selected thread" IsEnabled="{x:Bind ViewModel.CanRestartPi, Mode=OneWay}" Style="{StaticResource PiSecondaryButtonStyle}" />
@@ -965,7 +965,7 @@
                             <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.DiagnosticsSummary, Mode=OneWay}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="OnRefreshSettingsClicked" Content="Refresh" Style="{StaticResource PiSecondaryButtonStyle}" />
-                                <Button Click="OnExportDiagnosticsClicked" Content="Export redacted diagnostics" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                <Button automation:AutomationProperties.AutomationId="ExportDiagnosticsButton" Click="OnExportDiagnosticsClicked" Content="Export redacted diagnostics" Style="{StaticResource PiPrimaryButtonStyle}" />
                             </StackPanel>
                             <TextBlock FontWeight="SemiBold" Text="Recent logs" />
                             <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.Settings.Logs, Mode=OneWay}" SelectionMode="None">
