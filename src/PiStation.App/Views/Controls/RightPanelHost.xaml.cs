@@ -1818,8 +1818,8 @@ public sealed partial class RightPanelHost : UserControl
     private async void OnRestartTerminalClicked(object sender, RoutedEventArgs e) =>
         await ViewModel.RestartWorkbenchTerminalAsync();
 
-    private void OnClearTerminalClicked(object sender, RoutedEventArgs e) =>
-        ViewModel.ClearWorkbenchTerminalOutput();
+    private async void OnClearTerminalClicked(object sender, RoutedEventArgs e) =>
+        await ViewModel.ClearWorkbenchTerminalOutputAsync();
 
     private async void OnCloseTerminalClicked(object sender, RoutedEventArgs e)
     {
@@ -1946,7 +1946,7 @@ public sealed partial class RightPanelHost : UserControl
             "TerminalClearMenuItem");
         clearItem.Click += (_, _) =>
         {
-            ViewModel.ClearWorkbenchTerminalOutput(TerminalPaneIndex(surface));
+            _ = ViewModel.ClearWorkbenchTerminalOutputAsync(TerminalPaneIndex(surface));
             surface.FocusTerminal();
         };
 

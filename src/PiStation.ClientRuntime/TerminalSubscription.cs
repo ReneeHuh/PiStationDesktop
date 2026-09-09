@@ -86,7 +86,7 @@ public sealed class TerminalSubscription : IAsyncDisposable
                     if (!ReferenceEquals(connection, _supervisor.Connection) || _supervisor.State != EnvironmentConnectionState.Connected) break;
                     if (envelope is TerminalSynchronizedEnvelope synchronized)
                     {
-                        if (Store.Cursor == new TerminalCursor(synchronized.Sequence))
+                        if (Store.Cursor == new TerminalCursor(synchronized.Sequence, synchronized.Epoch))
                         { Store.SetSynchronized(true); continue; }
                         Store.Reset();
                         mustRestart = true;

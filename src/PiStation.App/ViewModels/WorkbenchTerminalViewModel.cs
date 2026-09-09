@@ -153,7 +153,10 @@ public sealed class WorkbenchTerminalViewModel : ObservableObject
         ? "No terminal selected"
         : SelectedSession.Descriptor.State switch
         {
-            TerminalSessionState.Running => $"{SelectedSession.Descriptor.ShellDisplayName} • running",
+            TerminalSessionState.Running => $"{SelectedSession.Descriptor.ShellDisplayName} • " +
+                (SelectedSession.Descriptor.HasRunningSubprocess switch
+                { true => SelectedSession.Descriptor.ForegroundCommand ?? "child process running", false => "no child process detected", _ => "checking activity" }),
+            TerminalSessionState.Interrupted => "Saved history • restart to open a fresh shell",
             TerminalSessionState.Exited => $"{SelectedSession.Descriptor.ShellDisplayName} • exited " +
                 $"({SelectedSession.Descriptor.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown"})",
             TerminalSessionState.Failed => $"{SelectedSession.Descriptor.ShellDisplayName} • failed",
@@ -915,9 +918,11 @@ public sealed class TerminalSessionItemViewModel : ObservableObject
         }
     }
 
-    public string Name => Descriptor.Name;
+    public string Name => Descriptor.State == TerminalSessionState.Running && Descriptor.HasRunningSubprocess == true
+        ? Descriptor.ForegroundCommand ?? Descriptor.Name : Descriptor.Name;
 
-    public string AccessibleName => $"{Descriptor.Name}, {Descriptor.State}";
+    public string AccessibleName => $"{Name}, {Descriptor.State}" + (Descriptor.State == TerminalSessionState.Running
+        ? Descriptor.HasRunningSubprocess switch { true => ", child process running", false => ", no child process detected", _ => ", activity unknown" } : "");
 }
 
 public sealed record TerminalShellOption(TerminalShellKind Kind, string DisplayName);

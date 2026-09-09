@@ -325,6 +325,7 @@ public sealed partial class HostDatabase
             await seedInbox.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await InitializeCatalogAsync(connection, cancellationToken).ConfigureAwait(false);
+        await InitializeProjectIconsAsync(connection, cancellationToken).ConfigureAwait(false);
         await using (var lifecycleIndex = connection.CreateCommand())
         {
             lifecycleIndex.CommandText = """

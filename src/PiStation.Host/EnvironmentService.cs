@@ -200,11 +200,20 @@ public sealed partial class EnvironmentService : IAsyncDisposable
             diagnostics,
             threads,
             terminals);
-        var knownProjects = await projects.ListAsync(cancellationToken).ConfigureAwait(false);
-        await new ProjectAutoPullService(diagnostics.Record)
-            .PullEligibleProjectsAsync(knownProjects, cancellationToken).ConfigureAwait(false);
-        service._settlementWorker = Task.Run(service.RunSettlementWorkerAsync, CancellationToken.None);
-        return service;
+        try
+        {
+            await terminals.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            var knownProjects = await projects.ListAsync(cancellationToken).ConfigureAwait(false);
+            await new ProjectAutoPullService(diagnostics.Record)
+                .PullEligibleProjectsAsync(knownProjects, cancellationToken).ConfigureAwait(false);
+            service._settlementWorker = Task.Run(service.RunSettlementWorkerAsync, CancellationToken.None);
+            return service;
+        }
+        catch
+        {
+            await service.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     public EnvironmentDescriptor GetDescriptor() => new(
@@ -279,7 +288,7 @@ public sealed partial class EnvironmentService : IAsyncDisposable
     {
         if (request.UploadedIcon is { } upload)
         {
-            if (!request.UpdateCustomization) throw new ArgumentException("An icon upload requires project customization.");
+            if (!request.UpdateCustomization || !request.UpdateIcon) throw new ArgumentException("An icon upload requires an icon customization update.");
             _ = await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
                 ?? throw new HostOperationException(ProtocolErrorCodes.ProjectNotFound, "The project was not found.");
             var icon = await Projects.ProjectIconStorage.SaveAsync(_options.CanonicalDataRoot, upload, cancellationToken).ConfigureAwait(false);
@@ -534,6 +543,9 @@ public sealed partial class EnvironmentService : IAsyncDisposable
     public Task<TerminalSessionDescriptor> StopTerminalSessionAsync(
         StopTerminalSessionRequest request,
         CancellationToken cancellationToken = default) => _terminals.StopAsync(request, cancellationToken);
+
+    public Task<TerminalSnapshotEnvelope> ClearTerminalHistoryAsync(ClearTerminalHistoryRequest request, CancellationToken cancellationToken = default) =>
+        _terminals.ClearHistoryAsync(request, cancellationToken);
 
     public Task CloseTerminalSessionAsync(
         CloseTerminalSessionRequest request,

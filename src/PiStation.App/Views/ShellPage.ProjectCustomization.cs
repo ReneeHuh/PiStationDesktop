@@ -72,6 +72,12 @@ public sealed partial class ShellPage
         remove.Click += (_, _) => { if (selected is not null) scripts.Remove(selected); selected = null; Refresh(); };
         newScript.Click += (_, _) => { list.SelectedItem = null; name.Text = command.Text = ""; };
         var panel = new StackPanel { Spacing = 8, MinWidth = 420 };
+        var groupCount = ViewModel.ProjectGroups.FirstOrDefault(group => group.Members.Any(member => member.ProjectId == project.ProjectId))?.Members.Count ?? 1;
+        if (groupCount > 1) panel.Children.Add(new TextBlock
+        {
+            Text = $"Icon changes apply to all {groupCount} grouped checkouts. Scripts apply only to this checkout. Clear the icon field to use automatic icons.",
+            TextWrapping = TextWrapping.Wrap,
+        });
         foreach (var element in new UIElement[] { icon, browse, uploadStatus, list, name, command, scriptIcon, setup, add, newScript, remove, status }) panel.Children.Add(element);
         Refresh();
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Customize " + project.DisplayName,

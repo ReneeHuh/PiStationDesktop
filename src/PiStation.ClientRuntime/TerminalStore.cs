@@ -67,7 +67,7 @@ public sealed class TerminalStore(TerminalSessionId terminalSessionId)
         {
             lock (_gate)
             {
-                return _descriptor is null ? null : new TerminalCursor(_descriptor.Sequence);
+                return _descriptor is null ? null : new TerminalCursor(_descriptor.Sequence, _descriptor.Epoch);
             }
         }
     }
@@ -123,7 +123,7 @@ public sealed class TerminalStore(TerminalSessionId terminalSessionId)
         out TerminalChangedEventArgs? changed)
     {
         changed = null;
-        if (_descriptor is not null && _descriptor.Sequence >= snapshot.Sequence)
+        if (_descriptor is not null && _descriptor.Epoch == snapshot.Descriptor.Epoch && _descriptor.Sequence >= snapshot.Sequence)
         {
             return ProjectionApplyResult.Ignored;
         }
@@ -166,7 +166,7 @@ public sealed class TerminalStore(TerminalSessionId terminalSessionId)
         out TerminalChangedEventArgs? changed)
     {
         changed = null;
-        if (_descriptor is null)
+        if (_descriptor is null || _descriptor.Epoch != state.Descriptor.Epoch)
         {
             return ProjectionApplyResult.ResyncRequired;
         }

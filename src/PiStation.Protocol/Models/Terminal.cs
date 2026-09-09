@@ -24,6 +24,7 @@ public enum TerminalSessionState
     Running,
     Exited,
     Failed,
+    Interrupted,
 }
 
 public sealed record StartTerminalSessionRequest(
@@ -43,6 +44,7 @@ public sealed record ResizeTerminalSessionRequest(
 public sealed record StopTerminalSessionRequest(TerminalSessionId TerminalSessionId);
 
 public sealed record CloseTerminalSessionRequest(TerminalSessionId TerminalSessionId);
+public sealed record ClearTerminalHistoryRequest(TerminalSessionId TerminalSessionId);
 
 public sealed record TerminalSessionDescriptor(
     TerminalSessionId TerminalSessionId,
@@ -58,4 +60,7 @@ public sealed record TerminalSessionDescriptor(
     DateTimeOffset CreatedUtc,
     Sequence Sequence,
     ThreadId? ThreadId = null,
-    string? WorkspacePath = null);
+    string? WorkspacePath = null,
+    string Epoch = "",
+    bool? HasRunningSubprocess = null,
+    string? ForegroundCommand = null);

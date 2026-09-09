@@ -93,6 +93,14 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         { throw new HubException(exception.Message); }
     }
 
+    public async Task<ProjectDescriptor[]> UpdateProjectIcons(UpdateProjectIconsRequest request)
+    {
+        try { return await _environment.UpdateProjectIconsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        { throw new HubException(exception.Message); }
+    }
+
     public async Task<ProjectDescriptor> SetProjectScriptsTrust(SetProjectScriptsTrustRequest request)
     {
         try
@@ -555,6 +563,13 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         {
             throw new HubException($"{exception.Code}: {exception.Message}");
         }
+    }
+
+    public async Task<TerminalSnapshotEnvelope> ClearTerminalHistory(ClearTerminalHistoryRequest request)
+    {
+        try { return await _environment.ClearTerminalHistoryAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { throw new HubException(exception.Message); }
     }
 
     public async Task CloseTerminalSession(CloseTerminalSessionRequest request)

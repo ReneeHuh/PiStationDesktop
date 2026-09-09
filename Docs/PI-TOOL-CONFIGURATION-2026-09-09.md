@@ -1,7 +1,7 @@
 # Pi tool configuration and Windows PowerShell
 
 Implementation: TOOL-05 and TOOL-07 in [the master tracker](../tracking.md).
-Wire protocol: **46**. Update both Windows computers manually before connecting.
+Current wire protocol: **47** (tool configuration was introduced in 46). Update both Windows computers manually before connecting.
 Dedicated tool selection requires **Pi 0.85.0 or newer**. Existing Pi 0.84.4
 workflows remain supported with Pi defaults and no dedicated exclusions.
 

@@ -538,11 +538,11 @@
                                 x:Name="ClearTerminalButton"
                                 Grid.Column="3"
                                 automation:AutomationProperties.AutomationId="ClearTerminalButton"
-                                automation:AutomationProperties.Name="Clear terminal output"
+                                automation:AutomationProperties.Name="Clear terminal output and saved history"
                                 Click="OnClearTerminalClicked"
                                 IsEnabled="{x:Bind ViewModel.WorkbenchTerminal.CanClose, Mode=OneWay}"
                                 Style="{StaticResource PiToolbarIconButtonStyle}"
-                                ToolTipService.ToolTip="Clear output">
+                                ToolTipService.ToolTip="Clear output and saved history on the host">
                                 <FontIcon FontSize="11" Glyph="&#xE74D;" />
                             </Button>
                             <Button

@@ -4,7 +4,7 @@ using PiStation.Protocol.Models;
 
 namespace PiStation.Protocol.Streaming;
 
-public sealed record TerminalCursor(Sequence Sequence);
+public sealed record TerminalCursor(Sequence Sequence, string Epoch = "");
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(TerminalSnapshotEnvelope), "snapshot")]
@@ -31,4 +31,4 @@ public sealed record TerminalResyncRequiredEnvelope(
     Sequence Sequence,
     string Reason) : TerminalEnvelope(TerminalSessionId, Sequence);
 
-public sealed record TerminalSynchronizedEnvelope(TerminalSessionId TerminalSessionId, Sequence Sequence) : TerminalEnvelope(TerminalSessionId, Sequence);
+public sealed record TerminalSynchronizedEnvelope(TerminalSessionId TerminalSessionId, Sequence Sequence, string Epoch = "") : TerminalEnvelope(TerminalSessionId, Sequence);

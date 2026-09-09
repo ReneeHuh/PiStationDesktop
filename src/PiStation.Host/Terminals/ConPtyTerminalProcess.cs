@@ -40,6 +40,7 @@ internal sealed class ConPtyTerminalProcess : IAsyncDisposable
     }
 
     public Stream Output => _output;
+    public int ProcessId => _process.Id;
 
     public bool HasExited
     {

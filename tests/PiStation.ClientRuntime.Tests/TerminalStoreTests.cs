@@ -7,6 +7,24 @@ namespace PiStation.ClientRuntime.Tests;
 public sealed class TerminalStoreTests
 {
     [Fact]
+    public void RestartEpochAcceptsLowerSequenceAndRejectsStaleActivity()
+    {
+        var id = TerminalSessionId.New();
+        var store = new TerminalStore(id);
+        var previous = Descriptor(id, new(100)) with { Epoch = "old-host" };
+        store.Apply(new TerminalSnapshotEnvelope(previous, "old output"));
+        var restored = previous with { Epoch = "new-host", Sequence = new(3), State = TerminalSessionState.Interrupted };
+        Assert.Equal(ProjectionApplyResult.Applied, store.Apply(new TerminalSnapshotEnvelope(restored, "saved output")));
+        Assert.Equal("saved output", store.Output);
+        Assert.Equal(new TerminalCursor(new(3), "new-host"), store.Cursor);
+        Assert.Equal(ProjectionApplyResult.ResyncRequired, store.Apply(new TerminalStateEnvelope(previous with { Sequence = new(4) })));
+        var cleared = new TerminalSnapshotEnvelope(restored with { Sequence = new(4) }, "");
+        Assert.Equal(ProjectionApplyResult.Applied, store.Apply(cleared));
+        Assert.Equal(ProjectionApplyResult.Ignored, store.Apply(cleared));
+        Assert.Empty(store.Output);
+    }
+
+    [Fact]
     public void SnapshotOutputAndStateAdvanceOneReplayableProjection()
     {
         var terminalSessionId = TerminalSessionId.Parse("terminal-1");

@@ -16,14 +16,17 @@ internal sealed class TerminalOutputJournal
     private readonly int _eventLimit;
     private readonly object _gate = new();
     private readonly int _outputCharacterLimit;
-    private readonly StringBuilder _output = new();
+    private readonly TerminalHistory _output;
+    private readonly TerminalHistorySanitizer _sanitizer = new();
     private readonly int _subscriberCapacity;
     private readonly Dictionary<long, Channel<TerminalEnvelope>> _subscribers = [];
     private int _retainedBytes;
     private long _subscriberId;
     private TerminalSessionDescriptor _descriptor;
 
-    public TerminalOutputJournal(TerminalSessionDescriptor descriptor, HostOptions options)
+    public event Action? Changed;
+
+    public TerminalOutputJournal(TerminalSessionDescriptor descriptor, HostOptions options, string history = "")
     {
         _descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         ArgumentNullException.ThrowIfNull(options);
@@ -31,6 +34,9 @@ internal sealed class TerminalOutputJournal
         _byteLimit = options.JournalByteLimit;
         _subscriberCapacity = options.SubscriberCapacity;
         _outputCharacterLimit = options.TerminalOutputCharacterLimit;
+        _output = new(_outputCharacterLimit);
+        _output.Append(_sanitizer.Append(history));
+        _sanitizer.Clear();
     }
 
     public TerminalSessionDescriptor Descriptor
@@ -55,11 +61,7 @@ internal sealed class TerminalOutputJournal
         {
             var sequence = _descriptor.Sequence.Next();
             _descriptor = _descriptor with { Sequence = sequence };
-            _output.Append(text);
-            if (_output.Length > _outputCharacterLimit)
-            {
-                _output.Remove(0, _output.Length - _outputCharacterLimit);
-            }
+            _output.Append(_sanitizer.Append(text));
 
             AddAndPublish(new TerminalOutputEnvelope(_descriptor.TerminalSessionId, sequence, text));
         }
@@ -77,6 +79,8 @@ internal sealed class TerminalOutputJournal
                 State = state,
                 ExitCode = exitCode,
                 ErrorMessage = errorMessage,
+                HasRunningSubprocess = state == TerminalSessionState.Running ? _descriptor.HasRunningSubprocess : false,
+                ForegroundCommand = state == TerminalSessionState.Running ? _descriptor.ForegroundCommand : null,
                 Sequence = _descriptor.Sequence.Next(),
             };
             AddAndPublish(new TerminalStateEnvelope(_descriptor));
@@ -112,7 +116,7 @@ internal sealed class TerminalOutputJournal
             subscriberId = ++_subscriberId;
             initial = GetMissing(cursor);
             if (initial.Length > _subscriberCapacity) initial = [CreateSnapshot()];
-            synchronized = new(_descriptor.TerminalSessionId, _descriptor.Sequence);
+            synchronized = new(_descriptor.TerminalSessionId, _descriptor.Sequence, _descriptor.Epoch);
             _subscribers.Add(subscriberId, channel);
         }
 
@@ -144,7 +148,7 @@ internal sealed class TerminalOutputJournal
 
     private TerminalEnvelope[] GetMissing(TerminalCursor? cursor)
     {
-        if (cursor is null || cursor.Sequence > _descriptor.Sequence)
+        if (cursor is null || cursor.Epoch != _descriptor.Epoch || cursor.Sequence > _descriptor.Sequence)
         {
             return [CreateSnapshot()];
         }
@@ -167,10 +171,37 @@ internal sealed class TerminalOutputJournal
         return missing.Length <= _subscriberCapacity ? missing : [CreateSnapshot()];
     }
 
+    public TerminalSnapshotEnvelope Snapshot() { lock (_gate) return CreateSnapshot(); }
     private TerminalSnapshotEnvelope CreateSnapshot() => new(_descriptor, _output.ToString());
+
+    public TerminalSnapshotEnvelope ClearHistory()
+    {
+        lock (_gate)
+        {
+            _output.Clear(); _sanitizer.Clear();
+            _entries.Clear(); _retainedBytes = 0;
+            _descriptor = _descriptor with { Sequence = _descriptor.Sequence.Next() };
+            var snapshot = CreateSnapshot();
+            AddAndPublish(snapshot);
+            return snapshot;
+        }
+    }
+
+    public void CommitActivity(TerminalActivity activity)
+    {
+        lock (_gate)
+        {
+            if (_descriptor.State != TerminalSessionState.Running ||
+                (_descriptor.HasRunningSubprocess == activity.HasChildren && _descriptor.ForegroundCommand == activity.Command)) return;
+            _descriptor = _descriptor with { HasRunningSubprocess = activity.HasChildren,
+                ForegroundCommand = activity.Command, Sequence = _descriptor.Sequence.Next() };
+            AddAndPublish(new TerminalStateEnvelope(_descriptor));
+        }
+    }
 
     private void AddAndPublish(TerminalEnvelope envelope)
     {
+        Changed?.Invoke();
         var encodedBytes = JsonSerializer.SerializeToUtf8Bytes(
             envelope,
             ProtocolJsonContext.Default.TerminalEnvelope).Length;

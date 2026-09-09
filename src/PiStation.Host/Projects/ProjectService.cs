@@ -145,6 +145,7 @@ public sealed class ProjectService(HostDatabase database)
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var updateIcon = request.UpdateCustomization && request.UpdateIcon;
         var project = await _database.GetProjectAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
             ?? throw new HostOperationException(
                 ProtocolErrorCodes.ProjectNotFound,
@@ -162,20 +163,22 @@ public sealed class ProjectService(HostDatabase database)
                     string.IsNullOrWhiteSpace(script.Command) || script.Command.Length > 32768 || !Enum.IsDefined(script.Icon)) ||
                 (request.Scripts ?? []).Select(script => script.Id).Distinct(StringComparer.Ordinal).Count() != (request.Scripts?.Count ?? 0))
                 throw new ArgumentException("Use up to 50 named scripts with unique IDs and valid commands.");
-            if (request.Icon is { Length: > 0 } icon &&
+            if (updateIcon && request.Icon is { Length: > 0 } icon &&
                 !(icon.StartsWith("emoji:", StringComparison.Ordinal) && icon.Length <= 40) &&
                 (!Path.IsPathFullyQualified(icon) || !File.Exists(icon) ||
                  !new[] { ".png", ".jpg", ".jpeg", ".ico", ".webp", ".gif" }.Contains(Path.GetExtension(icon), StringComparer.OrdinalIgnoreCase)))
                 throw new ArgumentException("Choose a local image or an emoji for the project icon.");
         }
         else if (await _database.GetProjectDefaultsOverrideAsync(request.ProjectId, cancellationToken).ConfigureAwait(false) is { UpdateCustomization: true } previous)
-            request = request with { Scripts = previous.Scripts, Icon = previous.Icon, UpdateCustomization = true };
+            request = request with { Scripts = previous.Scripts, Icon = previous.Icon, UpdateCustomization = true, UpdateIcon = previous.UpdateIcon };
+        if (updateIcon)
+            await _database.SetProjectIconsAsync([request.ProjectId], request.Icon, cancellationToken).ConfigureAwait(false);
         await _database.SaveProjectDefaultsOverrideAsync(request, cancellationToken).ConfigureAwait(false);
         await _database.UpdateProjectConfigurationAsync(
             request.ProjectId,
             request.DefaultWorkspaceMode,
             request.UpdateCustomization ? request.Scripts ?? [] : project.Scripts ?? [],
-            request.UpdateCustomization ? request.Icon : project.Icon,
+            updateIcon ? request.Icon : project.Icon,
             request.DefaultModel,
             request.DefaultThinkingLevel,
             request.DefaultRuntimeModeId,
@@ -188,7 +191,7 @@ public sealed class ProjectService(HostDatabase database)
         ProjectConfiguration configuration, CancellationToken cancellationToken)
     {
         var saved = await _database.GetProjectDefaultsOverrideAsync(projectId, cancellationToken).ConfigureAwait(false);
-        return saved is null ? configuration with { DefaultRuntimeModeId = PiPermissionModes.IsSupported(configuration.DefaultRuntimeModeId) ? configuration.DefaultRuntimeModeId : null } : configuration with
+        var effective = saved is null ? configuration with { DefaultRuntimeModeId = PiPermissionModes.IsSupported(configuration.DefaultRuntimeModeId) ? configuration.DefaultRuntimeModeId : null } : configuration with
         {
             DefaultWorkspaceMode = saved.DefaultWorkspaceMode,
             DefaultModel = saved.DefaultModel,
@@ -196,8 +199,10 @@ public sealed class ProjectService(HostDatabase database)
             DefaultRuntimeModeId = PiPermissionModes.IsSupported(saved.DefaultRuntimeModeId) ? saved.DefaultRuntimeModeId : null,
             AutoPullDefaultBranch = saved.AutoPullDefaultBranch,
             Scripts = saved.UpdateCustomization ? saved.Scripts ?? [] : configuration.Scripts,
-            Icon = saved.UpdateCustomization ? saved.Icon ?? configuration.Icon : configuration.Icon,
+            Icon = saved.UpdateCustomization && saved.UpdateIcon ? saved.Icon ?? configuration.Icon : configuration.Icon,
         };
+        var icon = await _database.GetProjectIconOverrideAsync(projectId, cancellationToken).ConfigureAwait(false);
+        return icon.IsSet ? effective with { Icon = icon.Icon ?? configuration.Icon } : effective;
     }
 
     public async Task<ThreadDescriptor> CreateThreadAsync(

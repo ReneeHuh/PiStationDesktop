@@ -1719,8 +1719,18 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    public void ClearWorkbenchTerminalOutput(int? paneIndex = null) =>
-        RunOnUiThread(() => WorkbenchTerminal.ClearOutput(paneIndex));
+    public async Task ClearWorkbenchTerminalOutputAsync(int? paneIndex = null)
+    {
+        var session = paneIndex is { } pane ? WorkbenchTerminal.GetPaneSession(pane) : WorkbenchTerminal.SelectedSession?.Descriptor;
+        if (session is null || !CanOperate) return;
+        try
+        {
+            var snapshot = await RequireClient().ClearTerminalHistoryAsync(new(session.TerminalSessionId));
+            // The stream may already have delivered this revision; the store rejects duplicates.
+            if (_terminalSubscriptions.TryGetValue(session.TerminalSessionId, out var subscription)) subscription.Store.Apply(snapshot);
+        }
+        catch (Exception error) { ReportRuntimeError(error); }
+    }
 
     public void ResizeWorkbenchTerminalGrid(int paneIndex, int columns, int rows)
     {

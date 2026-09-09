@@ -16,6 +16,12 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     private readonly HostOptions _options;
     private readonly ConcurrentDictionary<TerminalSessionId, TerminalSession> _sessions = new();
     private bool _disposed;
+    private bool _initialized;
+    private readonly TerminalHistoryStore _historyStore;
+    private readonly Func<IReadOnlyList<TerminalProcessEntry>> _captureProcesses;
+    private readonly CancellationTokenSource _pollStopping = new();
+    private Task _pollTask = Task.CompletedTask;
+    private const int MaximumRetainedInactiveSessions = 128;
     public bool HasActiveWork => _sessions.Values.Any(session => session.Descriptor.State == TerminalSessionState.Running);
     private readonly ThreadWorkspaceResolver _workspaceResolver;
 
@@ -25,11 +31,79 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     public TerminalSessionRegistry(
         HostDatabase database,
         HostOptions options,
-        ThreadWorkspaceResolver? workspaceResolver = null)
+        ThreadWorkspaceResolver? workspaceResolver = null,
+        Func<IReadOnlyList<TerminalProcessEntry>>? captureProcesses = null)
     {
         _database = database ?? throw new ArgumentNullException(nameof(database));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _workspaceResolver = workspaceResolver ?? new ThreadWorkspaceResolver(database);
+        _historyStore = new(options.CanonicalDataRoot);
+        _captureProcesses = captureProcesses ?? TerminalProcessInspector.Capture;
+    }
+
+    public async Task InitializeAsync(CancellationToken token = default)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_initialized) return;
+            foreach (var file in _historyStore.Files().OrderByDescending(File.GetLastWriteTimeUtc))
+            {
+                try
+                {
+                    var saved = await _historyStore.ReadAsync(file, token).ConfigureAwait(false);
+                    if (saved is null) continue;
+                    var descriptor = saved.Descriptor;
+                    // Initialization can be retried after cancellation without replacing
+                    // sessions already restored (and leaking their persistence workers).
+                    if (_sessions.ContainsKey(descriptor.TerminalSessionId)) continue;
+                    var project = await _database.GetProjectAsync(descriptor.ProjectId, token).ConfigureAwait(false);
+                    var thread = descriptor.ThreadId is { } threadId ? await _database.GetThreadAsync(threadId, token).ConfigureAwait(false) : null;
+                    if (project is null || descriptor.ThreadId is not null && thread?.ProjectId != project.ProjectId ||
+                        _sessions.Count >= MaximumRetainedInactiveSessions)
+                    { _historyStore.Delete(descriptor.TerminalSessionId); continue; }
+                    if (!Enum.IsDefined(descriptor.State) || !Enum.IsDefined(descriptor.ShellKind)) continue;
+                    descriptor = descriptor with
+                    {
+                        State = descriptor.State == TerminalSessionState.Running ? TerminalSessionState.Interrupted : descriptor.State,
+                        ErrorMessage = descriptor.State == TerminalSessionState.Running ? "The host stopped. Saved output is available; restart to open a fresh shell." : descriptor.ErrorMessage,
+                        Epoch = Guid.NewGuid().ToString("N"), HasRunningSubprocess = false, ForegroundCommand = null,
+                    };
+                    _sessions[descriptor.TerminalSessionId] = new(descriptor, null, _options, _historyStore, saved.BufferedOutput);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException)
+                { System.Diagnostics.Trace.TraceWarning("Saved terminal could not be restored: {0}", error.Message); }
+            }
+            _initialized = true;
+            _pollTask = RunActivityPollAsync(_pollStopping.Token);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task RunActivityPollAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+            {
+                try { PollActivity(); }
+                catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+                { System.Diagnostics.Trace.TraceWarning("Terminal activity is temporarily unavailable: {0}", error.Message); }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    internal void PollActivity()
+    {
+        var sessions = _sessions.Values.Select(session => (Session: session, Pid: session.ProcessId)).Where(item => item.Pid is not null).ToArray();
+        if (sessions.Length == 0) return;
+        var snapshot = _captureProcesses();
+        foreach (var (session, pid) in sessions)
+            if (session.ProcessId == pid && TerminalProcessInspector.Inspect(snapshot, pid!.Value) is { } activity)
+                session.Journal.CommitActivity(activity);
     }
 
     public async Task<TerminalSessionDescriptor> StartAsync(
@@ -37,6 +111,7 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         ValidateDimensions(request.Columns, request.Rows);
         if (!Enum.IsDefined(request.ShellKind))
         {
@@ -98,14 +173,31 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
                 DateTimeOffset.UtcNow,
                 Sequence.Initial,
                 request.ThreadId,
-                workspace.WorkspaceRoot);
-            var session = new TerminalSession(descriptor, process, _options);
+                workspace.WorkspaceRoot,
+                Epoch: Guid.NewGuid().ToString("N"));
+            var session = new TerminalSession(descriptor, process, _options, _historyStore);
             if (!_sessions.TryAdd(descriptor.TerminalSessionId, session))
             {
                 await session.DisposeAsync().ConfigureAwait(false);
                 throw new InvalidOperationException("The generated terminal session identity already exists.");
             }
 
+            try { await session.FlushAsync().ConfigureAwait(false); }
+            catch
+            {
+                _sessions.TryRemove(descriptor.TerminalSessionId, out _);
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+            foreach (var inactive in _sessions.Values.Where(item => item.Descriptor.State != TerminalSessionState.Running)
+                .OrderByDescending(item => item.Descriptor.CreatedUtc).Skip(MaximumRetainedInactiveSessions).ToArray())
+            {
+                if (_sessions.TryRemove(inactive.Descriptor.TerminalSessionId, out _))
+                {
+                    await inactive.DisposeAsync().ConfigureAwait(false);
+                    _historyStore.Delete(inactive.Descriptor.TerminalSessionId);
+                }
+            }
             return descriptor;
         }
         finally
@@ -118,6 +210,7 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
         ProjectId projectId,
         CancellationToken cancellationToken)
     {
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         if (await _database.GetProjectAsync(projectId, cancellationToken).ConfigureAwait(false) is null)
         {
             throw new HostOperationException(
@@ -165,13 +258,28 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     public async Task CloseAsync(CloseTerminalSessionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!_sessions.TryRemove(request.TerminalSessionId, out var session))
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw NotFound(request.TerminalSessionId);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_sessions.TryRemove(request.TerminalSessionId, out var session))
+                throw NotFound(request.TerminalSessionId);
+            try { await session.DisposeAsync().ConfigureAwait(false); }
+            finally { _historyStore.Delete(request.TerminalSessionId); }
         }
+        finally { _gate.Release(); }
+    }
 
-        await session.DisposeAsync().ConfigureAwait(false);
+    public async Task<TerminalSnapshotEnvelope> ClearHistoryAsync(ClearTerminalHistoryRequest request, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return await Get(request.TerminalSessionId).ClearHistoryAsync().ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
     }
 
     public IAsyncEnumerable<TerminalEnvelope> SubscribeAsync(
@@ -181,19 +289,24 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
+            if (_disposed) return;
+            _disposed = true;
+            await _pollStopping.CancelAsync().ConfigureAwait(false);
+            await _pollTask.ConfigureAwait(false);
+            List<Exception> errors = [];
+            foreach (var session in _sessions.Values)
+            {
+                try { await session.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error) { errors.Add(error); }
+            }
+            _sessions.Clear();
+            _pollStopping.Dispose();
+            if (errors.Count > 0) throw new AggregateException("Terminal shutdown could not save all histories.", errors);
         }
-
-        _disposed = true;
-        foreach (var session in _sessions.Values)
-        {
-            await session.DisposeAsync().ConfigureAwait(false);
-        }
-
-        _sessions.Clear();
-        _gate.Dispose();
+        finally { _gate.Release(); }
     }
 
     private TerminalSession Get(TerminalSessionId terminalSessionId) =>

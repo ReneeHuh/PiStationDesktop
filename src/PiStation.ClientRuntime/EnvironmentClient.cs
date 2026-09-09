@@ -12,6 +12,7 @@ using PiStation.Protocol.Models;
 using PiStation.Protocol.Receipts;
 using PiStation.Protocol.Projections;
 using PiStation.Protocol.Serialization;
+using PiStation.Protocol.Streaming;
 
 namespace PiStation.ClientRuntime;
 
@@ -208,6 +209,12 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         EnsureConnected();
         await _supervisor.Connection.InvokeAsync("RemoveProject", request, cancellationToken).ConfigureAwait(false);
         ThreadMetadata.RemoveProject(request.ProjectId);
+    }
+
+    public Task<ProjectDescriptor[]> UpdateProjectIconsAsync(UpdateProjectIconsRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+        return InvokeAsync<ProjectDescriptor[]>("UpdateProjectIcons", request, cancellationToken);
     }
 
     public Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
@@ -631,6 +638,9 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
         ArgumentNullException.ThrowIfNull(request);
         return InvokeAsync<TerminalSessionDescriptor>("StopTerminalSession", request, cancellationToken);
     }
+
+    public Task<TerminalSnapshotEnvelope> ClearTerminalHistoryAsync(ClearTerminalHistoryRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<TerminalSnapshotEnvelope>("ClearTerminalHistory", request, cancellationToken);
 
     public Task CloseTerminalSessionAsync(
         CloseTerminalSessionRequest request,

@@ -54,8 +54,8 @@ strictly read-only preview. Selected source or diff ranges become bounded review
 chips in the composer. Unsupported binary content, oversized files, missing files, and escaping
 workspace paths are handled explicitly.
 Its Terminal tab now manages host-owned PowerShell and Command
-Prompt sessions with resumable output, session switching, start/stop/restart/close actions, local
-clear, command and focused-viewport keyboard input, native copy/paste/select-all/clear context actions,
+Prompt sessions with saved scrollback across host restart, subprocess labels, session switching,
+start/stop/restart/close actions, durable clear, command and focused-viewport keyboard input, native copy/paste/select-all/clear context actions,
 responsive size updates, and recursive split-right/split-down layouts for up to four independently
 focused sessions. The complete pane tree, split orientations and ratios, active pane, and pane sessions
 persist per project; every divider supports pointer, keyboard, and UI Automation resizing, and
@@ -293,7 +293,7 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 46, including tool-selection settings/inventory alongside persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+Remote access uses protocol 47, including saved terminal history, subprocess labels, and shared grouped-checkout icons alongside tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:

@@ -5,8 +5,8 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolVersionTests
 {
     [Fact]
-    public void CombinedDesktopAndRemoteProtocolVersionIsFortyFive()
+    public void DesktopAndRemoteProtocolIncludesDurableTerminalsAndSharedIcons()
     {
-        Assert.Equal(46, ProtocolVersion.Current);
+        Assert.Equal(47, ProtocolVersion.Current);
     }
 }

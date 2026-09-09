@@ -1,4 +1,5 @@
 using PiStation.Protocol.Identifiers;
+using PiStation.Protocol.Streaming;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Receipts;
 using PiStation.Protocol.Projections;
@@ -48,6 +49,9 @@ public interface IEnvironmentClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     Task RemoveProjectAsync(RemoveProjectRequest request, CancellationToken cancellationToken = default);
+
+    Task<ProjectDescriptor[]> UpdateProjectIconsAsync(UpdateProjectIconsRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Update the host to share project icons.");
 
     Task<ProjectDescriptor> UpdateProjectDefaultsAsync(
         UpdateProjectDefaultsRequest request,
@@ -237,6 +241,9 @@ public interface IEnvironmentClient : IAsyncDisposable
     Task<TerminalSessionDescriptor> StopTerminalSessionAsync(
         StopTerminalSessionRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<TerminalSnapshotEnvelope> ClearTerminalHistoryAsync(ClearTerminalHistoryRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Update the host to clear saved terminal history.");
 
     Task CloseTerminalSessionAsync(
         CloseTerminalSessionRequest request,

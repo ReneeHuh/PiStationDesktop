@@ -155,7 +155,8 @@ public sealed record UpdateProjectDefaultsRequest(
     IReadOnlyList<ProjectScript>? Scripts = null,
     string? Icon = null,
     bool UpdateCustomization = false,
-    ProjectIconUpload? UploadedIcon = null);
+    ProjectIconUpload? UploadedIcon = null,
+    bool UpdateIcon = true);
 
 public sealed record ProjectSetupScriptResult(
     SetupScriptState State,

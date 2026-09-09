@@ -137,6 +137,36 @@ public sealed class RemoteHostWorkflowTests
         Assert.Equal(Icon, await viewer.ReadProjectIconAsync(project.ProjectId));
     }
 
+    [Fact]
+    public async Task SharedIconAndDurableClearRoundTripOverTlsAndRequireOperateAccess()
+    {
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var token = timeout.Token;
+        await using var fixture = await RemoteFixture.StartAsync(directory.CreateHostOptions(), directory);
+        var project = await fixture.Client.AddProjectAsync(new(directory.CreateDirectory("project")), token);
+        var changed = Assert.Single(await fixture.Client.UpdateProjectIconsAsync(new([project.ProjectId], UploadedIcon: new("shared.png", Icon)), token));
+        Assert.True(File.Exists(changed.Icon));
+        Assert.Equal(Icon, await fixture.Client.ReadProjectIconAsync(project.ProjectId, token));
+        var terminal = await fixture.Client.StartTerminalSessionAsync(new(project.ProjectId, TerminalShellKind.CommandPrompt), token);
+        await using var subscription = fixture.Client.SubscribeTerminal(terminal.TerminalSessionId);
+        await fixture.Client.WriteTerminalInputAsync(new(terminal.TerminalSessionId, "echo durable-^clear & exit\r"), token);
+        while (subscription.Store.Descriptor?.State != TerminalSessionState.Exited) await Task.Delay(50, token);
+        Assert.Contains("durable-clear", subscription.Store.Output);
+        Assert.False(string.IsNullOrWhiteSpace(subscription.Store.Descriptor.Epoch));
+        await using var viewer = fixture.CreateClient(RemoteAccessLevel.ReadOnly);
+        await viewer.ConnectAsync(token);
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.UpdateProjectIconsAsync(new([project.ProjectId], "emoji:🧪"), token));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.ClearTerminalHistoryAsync(new(terminal.TerminalSessionId), token));
+        Assert.Contains("durable-clear", subscription.Store.Output);
+        var cleared = await fixture.Client.ClearTerminalHistoryAsync(new(terminal.TerminalSessionId), token);
+        Assert.Empty(cleared.BufferedOutput);
+        while (subscription.Store.Descriptor.Sequence < cleared.Sequence) await Task.Delay(50, token);
+        Assert.Empty(subscription.Store.Output);
+        Assert.Equal(Icon, await viewer.ReadProjectIconAsync(project.ProjectId, token));
+        await fixture.Client.CloseTerminalSessionAsync(new(terminal.TerminalSessionId), token);
+    }
+
     private sealed class RemoteFixture(EmbeddedEnvironmentHost local, RemoteEnvironmentHost remote,
         RemoteAccessStore access, X509Certificate2 certificate, EnvironmentClient client) : IAsyncDisposable
     {
