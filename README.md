@@ -234,10 +234,15 @@ permission controls remain hidden until Pi advertises concrete options.
 
 ```powershell
 cd PiStationDesktop
-dotnet restore PiStationDesktop.slnx
-dotnet build PiStationDesktop.slnx --no-restore
-dotnet test PiStationDesktop.slnx --no-build
+pwsh .\Invoke-CodeTests.ps1
 ```
+
+The code gate builds first, then runs each code-test project sequentially with bounded
+test concurrency, a hang cutoff, and separate first-attempt TRX/JSON evidence. Use
+`-NoBuild` after a current build, or `-Suite Host -Filter 'FullyQualifiedName~PiResources'`
+for a focused run. Code/PR gates reject another gate in the same checkout; ordinary
+`dotnet` commands and IDE/native runs are not intercepted. See [regression runner and
+BUG-09 evidence](Docs/REGRESSION-GATE-2026-09-09.md) for opt-in limits and remaining qualification.
 
 The pull-request entry point runs restore, a zero-warning build, the pinned T3/PiStation visual
 contract, all code tests with TRX output, the driver contract, and eleven packaged-app journeys

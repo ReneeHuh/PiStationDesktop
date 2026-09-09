@@ -68,9 +68,7 @@ jobs:
 
       - name: Build Release
         run: |
-          dotnet build PiStationDesktop.slnx -c Release --no-restore
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test PiStationDesktop.slnx -c Release --no-build --filter 'Category!=RealPi' --logger trx --results-directory TestResults/Release
+          pwsh ./Invoke-CodeTests.ps1 -Configuration Release -Filter 'Category!=RealPi'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh ./tests/PiStation.UiTests/Invoke-DriverContract.ps1 -Configuration Release -NoBuild
 

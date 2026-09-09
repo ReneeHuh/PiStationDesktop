@@ -87,11 +87,13 @@ public sealed class PiProcessIntegrationTests
         Assert.Equal("high", updated.ThinkingLevel);
     }
 
-    [Fact]
-    public async Task ComposerCommandsCompactionAndSessionNamesUseNativeRpcCommands()
+    [Theory]
+    [InlineData("normal", true)]
+    [InlineData("navigation-unavailable", false)]
+    public async Task ComposerCommandsCompactionAndSessionNamesUseNativeRpcCommands(string scenario, bool hasSessionManagement)
     {
         using var temporaryDirectory = new TemporaryDirectory();
-        await using var process = await FakePiTestHost.StartAsync(temporaryDirectory);
+        await using var process = await FakePiTestHost.StartAsync(temporaryDirectory, scenario);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         var commands = await process.Connection.GetCommandsAsync(cancellation.Token);
@@ -99,11 +101,11 @@ public sealed class PiProcessIntegrationTests
         var compaction = await process.Connection.CompactAsync("Keep decisions", cancellation.Token);
         var state = await process.Connection.GetStateAsync(cancellation.Token);
 
-        Assert.Collection(
-            commands,
-            command => Assert.Equal(("review", "extension"), (command.Name, command.Source)),
-            command => Assert.Equal(("release-notes", "prompt"), (command.Name, command.Source)),
-            command => Assert.Equal(("skill:fake-skill", "skill"), (command.Name, command.Source)));
+        List<(string Name, string Source)> expected = [("review", "extension"), ("release-notes", "prompt"), ("skill:fake-skill", "skill")];
+        // Raw RPC includes management commands; the host, not the transport,
+        // filters them from user-facing composer discovery.
+        if (hasSessionManagement) expected.Add(("pistation-desktop-sessions", "extension"));
+        Assert.Equal(expected, commands.Select(command => (command.Name, command.Source)));
         Assert.Equal("user", commands[2].SourceInfo?.Scope);
         Assert.EndsWith("SKILL.md", commands[2].Path);
         Assert.Equal("Generated thread title", state.SessionName);

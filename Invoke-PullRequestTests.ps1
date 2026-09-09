@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $solutionRoot = $PSScriptRoot
 $solution = Join-Path $solutionRoot 'PiStationDesktop.slnx'
 $uiTests = Join-Path $solutionRoot 'tests\PiStation.UiTests'
-$testResults = Join-Path $solutionRoot 'TestResults'
+Import-Module (Join-Path $solutionRoot 'tests/CodeTestGate.psm1') -Force
 
 function Invoke-CheckedNative {
     param(
@@ -22,18 +22,14 @@ function Invoke-CheckedNative {
     }
 }
 
+$lease = Open-PiStationTestGate -Root $solutionRoot
 Push-Location $solutionRoot
 try {
     Invoke-CheckedNative 'dotnet' @('restore', $solution)
     Invoke-CheckedNative 'dotnet' @('build', $solution, '--configuration', $Configuration, '--no-restore')
     & (Join-Path $uiTests 'Test-VisualContract.ps1')
-    Invoke-CheckedNative 'dotnet' @(
-        'test', $solution,
-        '--configuration', $Configuration,
-        '--no-build',
-        '--logger', 'trx',
-        '--results-directory', $testResults
-    )
+    & (Join-Path $solutionRoot 'tests/Test-CodeTestGate.ps1')
+    Invoke-PiStationCodeTests -Root $solutionRoot -Configuration $Configuration -NoBuild
 
     & (Join-Path $uiTests 'Invoke-DriverContract.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-DraftSlice.ps1') -Configuration $Configuration -NoBuild
@@ -55,4 +51,5 @@ try {
 }
 finally {
     Pop-Location
+    $lease.Dispose()
 }
