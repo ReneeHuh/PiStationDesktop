@@ -38,6 +38,7 @@ public sealed class BrowserAutomationBridgeTests
     [InlineData("open")]
     [InlineData("resize")]
     [InlineData("set_appearance")]
+    [InlineData("evaluate")]
     public async Task InspectAccessRejectsEveryInteraction(string operation)
     {
         using var directory = new HostTestDirectory();
@@ -141,6 +142,28 @@ public sealed class BrowserAutomationBridgeTests
         Assert.Throws<ArgumentException>(() => BrowserAutomationBridge.ValidateResult(new(true, ScreenshotPng: new byte[BrowserAutomationLimits.MaximumScreenshotBytes + 1])));
         Assert.Throws<ArgumentException>(() => BrowserAutomationBridge.ValidateResult(new(false, Error: new string('x', 2049))));
         Assert.Throws<ArgumentException>(() => BrowserAutomationBridge.ValidateResult(new(true, JsonSerializer.SerializeToElement(new string('x', BrowserAutomationLimits.MaximumDataBytes)))));
+    }
+
+    [Fact]
+    public async Task SnapshotsDeliverImagesUnderInspectWhileEvaluationKeepsItsOwnResultLimit()
+    {
+        using var directory = new HostTestDirectory();
+        await using var bridge = new BrowserAutomationBridge(directory.Path);
+        var thread = ThreadId.New();
+        var lease = await bridge.OpenAsync(new(thread, BrowserAutomationAccess.Inspect), "d", "c", CancellationToken.None);
+        var request = WriteRequest(directory.Path, thread, lease.Id, "snapshot");
+        Assert.Equal(request.Id, (await bridge.PollAsync(lease.Id, "d", "c", CancellationToken.None)).Request!.Id);
+        byte[] png = [137, 80, 78, 71, 13, 10, 26, 10, 0];
+        await bridge.CompleteAsync(lease.Id, request.Id, new(true, JsonSerializer.SerializeToElement(new { title = "Snapshot" }), ScreenshotPng: png), "d", "c", CancellationToken.None);
+        Assert.Equal(png, ReadResult(directory.Path, thread, request.Id).ScreenshotPng);
+        lease = await bridge.OpenAsync(new(thread, BrowserAutomationAccess.Interact), "d", "c", CancellationToken.None);
+        request = WriteRequest(directory.Path, thread, lease.Id, "evaluate");
+        await bridge.PollAsync(lease.Id, "d", "c", CancellationToken.None);
+        await Assert.ThrowsAsync<ArgumentException>(() => bridge.CompleteAsync(lease.Id, request.Id, new(true, ScreenshotPng: png), "d", "c", CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => bridge.CompleteAsync(lease.Id, request.Id,
+            new(true, JsonSerializer.SerializeToElement(new string('x', BrowserAutomationLimits.MaximumEvaluationBytes))), "d", "c", CancellationToken.None));
+        await bridge.CompleteAsync(lease.Id, request.Id, new(true, JsonSerializer.SerializeToElement(new { type = "number", value = 42 })), "d", "c", CancellationToken.None);
+        Assert.True(ReadResult(directory.Path, thread, request.Id).Success);
     }
 
     private static BrowserAutomationRequest WriteRequest(string root, ThreadId thread, string controller, string operation, DateTimeOffset? created = null)

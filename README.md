@@ -75,7 +75,11 @@ its controller and browser documents remain available while another thread is se
 create/reuse tabs, resize their CSS viewport, and set system/light/dark appearance. New tabs use
 the shared defaults; agent targets stay pinned independently of human tab selection. Resize and
 appearance operations confirm rendered state. Closing a tab, revoking permission, deleting its
-thread or disconnecting cancels pending work. See [agent browser behavior](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md). Web messages
+thread or disconnecting cancels pending work. Agents with Interact access can evaluate JavaScript
+with bounded JSON results and execution deadlines. Inspect access provides snapshots with page text,
+element selectors, accessibility, console/network failures, action history and a PNG image.
+See [agent browser behavior](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md) and
+[evaluation and snapshots](Docs/BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md). Web messages
 remain limited to one-use element-picker tokens; page permissions, downloads, host objects, and
 implicit browser access stay blocked. The Agents tab now projects Pi structured-subagent
 and workflow tools as a persisted hierarchy with live state, current activity, elapsed time,
@@ -305,7 +309,7 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 49, including independent thread browser controllers, agent open/resize/appearance operations, preview-server terminal ownership, saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md), [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md), and [browser automation](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+Remote access uses protocol 50, including agent JavaScript evaluation and rich snapshots, independent thread browser controllers, agent open/resize/appearance operations, preview-server terminal ownership, saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md), [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md), [browser automation](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md), and [evaluation and snapshots](Docs/BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:

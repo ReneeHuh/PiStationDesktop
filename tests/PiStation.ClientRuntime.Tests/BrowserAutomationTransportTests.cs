@@ -102,14 +102,14 @@ public sealed class BrowserAutomationTransportTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
         await using var session = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
-        foreach (var operation in new[] { "status", "open", "resize", "set_appearance", "snapshot", "navigate", "click", "type", "press_key", "scroll", "wait", "screenshot" })
+        foreach (var operation in new[] { "status", "open", "resize", "set_appearance", "snapshot", "evaluate", "navigate", "click", "type", "press_key", "scroll", "wait", "screenshot" })
         {
             var request = host.WriteRequest(operation);
             var work = await NextAsync(session, timeout.Token);
             Assert.Equal(request.Id, work.Request.Id);
             Assert.Equal("background-tab", work.Request.Input.GetProperty("tabId").GetString());
             byte[]? png = null;
-            if (operation == "screenshot")
+            if (operation is "screenshot" or "snapshot")
             {
                 // Exercise transport at the full image limit, beyond attachment and small hub defaults.
                 png = RandomNumberGenerator.GetBytes(BrowserAutomationLimits.MaximumScreenshotBytes);

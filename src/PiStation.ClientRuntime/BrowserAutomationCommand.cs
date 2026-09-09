@@ -7,7 +7,7 @@ namespace PiStation.ClientRuntime;
 public sealed record BrowserAutomationCommand(string Operation, string? TabId, string? Selector,
     string? Value, string? Url, string? Key, int Modifiers, int DeltaX, int DeltaY,
     string Condition, int TimeoutMs, bool Open = true, bool ReuseExistingTab = true,
-    BrowserViewportSetting? Viewport = null, string? ColorScheme = null)
+    BrowserViewportSetting? Viewport = null, string? ColorScheme = null, string? Expression = null, bool AwaitPromise = true)
 {
     public bool RequiresInteraction => BrowserAutomationLimits.RequiresInteraction(Operation);
 
@@ -42,6 +42,8 @@ public sealed record BrowserAutomationCommand(string Operation, string? TabId, s
             return element.GetBoolean();
         }
         var tabId = Read("tabId", 160);
+        if (operation == "evaluate" && !Boolean("returnByValue", true))
+            throw new ArgumentException("Evaluation supports serialized values only; returnByValue must be true.");
         var reuse = Boolean("reuseExistingTab", true);
         if (operation == "open" && tabId is not null && !reuse)
             throw new ArgumentException("tabId cannot be combined with reuseExistingTab=false.");
@@ -59,7 +61,8 @@ public sealed record BrowserAutomationCommand(string Operation, string? TabId, s
             Read("url", 2048, operation == "navigate"), key, Number("modifiers", 0, 0, 15),
             Number("deltaX", 0, -10000, 10000), Number("deltaY", 0, -10000, 10000),
             condition, Number("timeoutMs", 5000, 100, 20000), Boolean("open", true), reuse,
-            operation == "resize" ? BrowserViewportSetting.Parse(input) : null, appearance);
+            operation == "resize" ? BrowserViewportSetting.Parse(input) : null, appearance,
+            Read("expression", BrowserAutomationLimits.MaximumExpressionCharacters, operation == "evaluate"), Boolean("awaitPromise", true));
     }
 
     public static int VirtualKey(string key) => key switch

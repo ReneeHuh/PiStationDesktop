@@ -17,6 +17,8 @@ public static class BrowserAutomationLimits
     public const int MaximumRequestBytes = 64 * 1024;
     public const int MaximumDataBytes = 256 * 1024;
     public const int MaximumScreenshotBytes = 4 * 1024 * 1024;
-    public static bool RequiresInteraction(string operation) => operation is "open" or "resize" or "set_appearance" or "navigate" or "click" or "type" or "press_key" or "scroll";
+    public const int MaximumEvaluationBytes = 64_000;
+    public const int MaximumExpressionCharacters = 32_000;
+    public static bool RequiresInteraction(string operation) => operation is "evaluate" or "open" or "resize" or "set_appearance" or "navigate" or "click" or "type" or "press_key" or "scroll";
     public static bool IsOperation(string operation) => operation is "status" or "snapshot" or "screenshot" or "wait" || RequiresInteraction(operation);
 }

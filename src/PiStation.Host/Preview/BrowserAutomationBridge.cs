@@ -130,7 +130,9 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
             var session = Require(id, principal, connection);
             if (session.Active is not { } active || active.Id != requestId || !Pending(session, active))
                 throw new InvalidOperationException("The browser request is no longer active.");
-            if (result.ScreenshotPng is not null && active.Operation != "screenshot") throw new ArgumentException("Only screenshots may return image bytes.");
+            if (result.ScreenshotPng is not null && active.Operation is not ("screenshot" or "snapshot")) throw new ArgumentException("Only screenshots and snapshots may return image bytes.");
+            if (active.Operation == "evaluate" && result.Data is { } value && Encoding.UTF8.GetByteCount(value.GetRawText()) > BrowserAutomationLimits.MaximumEvaluationBytes)
+                throw new ArgumentException("The JavaScript result exceeds 64000 UTF-8 bytes.");
             WriteResult(session, requestId, result);
             session.Active = null;
         }

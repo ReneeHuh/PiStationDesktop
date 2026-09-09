@@ -1,6 +1,6 @@
 # Browser automation lifetime and tab operations
 
-Implements WEB-13, WEB-14 and WEB-15 against local T3 reference `0a590fa01af66ec135d2ebf2d5542b08a37dc275`. Wire protocol **49** requires matching host and desktop builds.
+Implements WEB-13, WEB-14 and WEB-15 against local T3 reference `0a590fa01af66ec135d2ebf2d5542b08a37dc275`. This slice introduced wire protocol **49**; [evaluation and snapshots](BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md) advance it to **50**, requiring matching host and desktop builds.
 
 ## Ownership and presentation
 
@@ -22,7 +22,7 @@ The existing `pistation_browser` tool gains:
 
 All three operations require **interact** permission in the extension, host and desktop. Inputs and results retain existing bounds. Resize waits for two matching rendered innerWidth/innerHeight observations, allowing one CSS pixel of native rounding, as T3 does; appearance reads the rendered media-query result after the native override. They return actual state and fail on timeout or a competing change. Revision checks prevent rollback from overwriting a newer human action. Existing status/navigation/snapshot/click/type/keys/scroll/wait/screenshot operations use the same retained targets.
 
-JavaScript evaluation, agent recording/artifact delivery, richer snapshots, installed-browser session import and 30/60 FPS recording remain WEB-16/17/18, WEB-07 and WEB-09 respectively.
+JavaScript evaluation and richer snapshots are covered by the [protocol-50 follow-up](BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md). Agent recording/artifact delivery, installed-browser session import and 30/60 FPS recording remain WEB-17, WEB-07 and WEB-09 respectively.
 
 ## Verification
 

@@ -49,7 +49,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 
     public event EventHandler<PreviewBrowserFailureEventArgs>? BrowserFailed;
 
-    public bool IsInitialized => Browser.CoreWebView2 is not null;
+    public bool IsInitialized => !_disposed && Browser.CoreWebView2 is not null;
 
     public string? CurrentSource => LogicalSource(Browser.CoreWebView2?.Source);
 
@@ -466,6 +466,9 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         }
 
         _disposed = true;
+        SetAutomationEnabled(false);
+        InterruptAutomationDocument();
+        if (_scriptExecutor is { } executor) _ = executor.DisposeAsync().AsTask();
         var recordingTask = _recordingTask;
         var recordingDirectory = _recordingDirectory;
         _recordingCancellation?.Cancel();
@@ -571,6 +574,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 
     private void OnNavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
+        InterruptAutomationDocument();
         if (_elementPickCompletion is not null)
         {
             FinishElementPicker(null);
@@ -628,6 +632,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
 
     private void OnProcessFailed(CoreWebView2 sender, CoreWebView2ProcessFailedEventArgs args)
     {
+        InterruptAutomationDocument();
         FinishElementPicker(null);
         BrowserFailed?.Invoke(
             this,

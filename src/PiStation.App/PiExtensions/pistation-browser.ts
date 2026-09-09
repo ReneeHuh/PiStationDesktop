@@ -12,6 +12,7 @@ const PARAMETERS = Type.Object({
     Type.Literal("set_appearance"),
     Type.Literal("navigate"),
     Type.Literal("snapshot"),
+    Type.Literal("evaluate"),
     Type.Literal("click"),
     Type.Literal("type"),
     Type.Literal("screenshot"),
@@ -31,6 +32,9 @@ const PARAMETERS = Type.Object({
   url: Type.Optional(Type.String({ maxLength: 2048 })),
   selector: Type.Optional(Type.String({ maxLength: 1024 })),
   value: Type.Optional(Type.String({ maxLength: 8192 })),
+  expression: Type.Optional(Type.String({ minLength: 1, maxLength: 32000, description: "JavaScript in the page's main frame. Requires interact permission. Return a JSON value; functions, remote objects and BigInt are unsupported." })),
+  awaitPromise: Type.Optional(Type.Boolean({ description: "Await a returned Promise (default true)." })),
+  returnByValue: Type.Optional(Type.Literal(true)),
   key: Type.Optional(Type.String({ maxLength: 32, description: "Letter/digit, Enter, Tab, Escape, Backspace, Delete, ArrowLeft/Up/Right/Down, Home, End, PageUp/Down, Space." })),
   modifiers: Type.Optional(Type.Integer({ minimum: 0, maximum: 15, description: "Keyboard bitmask: Alt=1, Control=2, Meta=4, Shift=8." })),
   deltaX: Type.Optional(Type.Integer({ minimum: -10000, maximum: 10000 })),
@@ -40,7 +44,7 @@ const PARAMETERS = Type.Object({
 });
 
 type BrowserParameters = {
-  readonly action: "open" | "resize" | "set_appearance" | "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
+  readonly action: "evaluate" | "open" | "resize" | "set_appearance" | "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
   readonly url?: string;
   readonly selector?: string;
   readonly value?: string;
@@ -86,7 +90,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
       throw new Error("Browser automation is off. Ask the user to enable it in Preview.");
     }
 
-    if (["open", "resize", "set_appearance", "navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
+    if (["evaluate", "open", "resize", "set_appearance", "navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
       throw new Error("This browser permission is inspect-only. Ask the user to enable interaction.");
     }
 
@@ -98,11 +102,9 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     const requestPath = join(requestDirectory, `${id}.json`);
     const temporaryPath = `${requestPath}.tmp`;
     const responsePath = join(responseDirectory, `${id}.json`);
-    await writeFile(
-      temporaryPath,
-      JSON.stringify({ id, operation: params.action, input: params, createdUtc: new Date().toISOString(), controllerId }),
-      "utf8",
-    );
+    const envelope = JSON.stringify({ id, operation: params.action, input: params, createdUtc: new Date().toISOString(), controllerId });
+    if (Buffer.byteLength(envelope, "utf8") > 64 * 1024) throw new Error("The browser request exceeds 64 KiB; shorten its input.");
+    await writeFile(temporaryPath, envelope, "utf8");
     await rename(temporaryPath, requestPath);
 
     try {
@@ -136,9 +138,11 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     label: "Pi Station Browser",
     description:
       "Inspect or interact with permissioned Pi Station Preview tabs in this agent's thread, including while the human views another thread. status lists stable tab IDs. open creates/reuses a tab with optional url; reuseExistingTab=false creates another; open=false keeps it in the background. Omitted tabId uses this agent thread's pinned tab, independent of human tab selection. resize accepts mode fill, freeform with width/height (240..3840, max 8294400 pixels), or preset desktop/tablet/phone with optional portrait/landscape orientation. It confirms rendered CSS dimensions without changing the user agent. set_appearance accepts colorScheme system/light/dark. wait supports visible/hidden selectors, text containing value, URL containing value, or document loaded; timeoutMs defaults to 5000 (max 20000). Closing tabs, disconnecting or revoking permission cancels work; switching the viewed thread does not.",
-    promptSnippet: "Open or target a permissioned browser tab; resize, set appearance, inspect, navigate, interact, wait or capture it",
+    promptSnippet: "Open or target a permissioned browser tab; inspect rich snapshots, evaluate JavaScript, resize, navigate, interact or capture it",
     promptGuidelines: [
       "Use pistation_browser only for browser work the user requested; respect inspect-only permission and never ask to broaden it unnecessarily.",
+      "Prefer snapshot and semantic actions. snapshot includes page text, element selectors/bounds, an accessibility tree, console/network failures, action history and a PNG image. Check truncated flags; diagnostics begin when automation first attaches and are cleared when access is disabled.",
+      "evaluate requires expression and interact permission, returns {type,value}, awaits promises by default, and limits results to 64000 UTF-8 bytes. timeoutMs defaults to 5000 (max 20000). Cancellation attempts to stop execution; an unresponsive browser is closed. Already applied page changes and separately scheduled work are not rolled back.",
     ],
     parameters: PARAMETERS,
     async execute(_toolCallId, params, signal) {
@@ -147,7 +151,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
         const data = response.data;
         const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> =
           [{ type: "text", text: JSON.stringify(data ?? {}, null, 2) }];
-        if (params.action === "screenshot" && response.screenshotPng) {
+        if ((params.action === "screenshot" || params.action === "snapshot") && response.screenshotPng) {
           const png = Buffer.from(response.screenshotPng, "base64");
           if (png.length > 4 * 1024 * 1024 || png.length < 8 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
             throw new Error("The browser returned an invalid or oversized screenshot.");

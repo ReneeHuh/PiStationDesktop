@@ -29,6 +29,7 @@ public sealed partial class RightPanelHost
         }
         if (e.PropertyName is nameof(ShellViewModel.IsConnected) or nameof(ShellViewModel.CanOperate))
         {
+            SynchronizeBrowserSurfaces();
             if (!ViewModel.IsConnected || !ViewModel.CanOperate)
                 foreach (var controller in _browserControllers.Values) controller.Session?.Cancel();
             _ = SynchronizeBrowserAutomationPermissionAsync();
@@ -78,6 +79,7 @@ public sealed partial class RightPanelHost
             }
             surface.Width = tab.SurfaceWidth;
             surface.Height = tab.SurfaceHeight;
+            surface.SetAutomationEnabled(ViewModel.IsConnected && ViewModel.CanOperate && workspace.Model.AutomationPermission != PreviewAutomationAccess.Off);
             var visible = ReferenceEquals(workspace.Model, ViewModel.WorkbenchPreview) && tab.IsActive &&
                 !string.IsNullOrWhiteSpace(tab.CurrentUrl) && ViewModel.Layout.IsRightPanelOpen &&
                 ViewModel.Layout.SelectedPanel == WorkbenchPanelKind.Preview;
@@ -210,6 +212,9 @@ public sealed partial class RightPanelHost
     {
         var model = workspace.Model;
         WorkbenchPreviewTabViewModel? created = null;
+        PreviewWebViewSurface? actionSurface = null;
+        var actionStatus = "failed";
+        string? actionError = null;
         try
         {
             var command = BrowserAutomationCommand.Parse(work.Request.Operation, work.Request.Input);
@@ -266,11 +271,16 @@ public sealed partial class RightPanelHost
                     throw new InvalidOperationException("The requested browser tab was closed.");
             }
             ValidateTarget();
+            await surface.AutomationGate.WaitAsync(work.CancellationToken);
+            actionSurface = surface;
+            ValidateTarget();
+            surface.AutomationDiagnostics.StartAction(work.Request.Id, command.Operation);
             if (command.Operation != "status")
             {
                 tab.MarkBrowserStarted();
                 await surface.InitializeAsync().WaitAsync(TimeSpan.FromMilliseconds(command.TimeoutMs), work.CancellationToken);
                 ValidateTarget();
+                await surface.PrepareAutomationInspectionAsync(ValidateTarget, work.CancellationToken);
                 await NavigateTabIfNeededAsync(tab, surface, ValidateTarget);
                 ValidateTarget();
                 if (tab.IsLoading && command.Operation is not ("navigate" or "open" or "wait" or "resize" or "set_appearance"))
@@ -285,7 +295,8 @@ public sealed partial class RightPanelHost
                     data = BrowserStatus(workspace, tab, surface); break;
                 case "resize": data = await ResizeAutomationAsync(command, workspace, tab, surface, ValidateTarget, work.CancellationToken); break;
                 case "set_appearance": data = await SetAutomationAppearanceAsync(command, workspace, tab, surface, ValidateTarget, work.CancellationToken); break;
-                case "snapshot": data = new { url = tab.CurrentUrl, elements = JsonSerializer.Deserialize<JsonElement>(await surface.GetDomSnapshotAsync(ValidateTarget)) }; break;
+                case "evaluate": data = await surface.EvaluateAutomationAsync(command, ValidateTarget, work.CancellationToken); break;
+                case "snapshot": data = await surface.CaptureAutomationSnapshotAsync(command.TimeoutMs, ValidateTarget, work.CancellationToken); break;
                 case "screenshot": data = await CaptureAutomationScreenshotAsync(surface, tab, ValidateTarget); break;
                 case "click": data = JsonSerializer.Deserialize<JsonElement>(await surface.ClickElementAsync(command.Selector!, ValidateTarget)); break;
                 case "type": data = JsonSerializer.Deserialize<JsonElement>(await surface.TypeIntoElementAsync(command.Selector!, command.Value!, ValidateTarget)); break;
@@ -299,17 +310,22 @@ public sealed partial class RightPanelHost
             workspace.AgentTabId = tab.TabId;
             ViewModel.Browsers.Persist(workspace);
             await session.CompleteAsync(work, data as BrowserAutomationResult ?? new(true, JsonSerializer.SerializeToElement(data)));
+            actionStatus = "succeeded";
             created = null;
         }
-        catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested) { actionStatus = "interrupted"; }
         catch (Exception error)
         {
+            actionStatus = error is OperationCanceledException ? "interrupted" : "failed";
+            actionError = error.Message;
             var detail = ViewModel.UiTestFaultControlsVisibility == Visibility.Visible ? error.ToString() : error.Message;
             try { await session.CompleteAsync(work, new(false, Error: detail.Length > 2048 ? detail[..2048] : detail)); }
             catch (Exception) { session.Cancel(); }
         }
         finally
         {
+            actionSurface?.AutomationDiagnostics.FinishAction(work.Request.Id, actionStatus, actionError);
+            actionSurface?.AutomationGate.Release();
             if (created is not null) { model.CloseTab(created); ViewModel.Browsers.Persist(workspace); }
             controller.Busy = false;
             controller.TargetTabId = null;

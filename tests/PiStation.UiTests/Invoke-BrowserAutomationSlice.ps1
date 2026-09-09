@@ -45,7 +45,7 @@ function Set-AgentPermission {
     Invoke-Ui invoke $item.selector | Out-Null
 }
 function Invoke-Browser {
-    param([hashtable] $InputData, [switch] $ExpectFailure)
+    param([hashtable] $InputData, [switch] $ExpectFailure, [switch] $RevokeAfterSubmit)
     $permission = Get-Content -LiteralPath $script:permissionFile -Raw | ConvertFrom-Json
     $id = [guid]::NewGuid().ToString('D')
     $threadDirectory = Split-Path -Parent $script:permissionFile
@@ -55,11 +55,16 @@ function Invoke-Browser {
     $request | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot "$id.request.json")
     [IO.File]::WriteAllText($requestPath + '.tmp', ($request | ConvertTo-Json -Depth 10 -Compress))
     Move-Item -LiteralPath ($requestPath + '.tmp') -Destination $requestPath
+    if ($RevokeAfterSubmit) {
+        Wait-Condition { Test-Path -LiteralPath ([IO.Path]::ChangeExtension($requestPath, '.claimed')) } 'evaluation claimed before revocation'
+        Wait-Condition { Test-Path -LiteralPath (Join-Path $runRoot 'evaluation-started.txt') } 'script execution before revocation' 10000
+        Set-AgentPermission 'Agent inspect only'
+    }
     Wait-Condition { Test-Path -LiteralPath $responsePath } "browser response for $($InputData.action)" 30000
     $response = Get-Content -LiteralPath $responsePath -Raw | ConvertFrom-Json -Depth 30
     $response | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $runRoot "$id-$($InputData.action).json")
     if ($ExpectFailure) {
-        if ($response.success) { throw 'An inspect-only controller accepted an interaction.' }
+        if ($response.success) { throw "Browser $($InputData.action) unexpectedly succeeded." }
     } elseif (-not $response.success) { throw "Browser $($InputData.action): $($response.error)" }
     return $response
 }
@@ -71,7 +76,8 @@ try {
     & git -C $projectPath add README.md
     & git -C $projectPath -c user.name='PiStation Tests' -c user.email='tests@example.invalid' commit --quiet -m fixture
     if ($LASTEXITCODE -ne 0) { throw 'Fixture git commit failed.' }
-    $serverJob = Start-Job {
+    $serverJob = Start-Job -ArgumentList $runRoot {
+        param($evidenceRoot)
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
         $listener.Start()
         Write-Output $listener.LocalEndpoint.Port
@@ -83,10 +89,13 @@ try {
                     $stream = $client.GetStream()
                     $stream.ReadTimeout = 5000
                     $buffer = [byte[]]::new(8192)
-                    $null = $stream.Read($buffer, 0, $buffer.Length)
+                    $read = $stream.Read($buffer, 0, $buffer.Length)
+                    $requestLine = [Text.Encoding]::ASCII.GetString($buffer, 0, $read).Split("`r`n")[0]
+                    if ($requestLine -like '* /evaluation-started *') { [IO.File]::WriteAllText((Join-Path $evidenceRoot 'evaluation-started.txt'), 'The agent script started its request.') }
+                    $status = if ($requestLine -like 'GET /missing*') { '404 Not Found' } else { '200 OK' }
                     $html = '<!doctype html><html><head><title>Browser automation fixture</title><style>body{font:24px sans-serif;background:white;color:black}@media(prefers-color-scheme:dark){body{background:#181818;color:white}}</style></head><body><h1>Browser automation fixture</h1><button id="set" onclick="document.querySelector(''#state'').textContent=''Document retained''">Keep state</button><p id="state">Initial document</p></body></html>'
                     $body = [Text.Encoding]::UTF8.GetBytes($html)
-                    $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n")
+                    $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status`r`nContent-Type: text/html; charset=utf-8`r`nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n")
                     $stream.Write($header); $stream.Write($body)
                 } catch [IO.IOException] { } finally { $client.Dispose() }
             }
@@ -143,6 +152,31 @@ try {
     if ([Math]::Abs($resized.data.viewport.width - 1024) -gt 1 -or [Math]::Abs($resized.data.viewport.height - 768) -gt 1) { throw 'Background viewport did not render within native pixel rounding.' }
     $capture = Invoke-Browser @{ action = 'screenshot' }
     [IO.File]::WriteAllBytes((Join-Path $runRoot 'background-browser.png'), [Convert]::FromBase64String($capture.screenshotPng))
+    $evaluated = Invoke-Browser @{ action = 'evaluate'; expression = 'Promise.resolve({answer:42,title:document.title})' }
+    if ($evaluated.data.value.answer -ne 42 -or $evaluated.data.value.title -ne 'Browser automation fixture') { throw 'Evaluation did not await and serialize its result.' }
+    Invoke-Browser @{ action = 'evaluate'; expression = 'Promise.resolve(42)'; awaitPromise = $false } -ExpectFailure | Out-Null
+    Invoke-Browser @{ action = 'evaluate'; expression = 'document.body' } -ExpectFailure | Out-Null
+    $synchronous = Invoke-Browser @{ action = 'evaluate'; expression = '({items:[1,true,null],answer:42})'; awaitPromise = $false }
+    if ($synchronous.data.value.answer -ne 42 -or $synchronous.data.value.items.Count -ne 3) { throw 'Synchronous JSON objects did not survive evaluation.' }
+    foreach ($expression in @('(() => { throw new Error("fixture exception") })()', 'NaN', '42n', '(() => { const a = {}; a.self = a; return a; })()', '"x".repeat(65000)')) {
+        Invoke-Browser @{ action = 'evaluate'; expression = $expression } -ExpectFailure | Out-Null
+    }
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    Invoke-Browser @{ action = 'evaluate'; expression = '(() => { while(true) {} })()'; timeoutMs = 500 } -ExpectFailure | Out-Null
+    if ($elapsed.ElapsedMilliseconds -gt 6000) { throw 'Infinite evaluation exceeded its bounded termination window.' }
+    $recovered = Invoke-Browser @{ action = 'evaluate'; expression = '6 * 7' }
+    if ($recovered.data.value -ne 42) { throw 'Browser did not recover after script timeout.' }
+    Invoke-Browser @{ action = 'evaluate'; expression = 'console.error("automation diagnostic"); fetch("/missing").then(r => r.status)' } | Out-Null
+    Invoke-Browser @{ action = 'resize'; mode = 'freeform'; width = 1440; height = 900 } | Out-Null
+    $snapshot = Invoke-Browser @{ action = 'snapshot'; timeoutMs = 15000 }
+    if ($snapshot.data.title -ne 'Browser automation fixture' -or $snapshot.data.visibleText -notmatch 'Document retained') { throw 'Rich snapshot lost the retained page.' }
+    if (-not @($snapshot.data.interactiveElements | Where-Object { $_.selector -eq '#set' -and $_.width -gt 0 }).Count) { throw 'Snapshot lacks semantic element selectors and bounds.' }
+    if (-not @($snapshot.data.accessibilityTree.nodes | Where-Object { $_.role -eq 'button' -and $_.name -eq 'Keep state' }).Count) { throw 'Snapshot lacks the native accessibility tree.' }
+    if (-not @($snapshot.data.consoleEntries | Where-Object { $_.text -match 'automation diagnostic' }).Count) { throw 'Snapshot lacks console diagnostics.' }
+    if (-not @($snapshot.data.networkEntries | Where-Object { $_.status -eq 404 -and $_.url -match '/missing' }).Count) { throw 'Snapshot lacks failed request diagnostics.' }
+    if (-not @($snapshot.data.actionTimeline | Where-Object { $_.action -eq 'evaluate' -and $_.status -eq 'failed' }).Count) { throw 'Snapshot lacks failed action history.' }
+    if ($snapshot.data.screenshot.width -ne 1280 -or $snapshot.data.screenshot.height -ne 800) { throw 'Snapshot image was not resized with its aspect ratio preserved.' }
+    [IO.File]::WriteAllBytes((Join-Path $runRoot 'rich-snapshot.png'), [Convert]::FromBase64String($snapshot.screenshotPng))
     Invoke-Ui invoke ToggleWorkbenchButton | Out-Null
     Invoke-Browser @{ action = 'wait'; selector = '#state'; condition = 'text'; value = 'Document retained' } | Out-Null
     Invoke-Browser @{ action = 'set_appearance'; colorScheme = 'light' } | Out-Null
@@ -150,9 +184,21 @@ try {
     Select-TestThread -Title 'Thread 1'
     Invoke-Browser @{ action = 'open'; tabId = $tabId } | Out-Null
     Invoke-Browser @{ action = 'wait'; selector = '#state'; condition = 'text'; value = 'Document retained' } | Out-Null
-    Set-AgentPermission 'Agent inspect only'
+    Invoke-Browser @{ action = 'evaluate'; expression = '(() => { navigator.sendBeacon("/evaluation-started", "started"); while(true) {} })()'; timeoutMs = 20000 } -ExpectFailure -RevokeAfterSubmit | Out-Null
     Wait-Condition { (Get-Content -LiteralPath $permissionFile -Raw | ConvertFrom-Json).mode -eq 'inspect' } 'inspect-only lease'
     Invoke-Browser @{ action = 'resize'; mode = 'fill' } -ExpectFailure | Out-Null
+    Invoke-Browser @{ action = 'evaluate'; expression = '1 + 1' } -ExpectFailure | Out-Null
+    $inspected = Invoke-Browser @{ action = 'snapshot'; timeoutMs = 15000 }
+    if (-not $inspected.screenshotPng -or $inspected.data.title -ne 'Browser automation fixture') { throw 'Inspect snapshot failed after cancellation.' }
+    Set-AgentPermission 'Agent interact'
+    Wait-Condition { (Get-Content -LiteralPath $permissionFile -Raw | ConvertFrom-Json).mode -eq 'interact' } 'restored interact lease'
+    Invoke-Browser @{ action = 'open'; reuseExistingTab = $false; open = $false; url = "http://127.0.0.1:$serverPort" } | Out-Null
+    Invoke-Browser @{ action = 'wait'; condition = 'loaded'; timeoutMs = 15000 } | Out-Null
+    $elapsed.Restart()
+    Invoke-Browser @{ action = 'evaluate'; expression = 'new Promise(() => {})'; timeoutMs = 500 } -ExpectFailure | Out-Null
+    if ($elapsed.ElapsedMilliseconds -gt 6000) { throw 'Unresolved promise exceeded its bounded termination window.' }
+    $retained = Invoke-Browser @{ action = 'evaluate'; tabId = $tabId; expression = 'document.querySelector("#state").textContent' }
+    if ($retained.data.value -ne 'Document retained') { throw 'Cancelling another tab damaged the retained document.' }
     $passed = $true
     Write-Output "Browser native slice passed. Evidence: $runRoot"
 } catch {
