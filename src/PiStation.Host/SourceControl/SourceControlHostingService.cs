@@ -118,19 +118,6 @@ public sealed partial class SourceControlHostingService(
         return new SourceControlOperationResult(true, "Repository cloned and added as a project.", repository, Project: project);
     }
 
-    public async Task<SourceControlOperationResult> PublishAsync(
-        PublishHostedRepositoryRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var workspace = await _resolver.ResolveAsync(request.ProjectId, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        var (fileName, arguments) = BuildPublishCommand(request, workspace.WorkspaceRoot);
-        var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
-            .ConfigureAwait(false);
-        EnsureProviderSucceeded(result, request.Provider);
-        return new SourceControlOperationResult(true, "Repository published and origin configured. Refresh hosting to inspect it.");
-    }
-
     public async Task<SourceControlOperationResult> CreatePullRequestAsync(
         CreatePullRequestRequest request,
         CancellationToken cancellationToken = default)
@@ -195,17 +182,6 @@ public sealed partial class SourceControlHostingService(
         SourceControlProvider.Bitbucket => throw UnsupportedProvider(provider),
         SourceControlProvider.AzureDevOps => ("az", Compact(["repos", "pr", "list", "--status", AzureStateArgument(state), "--top", "100", "--skip", offset.ToString(System.Globalization.CultureInfo.InvariantCulture), "--output", "json", sourceBranch is null ? null : "--source-branch", sourceBranch])),
         _ => throw UnsupportedProvider(provider),
-    };
-
-    internal static (string FileName, string[] Arguments) BuildPublishCommand(
-        PublishHostedRepositoryRequest request,
-        string workspace) => request.Provider switch
-    {
-        SourceControlProvider.GitHub => ("gh", ["repo", "create", $"{request.Owner}/{request.RepositoryName}", request.IsPrivate ? "--private" : "--public", "--source", workspace, "--remote", "origin", "--push"]),
-
-
-
-        _ => throw UnsupportedProvider(request.Provider),
     };
 
     internal static (string FileName, string[] Arguments) BuildCreateCommand(

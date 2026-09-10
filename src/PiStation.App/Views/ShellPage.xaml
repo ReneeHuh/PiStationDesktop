@@ -1054,18 +1054,25 @@
                                     <Button HorizontalAlignment="Left" Click="OnCloneRepositoryClicked" Content="Clone and add project" Style="{StaticResource PiPrimaryButtonStyle}" />
                                 </StackPanel>
                             </Expander>
-                            <Expander Header="Publish selected project">
+                            <Expander Header="Publish selected project" automation:AutomationProperties.AutomationId="PublishRepositoryExpander">
                                 <StackPanel Padding="0,8,0,0" Spacing="6">
-                                    <ComboBox x:Name="PublishProviderSelector" SelectedIndex="0" Header="Provider" Style="{StaticResource PiComboBoxStyle}">
+                                    <ComboBox x:Name="PublishProviderSelector" SelectedIndex="0" Header="Provider" SelectionChanged="OnPublishProviderChanged" IsEnabled="{x:Bind ViewModel.Settings.CanPublishRepository, Mode=OneWay}" Style="{StaticResource PiComboBoxStyle}" automation:AutomationProperties.AutomationId="PublishProviderSelector">
                                         <ComboBoxItem Content="GitHub" Tag="GitHub" />
+                                        <ComboBoxItem Content="GitLab" Tag="GitLab" />
+                                        <ComboBoxItem Content="Azure DevOps" Tag="AzureDevOps" />
                                     </ComboBox>
-                                    <Grid ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                        <TextBox x:Name="PublishOwnerInput" Header="Owner / organization" Style="{StaticResource PiTextBoxStyle}" />
-                                        <TextBox x:Name="PublishRepositoryInput" Grid.Column="1" Header="Repository name" Style="{StaticResource PiTextBoxStyle}" />
-                                    </Grid>
-                                    <CheckBox x:Name="PublishPrivateCheckBox" Content="Private repository" IsChecked="True" />
-                                    <Button HorizontalAlignment="Left" Click="OnPublishRepositoryClicked" Content="Publish" Style="{StaticResource PiPrimaryButtonStyle}" />
+                                    <UserControl IsEnabled="{x:Bind ViewModel.Settings.CanPublishRepository, Mode=OneWay}"><StackPanel Spacing="6">
+                                        <TextBox x:Name="PublishHostInput" Header="Hosting server" Text="github.com" MaxLength="255" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PublishHostInput" />
+                                        <TextBox x:Name="PublishOrganizationInput" Header="Azure organization URL" PlaceholderText="https://dev.azure.com/my-organization" Visibility="Collapsed" MaxLength="255" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PublishOrganizationInput" />
+                                        <TextBox x:Name="PublishOwnerInput" Header="Owner / organization" MaxLength="1024" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PublishOwnerInput" />
+                                        <TextBox x:Name="PublishRepositoryInput" Header="Repository name" MaxLength="255" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PublishRepositoryInput" />
+                                        <CheckBox x:Name="PublishResumeCheckBox" Content="Resume existing repository" Checked="OnPublishModeChanged" Unchecked="OnPublishModeChanged" automation:AutomationProperties.AutomationId="PublishResumeCheckBox" />
+                                        <TextBlock Text="Resume looks up this repository, configures its HTTPS remote, and pushes the current branch. Use it after an interrupted publication or after adding the first commit." TextWrapping="Wrap" />
+                                        <CheckBox x:Name="PublishPrivateCheckBox" Content="Private repository" IsChecked="True" automation:AutomationProperties.AutomationId="PublishPrivateCheckBox" />
+                                        <TextBlock x:Name="PublishVisibilityNotice" Text="Azure repository access follows the selected project's permissions. Publication does not change project visibility." Visibility="Collapsed" TextWrapping="Wrap" />
+                                    </StackPanel></UserControl>
+                                    <Button HorizontalAlignment="Left" Click="OnPublishRepositoryClicked" Content="Publish" IsEnabled="{x:Bind ViewModel.Settings.CanPublishRepository, Mode=OneWay}" Style="{StaticResource PiPrimaryButtonStyle}" automation:AutomationProperties.AutomationId="PublishRepositoryButton" />
+                                    <TextBlock Text="{x:Bind ViewModel.Settings.PublicationStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PublicationStatus" automation:AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
                             </Expander>
                             <Expander Header="Create pull request">

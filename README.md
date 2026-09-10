@@ -110,8 +110,16 @@ now an inbox with automatic settlement, manual reactivation, snooze, delete, ext
 explicit pinned ordering, unsent-draft and PR indicators, and generated titles that preserve manual
 names. Project metadata includes confined icons, model/reasoning/runtime/workspace defaults, clean
 default-branch auto-pull, removal, and runnable trusted `t3.json` scripts. Host-owned source-control
-adapters use `gh`, `glab`, `bb`, and `az` for clone/publish and pull-request listing, creation,
-comments, labels, reviewers, checks, reviews, merge/close, generated text, and thread linking.
+adapters use `gh`, `glab`, and `az` for supported publishing and pull-request workflows;
+available review/actions vary by provider, and Bitbucket remains unimplemented.
+
+**Settings → Source control → Publish selected project** publishes to GitHub, GitLab, or Azure DevOps.
+GitLab supports nested namespaces and a chosen server; Azure requires an organization and project.
+Publication preserves unrelated remotes, handles repositories without commits, and reports where
+the current branch was pushed. Choose **Resume existing repository** after an interrupted publish
+or after adding the first commit; resume never creates another repository.
+[Publication behavior and verification](Docs/REPOSITORY-PUBLISHING-2026-09-10.md).
+
 Settings now routes across projects, Pi/runtime, source control, appearance, integrations,
 diagnostics, usage, and updates, including bounded logs, resource telemetry, a native usage dashboard
 with date/model/provider filters, token and cost charts, cache savings, historical rescan, public pricing

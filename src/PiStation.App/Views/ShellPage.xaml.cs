@@ -976,7 +976,10 @@ public sealed partial class ShellPage : Page
                 provider,
                 PublishOwnerInput.Text,
                 PublishRepositoryInput.Text,
-                PublishPrivateCheckBox.IsChecked == true);
+                PublishPrivateCheckBox.IsChecked == true,
+                PublishHostInput.Text,
+                PublishOrganizationInput.Text,
+                PublishResumeCheckBox.IsChecked == true);
         }
     }
 

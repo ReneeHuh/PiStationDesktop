@@ -855,26 +855,64 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         string owner,
         string repositoryName,
         bool isPrivate,
+        string? host = null,
+        string? organizationUrl = null,
+        bool resumeExisting = false,
         CancellationToken cancellationToken = default)
     {
         var project = SelectedProject;
-        if (project is null)
+        if (project is null || Settings.IsPublishing)
         {
+            if (project is null) Settings.PublicationStatus = "Select a project before publishing.";
             return;
         }
 
+        var client = _client;
+        if (client is null)
+        {
+            Settings.PublicationStatus = "Connect to the project's environment before publishing.";
+            return;
+        }
+        Settings.IsPublishing = true;
+        Settings.PublicationStatus = resumeExisting ? "Looking up the existing repository and resuming publication…" : "Creating the repository and publishing the current branch…";
         try
         {
-            var result = await RequireClient().PublishHostedRepositoryAsync(
-                new PublishHostedRepositoryRequest(project.ProjectId, provider, owner.Trim(), repositoryName.Trim(), isPrivate),
+            var result = await client.PublishHostedRepositoryAsync(
+                new PublishHostedRepositoryRequest(project.ProjectId, provider, owner.Trim(), repositoryName.Trim(), isPrivate,
+                    Host: host, OrganizationUrl: organizationUrl, ResumeExisting: resumeExisting),
                 cancellationToken).ConfigureAwait(false);
-            await RefreshSettingsAsync(cancellationToken).ConfigureAwait(false);
-            RunOnUiThread(() => Settings.Status = result.Message);
+            RunOnUiThread(() =>
+            {
+                if (ReferenceEquals(_client, client) && SelectedProject?.ProjectId == project.ProjectId)
+                    Settings.PublicationStatus = result.Message;
+            });
+            try
+            {
+                var operations = await client.ListHostingOperationsAsync(cancellationToken).ConfigureAwait(false);
+                RunOnUiThread(() =>
+                {
+                    if (ReferenceEquals(_client, client)) Settings.ApplyHostingOperations(operations);
+                });
+            }
+            catch (Exception)
+            {
+                // A history refresh cannot change the confirmed publication outcome.
+                RunOnUiThread(() =>
+                {
+                    if (ReferenceEquals(_client, client) && SelectedProject?.ProjectId == project.ProjectId)
+                        Settings.PublicationStatus = result.Message + " Refresh hosting operation history to reload its receipt.";
+                });
+            }
         }
         catch (Exception exception)
         {
-            ReportRuntimeError(exception);
+            RunOnUiThread(() =>
+            {
+                if (ReferenceEquals(_client, client) && SelectedProject?.ProjectId == project.ProjectId)
+                    Settings.PublicationStatus = $"Publication could not be confirmed: {exception.Message} Refresh hosting operation history before trying again.";
+            });
         }
+        finally { RunOnUiThread(() => Settings.IsPublishing = false); }
     }
 
     public async Task SelectThreadAsync(ThreadDescriptor? thread, CancellationToken cancellationToken = default)

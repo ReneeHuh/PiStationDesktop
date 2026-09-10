@@ -42,6 +42,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoSettleClosed = settings.OnClose;
     }
     private bool _isBusy;
+    private bool _isPublishing;
+    private string _publicationStatus = "Publish the selected project's current branch. Existing unrelated remotes are preserved.";
+    public bool IsPublishing
+    {
+        get => _isPublishing;
+        internal set { if (SetProperty(ref _isPublishing, value)) OnPropertyChanged(nameof(CanPublishRepository)); }
+    }
+    public bool CanPublishRepository => !IsPublishing;
+    public string PublicationStatus { get => _publicationStatus; internal set => SetProperty(ref _publicationStatus, value); }
     private bool _canOpenUpdateInstaller;
     public bool CanOpenUpdateInstaller { get => _canOpenUpdateInstaller; internal set => SetProperty(ref _canOpenUpdateInstaller, value); }
     private string _piExecutablePath = string.Empty;

@@ -6,7 +6,7 @@ public static class HostingCapabilities
     public static bool CanWriteReview(SourceControlProvider provider) => CanReadReview(provider);
     public static bool CanList(SourceControlProvider provider) => provider is SourceControlProvider.GitHub or SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps;
     public static bool CanCreate(SourceControlProvider provider) => CanList(provider);
-    public static bool CanPublish(SourceControlProvider provider) => provider == SourceControlProvider.GitHub;
+    public static bool CanPublish(SourceControlProvider provider) => provider is SourceControlProvider.GitHub or SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps;
     public static bool CanMutate(SourceControlProvider provider, PullRequestMutationKind mutation) => provider switch
     {
         SourceControlProvider.GitHub => Enum.IsDefined(mutation),

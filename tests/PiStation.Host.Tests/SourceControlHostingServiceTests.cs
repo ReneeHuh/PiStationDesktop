@@ -101,8 +101,9 @@ public sealed class SourceControlHostingServiceTests
         Assert.False(HostingCapabilities.CanList(SourceControlProvider.Bitbucket));
         Assert.False(HostingCapabilities.CanMutate(SourceControlProvider.AzureDevOps, PullRequestMutationKind.Comment));
         Assert.False(HostingCapabilities.CanMutate(SourceControlProvider.GitLab, PullRequestMutationKind.RequestChanges));
-        Assert.Throws<PiStation.Host.Errors.HostOperationException>(() => SourceControlHostingService.BuildPublishCommand(
-            new PublishHostedRepositoryRequest(ProjectId.New(), SourceControlProvider.AzureDevOps, "project", "repo"), "workspace"));
+        Assert.True(HostingCapabilities.CanPublish(SourceControlProvider.AzureDevOps));
+        Assert.True(HostingCapabilities.CanPublish(SourceControlProvider.GitLab));
+        Assert.False(HostingCapabilities.CanPublish(SourceControlProvider.Bitbucket));
         var nested = SourceControlHostingService.ParseRemote("https://gitlab.com/group/subgroup/repo.git");
         Assert.Equal("group/subgroup", nested.Owner);
     }

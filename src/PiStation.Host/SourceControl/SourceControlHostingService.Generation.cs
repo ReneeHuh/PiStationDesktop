@@ -10,7 +10,11 @@ public sealed partial class SourceControlHostingService
     private readonly ISourceControlTextGenerator? _textGenerator = textGenerator;
     private readonly SourceControlWritingSettingsStore? _writingSettings = writingSettings;
 
-    public void Dispose() => _writingSettings?.Dispose();
+    public void Dispose()
+    {
+        _writingSettings?.Dispose();
+        _publicationGate.Dispose();
+    }
 
     public Task<SourceControlWritingSettings> GetWritingSettingsAsync(CancellationToken token = default) =>
         _writingSettings?.LoadAsync(token) ?? Task.FromResult(new SourceControlWritingSettings());

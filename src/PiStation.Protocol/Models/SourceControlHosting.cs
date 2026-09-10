@@ -86,7 +86,18 @@ public sealed record PublishHostedRepositoryRequest(
     string Owner,
     string RepositoryName,
     bool IsPrivate = true,
-    CommandId? OperationId = null);
+    CommandId? OperationId = null,
+    string? Host = null,
+    string? OrganizationUrl = null,
+    bool ResumeExisting = false);
+
+public enum RepositoryPublicationStage { RepositoryReady, RemoteConfigured, Pushed }
+
+public sealed record RepositoryPublication(
+    RepositoryPublicationStage Stage,
+    string RemoteUrl,
+    string? RemoteName,
+    string Branch);
 
 public sealed record CreatePullRequestRequest(
     WorkspaceTarget Target,
@@ -148,4 +159,5 @@ public sealed record SourceControlOperationResult(
     PullRequestDescriptor? PullRequest = null,
     ProjectDescriptor? Project = null,
     CommandId? OperationId = null,
-    PiStation.Protocol.Receipts.CommandReceiptState State = PiStation.Protocol.Receipts.CommandReceiptState.Completed);
+    PiStation.Protocol.Receipts.CommandReceiptState State = PiStation.Protocol.Receipts.CommandReceiptState.Completed,
+    RepositoryPublication? Publication = null);
