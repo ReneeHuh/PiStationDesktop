@@ -18,8 +18,8 @@ public sealed partial class PullRequestReviewViewModel
 
     public string? SelectedLabel { get => _selectedLabel; set { if (SetProperty(ref _selectedLabel, value)) RaiseManagementState(); } }
     public string? SelectedReviewer { get => _selectedReviewer; set { if (SetProperty(ref _selectedReviewer, value)) RaiseManagementState(); } }
-    public bool CanRemoveLabel => CanRemoveMetadata && Snapshot!.PullRequest.Labels.Contains(SelectedLabel);
-    public bool CanRemoveReviewer => CanRemoveMetadata && Snapshot!.PullRequest.Reviewers.Contains(SelectedReviewer);
+    public bool CanRemoveLabel => CanRemoveMetadata && ReviewCapabilities.RemoveLabels && Snapshot!.PullRequest.Labels.Contains(SelectedLabel);
+    public bool CanRemoveReviewer => CanRemoveMetadata && ReviewCapabilities.RemoveReviewers && Snapshot!.PullRequest.Reviewers.Contains(SelectedReviewer);
 
     public void Suspend(string? status = null)
     {
@@ -126,8 +126,8 @@ public sealed partial class PullRequestReviewViewModel
             PullRequestManagementAction.SetDraft => CanChangeDraft,
             PullRequestManagementAction.EditComment => CanSaveComment,
             PullRequestManagementAction.DeleteComment => CanDeleteComment,
-            PullRequestManagementAction.RemoveLabel => CanRemoveMetadata && snapshot.PullRequest.Labels.Contains(item),
-            PullRequestManagementAction.RemoveReviewer => CanRemoveMetadata && snapshot.PullRequest.Reviewers.Contains(item),
+            PullRequestManagementAction.RemoveLabel => CanRemoveMetadata && ReviewCapabilities.RemoveLabels && snapshot.PullRequest.Labels.Contains(item),
+            PullRequestManagementAction.RemoveReviewer => CanRemoveMetadata && ReviewCapabilities.RemoveReviewers && snapshot.PullRequest.Reviewers.Contains(item),
             _ => CanPerformAdvancedAction(action, item, reaction, reacted)
         })) return null;
         var request = new ManagePullRequestRequest(new(workspace, PullRequestReviewDefaults.RepositoryKey(snapshot.Repository), snapshot.PullRequest.Number, snapshot.HeadCommitId),

@@ -193,7 +193,8 @@ public sealed partial class ShellPage
         reviewBody.SetBinding(TextBox.TextProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.Body)), Mode = BindingMode.OneWay });
         reviewBody.TextChanged += (_, _) => review.SetBody(reviewBody.Text);
         reviewBody.SetBinding(TextBox.IsEnabledProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.CanEditDraft)), Mode = BindingMode.OneWay });
-        var reviewEvent = new ComboBox { Header = "Review action", ItemsSource = Enum.GetValues<PullRequestReviewEvent>(), SelectedIndex = 0, Width = 180 };
+        var reviewEvent = new ComboBox { Header = "Review action", Width = 180 };
+        reviewEvent.SetBinding(ItemsControl.ItemsSourceProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.ReviewEvents)), Mode = BindingMode.OneWay });
         AutomationProperties.SetAutomationId(reviewEvent, "PullRequestReviewEventSelector");
         reviewEvent.SelectionChanged += (_, _) => { if (reviewEvent.SelectedItem is PullRequestReviewEvent value) review.ReviewEvent = value; };
         reviewEvent.SetBinding(ComboBox.SelectedItemProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.ReviewEvent)), Mode = BindingMode.OneWay });
@@ -221,12 +222,49 @@ public sealed partial class ShellPage
         root.Children.Add(BindText(review, nameof(review.PaginationSummary), "PullRequestReviewPagination"));
         root.Children.Add(loadMore);
         root.Children.Add(new Expander { Header = "Review details", IsExpanded = true, Content = new StackPanel { Spacing = 4, Children = { details, head, description, new TextBlock { Text = "Commits", FontWeight = FontWeights.SemiBold }, commitsPanel, new TextBlock { Text = "Checks", FontWeight = FontWeights.SemiBold }, checksPanel } } });
-        root.Children.Add(new TextBlock { Text = "Hosted files", FontWeight = FontWeights.SemiBold }); root.Children.Add(files); root.Children.Add(fileSummary); root.Children.Add(lines);
-        root.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { side, addInline } }); root.Children.Add(inlineBody); root.Children.Add(inlineDrafts); root.Children.Add(removeInline);
-        root.Children.Add(new TextBlock { Text = "Discussions", FontWeight = FontWeights.SemiBold }); root.Children.Add(threads); root.Children.Add(discussionPanel); root.Children.Add(reply); root.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { replyButton, resolve } });
-        root.Children.Add(new TextBlock { Text = "Submit review", FontWeight = FontWeights.SemiBold }); root.Children.Add(reviewBody); root.Children.Add(reviewEvent); root.Children.Add(submit);
+        var diffPanel = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Hosted files", FontWeight = FontWeights.SemiBold }, files, fileSummary, lines } };
+        var inlinePanel = new StackPanel { Spacing = 8, Children = { new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { side, addInline } }, inlineBody, inlineDrafts, removeInline } };
+        var replyPanel = new StackPanel { Spacing = 8, Children = { reply, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { replyButton, resolve } } } };
+        var composerPanel = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Submit review", FontWeight = FontWeights.SemiBold }, reviewBody, reviewEvent, submit } };
+        root.Children.Add(diffPanel); root.Children.Add(inlinePanel);
+        root.Children.Add(new TextBlock { Text = "Discussions", FontWeight = FontWeights.SemiBold }); root.Children.Add(threads); root.Children.Add(discussionPanel); root.Children.Add(replyPanel);
+        root.Children.Add(composerPanel);
+        var website = new HyperlinkButton { Content = "Open pull request on provider website" };
+        AutomationProperties.SetAutomationId(website, "PullRequestProviderWebsite");
+        website.Click += async (_, _) =>
+        {
+            await SafeReviewActionAsync(async () =>
+            {
+                if (Uri.TryCreate(review.Snapshot?.PullRequest.Url, UriKind.Absolute, out var url) && url.Scheme == "https") await OpenHostingLinkAsync(url);
+            });
+        };
+        root.Children.Add(website);
+        void RefreshProviderControls()
+        {
+            diffPanel.Visibility = review.HasProviderDiff ? Visibility.Visible : Visibility.Collapsed;
+            inlinePanel.Visibility = review.HasReviewComposer && review.ReviewCapabilities.InlineComments ? Visibility.Visible : Visibility.Collapsed;
+            replyPanel.Visibility = composerPanel.Visibility = review.HasReviewComposer ? Visibility.Visible : Visibility.Collapsed;
+        }
+        void ProviderChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName is nameof(review.Snapshot) or nameof(review.ReviewCapabilities)) RefreshProviderControls();
+        }
+        root.Loaded += (_, _) => { review.PropertyChanged -= ProviderChanged; review.PropertyChanged += ProviderChanged; RefreshProviderControls(); };
+        root.Unloaded += (_, _) => review.PropertyChanged -= ProviderChanged;
+        RefreshProviderControls();
         root.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { reload, recover, discard } }); root.Children.Add(notice);
         return new Border { Padding = new Thickness(8), Child = root };
+    }
+
+    private static void BindReviewProviderVisibility(FrameworkElement element, PullRequestReviewViewModel review, Action refresh)
+    {
+        void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName is nameof(review.Snapshot) or nameof(review.ReviewCapabilities)) refresh();
+        }
+        element.Loaded += (_, _) => { review.PropertyChanged -= Changed; review.PropertyChanged += Changed; refresh(); };
+        element.Unloaded += (_, _) => review.PropertyChanged -= Changed;
+        refresh();
     }
 
     private static TextBlock BindText(object review, string property, string? automationId = null)

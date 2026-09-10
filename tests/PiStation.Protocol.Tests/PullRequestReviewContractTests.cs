@@ -191,7 +191,7 @@ public sealed class PullRequestReviewContractTests
     }
 
     [Fact]
-    public void ReviewCapabilitiesAreGitHubOnly()
+    public void ReviewCapabilitiesFollowImplementedProviders()
     {
         Assert.True(HostingCapabilities.CanReadReview(SourceControlProvider.GitHub));
         Assert.True(HostingCapabilities.CanWriteReview(SourceControlProvider.GitHub));
@@ -199,14 +199,16 @@ public sealed class PullRequestReviewContractTests
         foreach (var provider in new[]
         {
             SourceControlProvider.Unknown,
-            SourceControlProvider.GitLab,
             SourceControlProvider.Bitbucket,
-            SourceControlProvider.AzureDevOps,
         })
         {
             Assert.False(HostingCapabilities.CanReadReview(provider));
             Assert.False(HostingCapabilities.CanWriteReview(provider));
         }
+        Assert.True(HostingCapabilities.CanReadReview(SourceControlProvider.GitLab));
+        Assert.True(HostingCapabilities.CanWriteReview(SourceControlProvider.GitLab));
+        Assert.True(HostingCapabilities.CanReadReview(SourceControlProvider.AzureDevOps));
+        Assert.False(HostingCapabilities.CanWriteReview(SourceControlProvider.AzureDevOps));
     }
 
     private static PullRequestReviewSnapshot CreateSnapshot()

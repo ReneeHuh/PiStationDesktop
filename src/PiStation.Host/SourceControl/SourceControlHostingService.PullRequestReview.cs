@@ -57,8 +57,10 @@ query($owner:String!, $name:String!, $number:Int!) {
         if (request is null || request.Target is null) throw ReviewError("A pull request review target is required.");
         var workspace = await _resolver.ResolveAsync(request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken).ConfigureAwait(false);
-        EnsureGitHub(repository);
         var number = ValidateNumber(request.Number);
+        if (repository.Provider is SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps)
+            return await ReadProviderReviewAsync(repository, number, workspace.WorkspaceRoot, request.Page, cancellationToken).ConfigureAwait(false);
+        EnsureGitHub(repository);
         return await ReadReviewPageAsync(repository, number, workspace.WorkspaceRoot, request.Page, cancellationToken).ConfigureAwait(false);
     }
 
@@ -72,6 +74,8 @@ query($owner:String!, $name:String!, $number:Int!) {
             if (request is null) return Rejected("A review request is required.", null);
             if (request.Target is null || request.Comments is null || request.Body is null)
                 throw ReviewError("The review target, body, and comments are required.");
+            if (await IsAdditionalReviewProviderAsync(request.Target.Workspace, cancellationToken).ConfigureAwait(false))
+                return await WriteProviderReviewAsync(request.Target, request.OperationId, request, cancellationToken).ConfigureAwait(false);
             var (workspace, repository, number, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, request.Comments).ConfigureAwait(false);
             if (request.Comments.Count > PullRequestReviewDefaults.MaximumInlineComments)
                 throw ReviewError("A review may contain at most 50 inline comments.");
@@ -117,6 +121,8 @@ query($owner:String!, $name:String!, $number:Int!) {
         {
             if (request is null) return Rejected("A thread reply request is required.", null);
             if (request.Target is null || request.ThreadId is null) throw ReviewError("The thread target and ID are required.");
+            if (await IsAdditionalReviewProviderAsync(request.Target.Workspace, cancellationToken).ConfigureAwait(false))
+                return await WriteProviderReviewAsync(request.Target, request.OperationId, request, cancellationToken).ConfigureAwait(false);
             var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, threadId: request.ThreadId).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(request.Body) || request.Body.Length > PullRequestReviewDefaults.MaximumBodyCharacters)
                 throw ReviewError("A thread reply must contain 1–32768 characters.");
@@ -145,6 +151,8 @@ mutation($threadId:ID!, $body:String!) {
         {
             if (request is null) return Rejected("A thread resolution request is required.", null);
             if (request.Target is null || request.ThreadId is null) throw ReviewError("The thread target and ID are required.");
+            if (await IsAdditionalReviewProviderAsync(request.Target.Workspace, cancellationToken).ConfigureAwait(false))
+                return await WriteProviderReviewAsync(request.Target, request.OperationId, request, cancellationToken).ConfigureAwait(false);
             var (workspace, repository, _, selected) = await ValidateWriteTargetAsync(request.Target, cancellationToken, threadId: request.ThreadId).ConfigureAwait(false);
             var thread = FindThread(selected, request.ThreadId);
             if (!thread.CanResolve) throw ReviewError("You do not have permission to resolve this review thread.");

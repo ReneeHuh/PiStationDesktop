@@ -47,14 +47,23 @@ public sealed partial class ShellPage
         var discardComment = Action("Discard comment edits", "PullRequestDiscardComment", nameof(review.CanManage), () => { review.UseLatestComment(); return Task.CompletedTask; });
         var keepComment = Action("Keep my comment edits against latest", "PullRequestKeepComment", nameof(review.CanManage), () => { review.UseLatestComment(true); return Task.CompletedTask; });
         var panel = new StackPanel { Spacing = 8 };
-        foreach (var child in new UIElement[] { title, description, save, draft, discardDetails, keepDetails, labels, removeLabel, reviewers, removeReviewer,
+        foreach (var child in new UIElement[] { title, description, save, draft, discardDetails, keepDetails, labels, removeLabel, reviewers, removeReviewer }) panel.Children.Add(child);
+        var commentControls = new UIElement[] {
             new TextBlock { Text = "Comments (load more review data for additional comments)" }, comments,
             new Expander { Header = "Latest hosted comment", Content = BindText(review, nameof(review.LatestCommentBody)) },
             new Expander { Header = "Selected comment reactions", Content = BuildPullRequestReactions(review, true) },
             comment, saveComment, discardComment, keepComment, confirmDelete, deleteComment,
-            BindText(review, nameof(review.EditConflictNotice), "PullRequestEditConflict") }) panel.Children.Add(child);
+            BindText(review, nameof(review.EditConflictNotice), "PullRequestEditConflict") };
+        foreach (var child in commentControls) panel.Children.Add(child);
         var expander = new Expander { Header = "Edit PR and manage comments", Content = panel, HorizontalAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetAutomationId(expander, "PullRequestManagementPanel");
+        BindReviewProviderVisibility(expander, review, () =>
+        {
+            labels.Visibility = removeLabel.Visibility = review.ReviewCapabilities.RemoveLabels ? Visibility.Visible : Visibility.Collapsed;
+            reviewers.Visibility = removeReviewer.Visibility = review.ReviewCapabilities.RemoveReviewers ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var child in commentControls) child.Visibility = review.PullRequest?.Provider == SourceControlProvider.AzureDevOps ? Visibility.Collapsed : Visibility.Visible;
+            expander.Header = review.PullRequest?.Provider == SourceControlProvider.AzureDevOps ? "Edit PR details and reviewers" : "Edit PR and manage comments";
+        });
         return expander;
 
         Binding Binding(string path, BindingMode mode = BindingMode.OneWay) => new() { Source = review, Path = new PropertyPath(path), Mode = mode };

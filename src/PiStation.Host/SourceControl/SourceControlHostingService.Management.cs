@@ -35,6 +35,8 @@ public sealed partial class SourceControlHostingService
         try
         {
             if (request?.Target?.Workspace is null) throw ReviewError("A pull request workspace and revision are required.");
+            if (await IsAdditionalReviewProviderAsync(request.Target.Workspace, cancellationToken).ConfigureAwait(false))
+                return await WriteProviderReviewAsync(request.Target, request.OperationId, request, cancellationToken).ConfigureAwait(false);
             var target = request.Target;
             var workspace = await _resolver.ResolveAsync(target.Workspace.ProjectId, target.Workspace.ThreadId, cancellationToken).ConfigureAwait(false);
             var repository = await DetectAsync(new(target.Workspace), cancellationToken).ConfigureAwait(false);

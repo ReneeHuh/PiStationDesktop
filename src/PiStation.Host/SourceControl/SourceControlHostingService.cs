@@ -370,15 +370,19 @@ public sealed partial class SourceControlHostingService(
             ? defaultBranchResult.StandardOutput.Trim().Replace("origin/", string.Empty, StringComparison.Ordinal)
             : "main";
         var tool = ToolFor(parsed.Provider);
+        var azureLocation = parsed.Provider == SourceControlProvider.AzureDevOps
+            ? AzureReviewLocation(new(parsed.Provider, parsed.Host, parsed.Owner, parsed.Name, parsed.WebUrl, remote, defaultBranch, false))
+            : default;
         var authArguments = parsed.Provider switch
         {
             SourceControlProvider.GitHub => new[] { "auth", "status", "--active", "--hostname", parsed.Host },
             SourceControlProvider.GitLab => ["auth", "status", "--hostname", parsed.Host],
-            SourceControlProvider.AzureDevOps => ["repos", "show", "--repository", parsed.Name, "--output", "none"],
+            SourceControlProvider.AzureDevOps => ["repos", "show", "--repository", Uri.UnescapeDataString(parsed.Name), "--organization", azureLocation.Organization,
+                "--project", azureLocation.Project, "--detect", "false", "--output", "none"],
             _ => [],
         };
-        var available = authArguments.Length != 0 && (parsed.Provider == SourceControlProvider.GitHub && _reviewCommandExecutor is not null
-            ? (await RunReviewCommandAsync(authArguments, workspace, null, cancellationToken).ConfigureAwait(false)).ExitCode == 0
+        var available = authArguments.Length != 0 && (_reviewCommandExecutor is not null
+            ? (await RunHostingCommandAsync(tool, authArguments, workspace, cancellationToken).ConfigureAwait(false)).ExitCode == 0
             : (await RunAsync(tool, authArguments, workspace, LocalTimeout, cancellationToken, false).ConfigureAwait(false)).ExitCode == 0);
         return new SourceControlRepository(
             parsed.Provider, parsed.Host, parsed.Owner, parsed.Name,

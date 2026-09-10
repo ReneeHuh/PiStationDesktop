@@ -25,6 +25,18 @@ public sealed class PullRequestReviewSafetyTests : IDisposable
     }
 
     [Fact]
+    public async Task ReviewFromAnotherHostIsRejectedBeforeLoadingDraftsOrEnablingWrites()
+    {
+        using var model = Model();
+        _proxy.Read = _ => Task.FromResult(Snapshot("1") with { Repository = Snapshot("1").Repository with { Host = "github.other", WebUrl = "https://github.other/owner/repo" } });
+        await Load(model, "1");
+        Assert.Null(model.Snapshot);
+        Assert.False(model.CanSubmit);
+        Assert.False(model.CanCreateReviewThread);
+        Assert.Contains("another pull request", model.Status);
+    }
+
+    [Fact]
     public async Task RestoredReplyDraftSelectsItsMatchingDiscussion()
     {
         await _store.SaveAsync(_project, new PullRequestReviewDraft(

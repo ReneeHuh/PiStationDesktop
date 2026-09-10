@@ -15,19 +15,20 @@ public sealed partial class PullRequestReviewViewModel
     private string _workflowStatus = "Load workflows awaiting approval for this PR revision.";
 
     public IReadOnlyList<PullRequestMergeMethod> MergeMethods => Snapshot?.Advanced?.MergeMethods ?? [];
-    public IReadOnlyList<PullRequestUpdateMethod> UpdateMethods { get; } = Enum.GetValues<PullRequestUpdateMethod>();
+    public IReadOnlyList<PullRequestUpdateMethod> UpdateMethods => Snapshot?.Advanced?.UpdateMethods ??
+        (PullRequest?.Provider == SourceControlProvider.GitHub ? Enum.GetValues<PullRequestUpdateMethod>() : []);
     public PullRequestMergeMethod SelectedMergeMethod { get => _selectedMergeMethod; set { if (SetProperty(ref _selectedMergeMethod, value)) RaiseAdvancedState(); } }
     public PullRequestUpdateMethod SelectedUpdateMethod { get => _selectedUpdateMethod; set { if (SetProperty(ref _selectedUpdateMethod, value)) RaiseAdvancedState(); } }
     public bool CanMerge => CanManage && Snapshot?.Advanced?.CanMerge == true && MergeMethods.Contains(SelectedMergeMethod);
     public bool CanEnableAutoMerge => CanManage && Snapshot?.Advanced?.CanEnableAutoMerge == true && MergeMethods.Contains(SelectedMergeMethod);
     public bool CanDisableAutoMerge => CanManage && Snapshot?.Advanced?.CanDisableAutoMerge == true;
-    public bool CanUpdateBranch => CanManage && Snapshot?.Advanced?.CanUpdateBranch == true && Enum.IsDefined(SelectedUpdateMethod);
+    public bool CanUpdateBranch => CanManage && Snapshot?.Advanced?.CanUpdateBranch == true && UpdateMethods.Contains(SelectedUpdateMethod);
     public bool CanRevert => CanManage && Snapshot?.Advanced?.CanRevert == true;
     public bool CanReactToPullRequest => CanManage && Snapshot?.CanReact == true;
     public bool CanReactToComment => CanManage && SelectedComment?.CanReact == true;
     public string AdvancedStatus => Snapshot?.Advanced is { } state
-        ? $"Mergeability: {state.Mergeability} · Branch: {state.BaseStatus} · Automatic merge: {(state.AutoMergeEnabled ? "enabled" : "disabled")}. Repository rules are enforced by GitHub."
-        : "Advanced actions are available for GitHub pull requests with the required permissions.";
+        ? $"Mergeability: {state.Mergeability} · Branch: {state.BaseStatus} · Automatic merge: {(state.AutoMergeEnabled ? "enabled" : "disabled")}. Repository rules are enforced by {Snapshot.Repository.Provider}."
+        : "Advanced actions depend on the provider and your repository permissions.";
     public ObservableCollection<PullRequestWorkflow> Workflows { get; } = [];
     public PullRequestWorkflow? SelectedWorkflow { get => _selectedWorkflow; set { if (SetProperty(ref _selectedWorkflow, value)) RaiseAdvancedState(); } }
     public string WorkflowStatus { get => _workflowStatus; private set => SetProperty(ref _workflowStatus, value); }
@@ -105,6 +106,8 @@ public sealed partial class PullRequestReviewViewModel
     private void RaiseAdvancedState()
     {
         if (MergeMethods.Count > 0 && !MergeMethods.Contains(_selectedMergeMethod)) _selectedMergeMethod = MergeMethods[0];
+        OnPropertyChanged(nameof(UpdateMethods));
+        OnPropertyChanged(nameof(SelectedUpdateMethod));
         foreach (var property in new[] { nameof(MergeMethods), nameof(SelectedMergeMethod), nameof(CanMerge), nameof(CanEnableAutoMerge), nameof(CanDisableAutoMerge),
             nameof(CanUpdateBranch), nameof(CanRevert), nameof(CanReactToPullRequest), nameof(CanReactToComment), nameof(AdvancedStatus),
             nameof(CanLoadWorkflows), nameof(CanLoadMoreWorkflows), nameof(CanApproveWorkflow) }) OnPropertyChanged(property);

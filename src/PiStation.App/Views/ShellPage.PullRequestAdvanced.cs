@@ -30,12 +30,16 @@ public sealed partial class ShellPage
         }));
         panel.Children.Add(Action("Enable automatic merge", "PullRequestEnableAutoMerge", nameof(review.CanEnableAutoMerge), () => Write(PullRequestManagementAction.EnableAutoMerge)));
         panel.Children.Add(Action("Disable automatic merge", "PullRequestDisableAutoMerge", nameof(review.CanDisableAutoMerge), () => Write(PullRequestManagementAction.DisableAutoMerge)));
-        var updateMethod = new ComboBox { Header = "Update branch method", ItemsSource = review.UpdateMethods };
+        var updateStart = panel.Children.Count;
+        var updateMethod = new ComboBox { Header = "Update branch method" };
+        updateMethod.SetBinding(ItemsControl.ItemsSourceProperty, Bind(nameof(review.UpdateMethods)));
         AutomationProperties.SetAutomationId(updateMethod, "PullRequestUpdateMethod");
         updateMethod.SetBinding(ComboBox.SelectedItemProperty, Bind(nameof(review.SelectedUpdateMethod), BindingMode.TwoWay));
         updateMethod.SetBinding(IsEnabledProperty, Bind(nameof(review.CanManage)));
         panel.Children.Add(updateMethod);
         panel.Children.Add(Action("Update branch from base", "PullRequestUpdateBranch", nameof(review.CanUpdateBranch), () => Write(PullRequestManagementAction.UpdateBranch)));
+        var updateControls = panel.Children.Skip(updateStart).ToArray();
+        var githubStart = panel.Children.Count;
         panel.Children.Add(new TextBlock { Text = "Revert creates a new draft pull request reversing the merged changes.", TextWrapping = TextWrapping.Wrap });
         var confirmRevert = Confirm("Confirm creating a revert pull request", "PullRequestConfirmRevert");
         panel.Children.Add(confirmRevert);
@@ -65,10 +69,20 @@ public sealed partial class ShellPage
             if (!Confirmed(confirmWorkflow)) return;
             await Write(PullRequestManagementAction.ApproveWorkflow, review.SelectedWorkflow?.Id);
         }));
+        var githubControls = panel.Children.Skip(githubStart).ToArray();
+        var reactionStart = panel.Children.Count;
         panel.Children.Add(new TextBlock { Text = "Pull request reactions", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(BuildPullRequestReactions(review, false));
+        var reactionControls = panel.Children.Skip(reactionStart).ToArray();
         var expander = new Expander { Header = "Merge, workflows and reactions", Content = panel, HorizontalAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetAutomationId(expander, "PullRequestAdvancedPanel");
+        BindReviewProviderVisibility(expander, review, () =>
+        {
+            foreach (var child in updateControls) child.Visibility = review.UpdateMethods.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var child in githubControls) child.Visibility = review.PullRequest?.Provider == SourceControlProvider.GitHub ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var child in reactionControls) child.Visibility = review.PullRequest?.Provider is SourceControlProvider.GitHub or SourceControlProvider.GitLab ? Visibility.Visible : Visibility.Collapsed;
+            expander.Header = review.PullRequest?.Provider == SourceControlProvider.AzureDevOps ? "Merge options" : "Merge, updates and reactions";
+        });
         return expander;
 
         Binding Bind(string property, BindingMode mode = BindingMode.OneWay) => new() { Source = review, Path = new PropertyPath(property), Mode = mode };

@@ -152,6 +152,8 @@ public sealed record SourceControlWritingSettings(
 
 public sealed record GeneratedSourceControlText(string Title, string Body);
 
+public sealed record PullRequestWriteProgress(int CompletedSteps, int TotalSteps, string? LastCompletedStep);
+
 public sealed record SourceControlOperationResult(
     bool Succeeded,
     string Message,
@@ -160,4 +162,5 @@ public sealed record SourceControlOperationResult(
     ProjectDescriptor? Project = null,
     CommandId? OperationId = null,
     PiStation.Protocol.Receipts.CommandReceiptState State = PiStation.Protocol.Receipts.CommandReceiptState.Completed,
-    RepositoryPublication? Publication = null);
+    RepositoryPublication? Publication = null,
+    PullRequestWriteProgress? ReviewProgress = null);

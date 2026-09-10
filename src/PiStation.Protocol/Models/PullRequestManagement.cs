@@ -14,7 +14,8 @@ public enum PullRequestReactionContent { ThumbsUp, ThumbsDown, Laugh, Hooray, Co
 public sealed record PullRequestReaction(PullRequestReactionContent Content, int Count, bool ViewerHasReacted);
 public sealed record PullRequestAdvancedState(IReadOnlyList<PullRequestMergeMethod> MergeMethods,
     bool CanMerge, bool CanEnableAutoMerge, bool CanDisableAutoMerge, bool CanUpdateBranch, bool CanRevert,
-    bool CanApproveWorkflows, bool AutoMergeEnabled, string Mergeability, string BaseStatus);
+    bool CanApproveWorkflows, bool AutoMergeEnabled, string Mergeability, string BaseStatus,
+    IReadOnlyList<PullRequestUpdateMethod>? UpdateMethods = null);
 public sealed record PullRequestWorkflow(string Id, string Name, string Status, string Url)
 {
     [System.Text.Json.Serialization.JsonIgnore]

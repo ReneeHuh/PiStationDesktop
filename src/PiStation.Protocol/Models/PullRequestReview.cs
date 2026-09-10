@@ -6,6 +6,9 @@ public enum PullRequestDiffLineKind { Header, Context, Addition, Deletion, Metad
 public enum PullRequestDiffSide { Left, Right }
 public enum PullRequestReviewEvent { Comment, Approve, RequestChanges }
 
+public sealed record PullRequestReviewCapabilities(bool Diff, bool InlineComments,
+    IReadOnlyList<PullRequestReviewEvent> Verdicts, bool RemoveLabels, bool RemoveReviewers);
+
 public sealed record PullRequestDiffLine(int? OldLine, int? NewLine, string Text, PullRequestDiffLineKind Kind);
 public sealed record PullRequestChangedFile(string Path, string? PreviousPath, string Status, int Additions, int Deletions,
     IReadOnlyList<PullRequestDiffLine> Lines, bool PatchUnavailable = false, int PatchLineOffset = 0);
@@ -26,7 +29,8 @@ public sealed record PullRequestReviewSnapshot(SourceControlRepository Repositor
     IReadOnlyList<PullRequestChangedFile> Files, IReadOnlyList<PullRequestDiscussion> Discussions,
     bool IsTruncated = false, string? Notice = null, IReadOnlyList<PullRequestReviewContinuation>? NextPages = null,
     bool CanEditDetails = false, bool CanManageMetadata = false,
-    PullRequestAdvancedState? Advanced = null, bool CanReact = false, IReadOnlyList<PullRequestReaction>? Reactions = null);
+    PullRequestAdvancedState? Advanced = null, bool CanReact = false, IReadOnlyList<PullRequestReaction>? Reactions = null,
+    PullRequestReviewCapabilities? Capabilities = null);
 
 // Writes bind to the repository and revision the user actually inspected.
 public sealed record PullRequestReviewTarget(WorkspaceTarget Workspace, string Repository, string Number, string HeadCommitId);
@@ -49,7 +53,23 @@ public static class PullRequestReviewDefaults
     public const int MaximumBodyCharacters = 32_768;
     public const int MaximumDescriptionCharacters = 65_536;
     public const int MaximumDiffLines = 20_000;
-    public static string RepositoryKey(SourceControlRepository repository) => $"{repository.Host}/{repository.Owner}/{repository.Name}";
+    public static string RepositoryKey(SourceControlRepository repository) =>
+        repository.Provider == SourceControlProvider.AzureDevOps && Uri.TryCreate(repository.WebUrl, UriKind.Absolute, out var uri)
+            ? uri.Host + uri.AbsolutePath.TrimEnd('/')
+            : $"{repository.Host}/{repository.Owner}/{repository.Name}";
+    public static string? HostingAuthority(SourceControlProvider provider, string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length != 0) return null;
+        if (provider == SourceControlProvider.AzureDevOps)
+        {
+            if (uri.Host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase))
+                return "azure/" + uri.AbsolutePath.Trim('/').Split('/')[0].ToLowerInvariant();
+            if (uri.Host.EndsWith(".visualstudio.com", StringComparison.OrdinalIgnoreCase))
+                return "azure/" + uri.Host[..^".visualstudio.com".Length].ToLowerInvariant();
+            return null;
+        }
+        return uri.Authority.ToLowerInvariant();
+    }
     public static PullRequestCheckState GetCheckState(IReadOnlyList<PullRequestCheck> checks, bool hasMore = false)
     {
         if (checks.Count == 0) return PullRequestCheckState.Unknown;

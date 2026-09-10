@@ -45,7 +45,7 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
     private PullRequestReviewEvent _reviewEvent = PullRequestReviewEvent.Comment;
     private string _body = string.Empty;
     private string _replyBody = string.Empty;
-    private string _status = "Select a GitHub pull request to review.";
+    private string _status = "Select a pull request to review.";
     private bool _isBusy;
     private bool _isStaleHead;
     private bool _hasLoaded;
@@ -87,7 +87,15 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
     public ObservableCollection<PullRequestDiscussion> Discussions { get; } = [];
     public ObservableCollection<PullRequestInlineComment> InlineComments { get; } = [];
 
-    public PullRequestReviewSnapshot? Snapshot { get => _snapshot; private set => SetProperty(ref _snapshot, value); }
+    public PullRequestReviewSnapshot? Snapshot
+    {
+        get => _snapshot;
+        private set
+        {
+            if (!SetProperty(ref _snapshot, value)) return;
+            if (UpdateMethods.Count > 0 && !UpdateMethods.Contains(_selectedUpdateMethod)) _selectedUpdateMethod = UpdateMethods[0];
+        }
+    }
     public ProjectId? ProjectId => _projectId;
     public PullRequestDescriptor? PullRequest { get => _pullRequest; private set => SetProperty(ref _pullRequest, value); }
     public SourceControlRepository? Repository { get => _repository; private set => SetProperty(ref _repository, value); }
@@ -161,6 +169,10 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
     public string? ReplyThreadId { get => _replyThreadId; private set => SetProperty(ref _replyThreadId, value); }
 
     public bool CanReadReview => PullRequest is { Provider: var provider } && HostingCapabilities.CanReadReview(provider);
+    public PullRequestReviewCapabilities ReviewCapabilities => Snapshot?.Capabilities ?? HostingCapabilities.Review(PullRequest?.Provider ?? SourceControlProvider.Unknown);
+    public IReadOnlyList<PullRequestReviewEvent> ReviewEvents => ReviewCapabilities.Verdicts;
+    public bool HasProviderDiff => ReviewCapabilities.Diff;
+    public bool HasReviewComposer => ReviewEvents.Count > 0;
     public bool CanCreateReviewThread => _hasLoaded && Snapshot?.Repository.Provider == SourceControlProvider.GitHub &&
         _capturedTarget is not null && !IsBusy && !_isCheckingOut && !IsStaleHead && PendingOperationId is null &&
         !_isDiscarding && !_disposed && _canOperate();
@@ -199,19 +211,19 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
     }
     public bool CanWriteReview => CanReadReview && Repository?.CanWrite == true && PullRequest is { Provider: var provider } && HostingCapabilities.CanWriteReview(provider);
     public bool CanSubmit => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null &&
-        Snapshot is not null && Enum.IsDefined(ReviewEvent) &&
+        Snapshot is not null && ReviewEvents.Contains(ReviewEvent) &&
         (ReviewEvent == PullRequestReviewEvent.Approve || !string.IsNullOrWhiteSpace(Body)) &&
         Body.Length <= PullRequestReviewDefaults.MaximumBodyCharacters &&
         InlineComments.Count <= PullRequestReviewDefaults.MaximumInlineComments && PayloadWithinLimit();
-    public bool CanAddInlineComment => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null &&
+    public bool CanAddInlineComment => _hasLoaded && CanWriteReview && ReviewCapabilities.InlineComments && HasReviewComposer && !IsBusy && !IsStaleHead && PendingOperationId is null &&
         InlineComments.Count < PullRequestReviewDefaults.MaximumInlineComments && Enum.IsDefined(SelectedSide) &&
         SelectedLine is { CanComment: true } && (SelectedSide == PullRequestDiffSide.Left
             ? SelectedLine.Line.OldLine is not null
             : SelectedLine.Line.NewLine is not null);
-    public bool CanReply => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null &&
+    public bool CanReply => _hasLoaded && CanWriteReview && HasReviewComposer && !IsBusy && !IsStaleHead && PendingOperationId is null &&
         SelectedDiscussion is { CanReply: true } && !string.IsNullOrWhiteSpace(ReplyBody) &&
         ReplyBody.Length <= PullRequestReviewDefaults.MaximumBodyCharacters;
-    public bool CanResolve => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null && SelectedDiscussion?.CanResolve == true;
+    public bool CanResolve => _hasLoaded && CanWriteReview && HasReviewComposer && !IsBusy && !IsStaleHead && PendingOperationId is null && SelectedDiscussion?.CanResolve == true;
     public bool HasPendingOperation => PendingOperationId is not null;
     public bool HasSnapshot => Snapshot is not null;
     public bool CanLoadMore => _hasLoaded && Snapshot?.NextPages?.Count > 0 && !IsBusy && !IsStaleHead &&
@@ -293,7 +305,7 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
         {
             if (!CanReadReview)
             {
-                SetStatus("Detailed review is available for GitHub pull requests only.");
+                SetStatus("Detailed review is unavailable for this provider.");
                 return;
             }
 
@@ -302,7 +314,10 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
             if (generation != Volatile.Read(ref _loadGeneration) || token.IsCancellationRequested) return;
             var expectedRepository = pullRequest.Repository.Trim().Trim('/');
             var returnedRepository = $"{snapshot.Repository.Owner}/{snapshot.Repository.Name}";
-            if (!string.Equals(snapshot.PullRequest.Number, pullRequest.Number, StringComparison.Ordinal) ||
+            if (snapshot.Repository.Provider != pullRequest.Provider || snapshot.PullRequest.Provider != pullRequest.Provider ||
+                PullRequestReviewDefaults.HostingAuthority(pullRequest.Provider, pullRequest.Url) is not { } expectedHost ||
+                expectedHost != PullRequestReviewDefaults.HostingAuthority(snapshot.Repository.Provider, snapshot.Repository.WebUrl) ||
+                !string.Equals(snapshot.PullRequest.Number, pullRequest.Number, StringComparison.Ordinal) ||
                 !string.Equals(snapshot.PullRequest.Repository.Trim().Trim('/'), expectedRepository, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(returnedRepository, expectedRepository, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The review response belongs to another pull request.");
@@ -827,6 +842,10 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
         OnPropertyChanged(nameof(CanLoadMore));
         OnPropertyChanged(nameof(PaginationSummary));
         OnPropertyChanged(nameof(CanReadReview));
+        OnPropertyChanged(nameof(ReviewCapabilities));
+        OnPropertyChanged(nameof(ReviewEvents));
+        OnPropertyChanged(nameof(HasProviderDiff));
+        OnPropertyChanged(nameof(HasReviewComposer));
         OnPropertyChanged(nameof(CanWriteReview));
         OnPropertyChanged(nameof(CanSubmit));
         OnPropertyChanged(nameof(CanAddInlineComment));
