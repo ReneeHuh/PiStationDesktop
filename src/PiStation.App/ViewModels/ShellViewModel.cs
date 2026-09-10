@@ -356,6 +356,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
 
         _client = client;
+        RegisterHostingWindow();
         _client.ConnectionStateChanged += OnConnectionStateChanged;
         if (_client.Catalog is { } catalog) catalog.Changed += OnCatalogChanged;
         _client.PiConfigurations.Changed += OnPiConfigurationChanged;

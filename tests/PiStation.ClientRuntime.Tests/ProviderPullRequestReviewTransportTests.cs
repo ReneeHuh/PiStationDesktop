@@ -46,6 +46,14 @@ public sealed class ProviderPullRequestReviewTransportTests
         await client.ConnectAsync(timeout.Token);
         var project = await client.AddProjectAsync(new(root), timeout.Token);
         var workspace = new WorkspaceTarget(project.ProjectId);
+        var inboxSource = new PullRequestInboxSource(client.Descriptor!.EnvironmentId.Value, "Fixture", client.ListProjectsAsync,
+            client.DetectSourceControlAsync, client.ListPullRequestsAsync);
+        var inbox = await PullRequestInbox.StartAsync([inboxSource], new(), timeout.Token);
+        var inboxRow = Assert.Single(inbox.Rows);
+        Assert.Equal(workspace, inboxRow.Target);
+        Assert.Equal(provider, inboxRow.Repository.Provider);
+        Assert.Equal("7", inboxRow.PullRequest.Number);
+        Assert.False(inbox.HasFailures);
         var snapshot = await client.GetPullRequestReviewAsync(new(workspace, "7"), timeout.Token);
         var target = new PullRequestReviewTarget(workspace, PullRequestReviewDefaults.RepositoryKey(snapshot.Repository), "7", snapshot.HeadCommitId);
         var request = new ManagePullRequestRequest(target, PullRequestManagementAction.EditDetails, Title: "Updated", Body: "Updated description",
@@ -58,6 +66,16 @@ public sealed class ProviderPullRequestReviewTransportTests
                 BearerCredential = access.IssueSession(RemoteAccessLevel.ReadOnly).Token,
             });
             await viewer.ConnectAsync(timeout.Token);
+            using (var readOnlyReview = new PullRequestReviewViewModel(() => viewer,
+                new PullRequestReviewDraftStore(directory.CreateDirectory("readonly-drafts")), () => false))
+            {
+                await readOnlyReview.LoadAsync(project.ProjectId, inboxRow.Target, inboxRow.PullRequest, timeout.Token);
+                readOnlyReview.SetBody("Must remain local");
+                Assert.False(readOnlyReview.CanWriteReview);
+                Assert.False(readOnlyReview.CanSubmit);
+                Assert.False(readOnlyReview.CanEditDetails);
+                Assert.Null(await readOnlyReview.SubmitAsync(timeout.Token));
+            }
             Assert.Equal(provider, (await viewer.GetPullRequestReviewAsync(new(workspace, "7"), timeout.Token)).Repository.Provider);
             await Assert.ThrowsAnyAsync<Exception>(() => viewer.ManagePullRequestAsync(request, timeout.Token));
             await Assert.ThrowsAnyAsync<Exception>(() => viewer.SubmitPullRequestReviewAsync(new(target, PullRequestReviewEvent.Comment, "Review", [], CommandId.New()), timeout.Token));

@@ -4,7 +4,7 @@
 
 PiStation is a Windows desktop tool for Pi only. Model providers and subagent workflows run through Pi; additional coding-agent runtimes are outside the product scope.
 
-The [GitHub PR review milestone](Docs/PI-PR-REVIEW-2026-09-06.md) adds hosted patches, persistent inline drafts, review submission, discussion replies and resolve/reopen with stale-head guards and durable operation recovery. [GitLab and Azure reviews](Docs/PROVIDER-PR-REVIEWS-2026-09-10.md) extend the workspace with GitLab diffs/discussions/approvals, Azure metadata and read-only conversation, provider-specific edits and automatic merge, and durable progress for interrupted reviews. Native visual and authenticated-provider acceptance remain pending.
+The [GitHub PR review milestone](Docs/PI-PR-REVIEW-2026-09-06.md) adds hosted patches, persistent inline drafts, review submission, discussion replies and resolve/reopen with stale-head guards and durable operation recovery. [GitLab and Azure reviews](Docs/PROVIDER-PR-REVIEWS-2026-09-10.md) extend the workspace with GitLab diffs/discussions/approvals, Azure metadata and read-only conversation, provider-specific edits and automatic merge, and durable progress for interrupted reviews. The [cross-repository PR inbox](Docs/PULL-REQUEST-INBOX-2026-09-10.md) combines connected environments with independent paging/errors, provider-aware filtering and reviews bound to their originating connection. Native visual and authenticated-provider acceptance remain pending.
 
 [Sent attachments and citations](Docs/SENT-CONTENT-2026-09-07.md) retain files and source metadata after draft clearing and restart, with image preview, Windows open/save/copy actions and clickable citation sources. Native UI acceptance remains pending.
 

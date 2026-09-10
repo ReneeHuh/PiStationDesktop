@@ -13,6 +13,14 @@ public sealed partial class SourceControlHostingService
         if (repository.Provider != SourceControlProvider.GitHub)
         {
             if (HasPullRequestFilters(filters)) throw ReviewError("These advanced PR filters are currently supported for GitHub. Clear them to browse this provider.");
+            if (repository.Provider == SourceControlProvider.GitLab)
+                return (tool, [.. arguments, "--repo", $"{repository.Host}/{repository.Owner}/{repository.Name}"]);
+            if (repository.Provider == SourceControlProvider.AzureDevOps)
+            {
+                var location = AzureReviewLocation(repository);
+                return (tool, [.. arguments, "--organization", location.Organization, "--project", location.Project,
+                    "--repository", Uri.UnescapeDataString(repository.Name), "--detect", "false", "--only-show-errors"]);
+            }
             return (tool, arguments);
         }
         var qualifiers = new List<string>();

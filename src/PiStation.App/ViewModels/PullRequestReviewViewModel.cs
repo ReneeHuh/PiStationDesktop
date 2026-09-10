@@ -209,7 +209,7 @@ public sealed partial class PullRequestReviewViewModel : INotifyPropertyChanged,
             RaiseState();
         }
     }
-    public bool CanWriteReview => CanReadReview && Repository?.CanWrite == true && PullRequest is { Provider: var provider } && HostingCapabilities.CanWriteReview(provider);
+    public bool CanWriteReview => _canOperate() && CanReadReview && Repository?.CanWrite == true && PullRequest is { Provider: var provider } && HostingCapabilities.CanWriteReview(provider);
     public bool CanSubmit => _hasLoaded && CanWriteReview && !IsBusy && !IsStaleHead && PendingOperationId is null &&
         Snapshot is not null && ReviewEvents.Contains(ReviewEvent) &&
         (ReviewEvent == PullRequestReviewEvent.Approve || !string.IsNullOrWhiteSpace(Body)) &&

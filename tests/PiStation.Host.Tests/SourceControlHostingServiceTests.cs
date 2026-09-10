@@ -9,6 +9,44 @@ namespace PiStation.Host.Tests;
 public sealed class SourceControlHostingServiceTests
 {
     [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("{\"message\":\"error\"}")]
+    public void InvalidListPayloadIsNotReportedAsAnEmptyRepository(string json)
+    {
+        Assert.ThrowsAny<Exception>(() => SourceControlHostingService.ParsePullRequests(Repository(SourceControlProvider.GitHub), json));
+    }
+
+    [Fact]
+    public void InboxListsPinGitLabAndAzureDestinationsAndIncludeAllAzureStates()
+    {
+        var gitlab = new SourceControlRepository(SourceControlProvider.GitLab, "gitlab.example.com", "group/subgroup", "repo",
+            "https://gitlab.example.com/group/subgroup/repo", "remote", "main", true);
+        var gl = SourceControlHostingService.BuildFilteredListCommand(gitlab, new(new(ProjectId.New()))).Arguments;
+        Assert.Equal("gitlab.example.com/group/subgroup/repo", gl[Array.IndexOf(gl, "--repo") + 1]);
+        var azure = new SourceControlRepository(SourceControlProvider.AzureDevOps, "dev.azure.com", "project", "repo",
+            "https://dev.azure.com/organization/project/_git/repo", "remote", "main", true);
+        var az = SourceControlHostingService.BuildFilteredListCommand(azure, new(new(ProjectId.New()), Offset: 100)).Arguments;
+        Assert.Equal("https://dev.azure.com/organization", az[Array.IndexOf(az, "--organization") + 1]);
+        Assert.Equal("project", az[Array.IndexOf(az, "--project") + 1]);
+        Assert.Equal("repo", az[Array.IndexOf(az, "--repository") + 1]);
+        Assert.Equal("false", az[Array.IndexOf(az, "--detect") + 1]);
+        Assert.Equal("all", az[Array.IndexOf(az, "--status") + 1]);
+        Assert.Equal("100", az[Array.IndexOf(az, "--skip") + 1]);
+    }
+
+    [Fact]
+    public void AzureListUsesUniqueAuthorAndHumanWebsiteInsteadOfApiUrl()
+    {
+        var repo = new SourceControlRepository(SourceControlProvider.AzureDevOps, "dev.azure.com", "project", "repo",
+            "https://dev.azure.com/organization/project/_git/repo", "remote", "main", true);
+        var parsed = Assert.Single(SourceControlHostingService.ParsePullRequests(repo,
+            """[{"pullRequestId":7,"status":"active","url":"https://dev.azure.com/organization/_apis/git/pr/7","createdBy":{"displayName":"Alice","uniqueName":"alice@example.com"}}]"""));
+        Assert.Equal("alice@example.com", parsed.Author);
+        Assert.Equal(repo.WebUrl + "/pullrequest/7", parsed.Url);
+    }
+
+    [Theory]
     [InlineData("SUCCESS", PullRequestCheckState.Passed)]
     [InlineData("FAILURE", PullRequestCheckState.Failed)]
     [InlineData("ERROR", PullRequestCheckState.Failed)]

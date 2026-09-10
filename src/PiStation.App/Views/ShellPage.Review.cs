@@ -21,6 +21,9 @@ public sealed partial class ShellPage
 
     private async void OnHostingReviewRequested(object? sender, EventArgs e)
     {
+        if (ViewModel.IsHostingReviewOpen) return;
+        ViewModel.IsHostingReviewOpen = true;
+        var showInbox = false;
         try
         {
             await ViewModel.RefreshSettingsAsync();
@@ -63,7 +66,9 @@ public sealed partial class ShellPage
                 Title = "Pull requests and review",
                 Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 760 },
                 PrimaryButtonText = "Create pull request", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Close,
+                SecondaryButtonText = "All repositories",
             };
+            dialog.SecondaryButtonClick += (_, _) => showInbox = true;
             dialog.SetBinding(ContentDialog.IsPrimaryButtonEnabledProperty, new Binding { Source = ViewModel.Settings, Path = new PropertyPath("CanCreatePullRequest"), Mode = BindingMode.OneWay });
             using var checkoutCancellation = new CancellationTokenSource();
             var refreshTimer = DispatcherQueue.CreateTimer();
@@ -127,6 +132,8 @@ public sealed partial class ShellPage
             }
         }
         catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
+        finally { ViewModel.IsHostingReviewOpen = false; }
+        if (showInbox) await SafeReviewActionAsync(ShowPullRequestInboxAsync);
     }
 
     private Border BuildReviewWorkspace(PullRequestReviewViewModel review)

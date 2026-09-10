@@ -57,8 +57,8 @@ public sealed partial class SourceControlHostingService(
             viewer = NestedText(identity.RootElement, "data", "viewer", "login");
         }
         var (fileName, arguments) = BuildFilteredListCommand(repository, request, viewer);
-        var result = repository.Provider == SourceControlProvider.GitHub && _reviewCommandExecutor is not null
-            ? await RunReviewCommandAsync(arguments, workspace.WorkspaceRoot, null, cancellationToken).ConfigureAwait(false)
+        var result = _reviewCommandExecutor is not null
+            ? await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken).ConfigureAwait(false)
             : await RunAsync(fileName, arguments, workspace.WorkspaceRoot, NetworkTimeout, cancellationToken).ConfigureAwait(false);
         EnsureProviderSucceeded(result, repository.Provider);
         var parsed = ParsePullRequests(repository, result.StandardOutput);
@@ -264,7 +264,7 @@ public sealed partial class SourceControlHostingService(
             }
             if (root.ValueKind != JsonValueKind.Array)
             {
-                return [];
+                throw new HostOperationException(ProtocolErrorCodes.SourceControlOperationFailed, "The provider returned an invalid pull-request list.");
             }
 
             return root.EnumerateArray().Select(item => ParsePullRequest(repository, item)).ToArray();
@@ -292,7 +292,7 @@ public sealed partial class SourceControlHostingService(
         };
         var author = NestedText(item, "author", "login") ?? NestedText(item, "author", "username") ??
                      NestedText(item, "author", "display_name") ?? NestedText(item, "author", "displayName") ??
-                     NestedText(item, "createdBy", "displayName") ?? Text(item, "author") ?? "Unknown";
+                     NestedText(item, "createdBy", "uniqueName") ?? NestedText(item, "createdBy", "displayName") ?? Text(item, "author") ?? "Unknown";
         var labels = ReadNameArray(item, "labels");
         var reviewers = ReadNameArray(item, "reviewRequests");
         if (reviewers.Count == 0)
@@ -307,7 +307,7 @@ public sealed partial class SourceControlHostingService(
             SourceControlProvider.AzureDevOps => $"{repository.WebUrl}/pullrequest/{number}",
             _ => $"{repository.WebUrl}/pull/{number}",
         };
-        var url = Text(item, "url") ?? Text(item, "web_url") ?? Text(item, "webUrl") ??
+        var url = (repository.Provider == SourceControlProvider.AzureDevOps ? Text(item, "webUrl") : Text(item, "url")) ?? Text(item, "web_url") ?? Text(item, "webUrl") ??
                   NestedText(item, "links", "html", "href") ?? fallbackUrl;
         var updated = DateTimeOffset.TryParse(
             Text(item, "updatedAt") ?? Text(item, "updated_at") ?? Text(item, "updated_on") ??
@@ -447,6 +447,7 @@ public sealed partial class SourceControlHostingService(
 
     private static string AzureStateArgument(PullRequestState? state) => state switch
     {
+        null => "all",
         PullRequestState.Closed => "abandoned",
         PullRequestState.Merged => "completed",
         _ => "active",

@@ -53,6 +53,10 @@ internal sealed class ProviderReviewCommands(SourceControlProvider provider)
         var args = arguments.ToArray();
         if (tool == "az" && args.Contains("--in-file")) input = File.ReadAllText(args[Array.IndexOf(args, "--in-file") + 1]);
         Calls.Enqueue((tool, args, input));
+        if (args.Contains("list") && (tool == "glab" && args[0] == "mr" || tool == "az" && args[0] == "repos" && args[1] == "pr"))
+            return provider == SourceControlProvider.GitLab
+                ? Result(new[] { new { iid = 7, title = Title, state = "opened", web_url = WebUrl + "/-/merge_requests/7", author = new { username = "alice" }, source_branch = "feature", target_branch = "main" } })
+                : Result(new[] { new { pullRequestId = 7, title = Title, status = "active", createdBy = new { uniqueName = "alice@example.invalid" }, sourceRefName = "refs/heads/feature", targetRefName = "refs/heads/main" } });
         if (args.Contains("auth") || tool == "az" && args.Contains("show") && !args.Contains("pr")) return Result(new { });
         var methodFlag = tool == "az" ? "--http-method" : "--method";
         var method = args.Contains(methodFlag) ? args[Array.IndexOf(args, methodFlag) + 1] : "GET";
