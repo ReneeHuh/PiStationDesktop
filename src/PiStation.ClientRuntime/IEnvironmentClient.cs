@@ -8,6 +8,18 @@ namespace PiStation.ClientRuntime;
 
 public interface IEnvironmentClient : IAsyncDisposable
 {
+    Task<ThreadHistoryPage> ReadThreadHistoryAsync(ReadThreadHistoryRequest request, CancellationToken token = default) => throw new NotSupportedException();
+    Task<RuntimeHealthSnapshot> GetRuntimeHealthAsync(CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageDashboard> GetUsageDashboardAsync(UsageQuery query, CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageLimitsDashboard> GetUsageLimitsAsync(CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageLimitsDashboard> RefreshUsageLimitsAsync(CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageLimitsDashboard> SaveUsageLimitSourceAsync(SaveUsageLimitSourceRequest request, CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageLimitsDashboard> RemoveUsageLimitSourceAsync(RemoveUsageLimitSourceRequest request, CancellationToken token = default) => throw new NotSupportedException();
+    Task<UsageDashboard> RefreshUsageDashboardAsync(RefreshUsageRequest request, CancellationToken token = default) => throw new NotSupportedException();
+    Task<RuntimeHealthSettings> SaveRuntimeHealthSettingsAsync(RuntimeHealthSettings settings, CancellationToken token = default) => throw new NotSupportedException();
+    Task ClearRuntimeHealthAsync(CancellationToken token = default) => throw new NotSupportedException();
+    Task<BackgroundPolicySnapshot> ReportClientActivityAsync(ClientActivityReport report, CancellationToken token = default) => throw new NotSupportedException();
+    Task<DiagnosticActionResult> TerminateDiagnosticProcessAsync(TerminateDiagnosticProcessRequest request, CancellationToken token = default) => throw new NotSupportedException();
     Task<BrowserAutomationSession> OpenBrowserAutomationAsync(OpenBrowserAutomationRequest request, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This host does not support browser automation transport.");
     Task<string> GetAttachmentFileAsync(DraftAttachment attachment, string cacheRoot, CancellationToken cancellationToken = default) =>

@@ -59,7 +59,8 @@ public sealed record GetProjectChangeDiffRequest(
     ProjectId ProjectId,
     string RelativePath,
     int MaximumCharacters = GitChangesDefaults.DefaultMaximumDiffCharacters,
-    ThreadId? ThreadId = null);
+    ThreadId? ThreadId = null,
+    bool IgnoreWhitespace = false);
 
 public sealed record GetProjectChangeDiffResult(
     ProjectId ProjectId,

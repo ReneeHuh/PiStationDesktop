@@ -15,9 +15,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Themes\ThemeDefaults.json" LogicalName="PiStation.ThemeDefaults.json" />
     <Content Include="Ssh\Helpers\*" Link="SshHost\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="..\PiStation.Protocol\PiStation.Protocol.csproj" />
   </ItemGroup>

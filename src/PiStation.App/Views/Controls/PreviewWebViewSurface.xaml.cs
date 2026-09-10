@@ -28,10 +28,6 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
     private bool _inPrivate;
     private double _zoomFactor = 1;
     private PreviewColorScheme _colorScheme;
-    private CancellationTokenSource? _recordingCancellation;
-    private Task? _recordingTask;
-    private string? _recordingDirectory;
-    private int _recordingFrameRate;
     private RemotePreviewProxy? _remoteRoute;
     private readonly SemaphoreSlim _navigationGate = new(1, 1);
     public Func<Uri, Task<RemotePreviewProxy?>>? RemoteRouteFactory { get; set; }
@@ -324,91 +320,6 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         return bytes;
     }
 
-    public Task StartRecordingAsync(int frameRate = 4)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_recordingTask is not null)
-        {
-            throw new InvalidOperationException("The preview is already recording.");
-        }
-
-        _recordingFrameRate = Math.Clamp(frameRate, 1, 12);
-        var root = Path.Combine(Path.GetTempPath(), "PiStationDesktop", "preview-recordings");
-        Directory.CreateDirectory(root);
-        _recordingDirectory = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_recordingDirectory);
-        _recordingCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        _recordingTask = CaptureRecordingFramesAsync(_recordingDirectory, _recordingFrameRate, _recordingCancellation.Token);
-        return Task.CompletedTask;
-    }
-
-    public async Task<string> StopRecordingAsync(string outputDirectory)
-    {
-        if (_recordingTask is null || _recordingCancellation is null || _recordingDirectory is null)
-        {
-            throw new InvalidOperationException("The preview is not recording.");
-        }
-
-        var recordingTask = _recordingTask;
-        var frameDirectory = _recordingDirectory;
-        var frameRate = _recordingFrameRate;
-        _recordingCancellation.Cancel();
-        try
-        {
-            await recordingTask;
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            _recordingCancellation.Dispose();
-            _recordingCancellation = null;
-            _recordingTask = null;
-            _recordingDirectory = null;
-        }
-
-        var framePaths = Directory.EnumerateFiles(frameDirectory, "*.png")
-            .OrderBy(static path => path, StringComparer.Ordinal)
-            .Take(1_440)
-            .ToArray();
-        if (framePaths.Length == 0)
-        {
-            DeleteRecordingFrames(frameDirectory);
-            throw new InvalidOperationException("The recording did not capture any frames.");
-        }
-
-        Directory.CreateDirectory(outputDirectory);
-        var outputFolder = await StorageFolder.GetFolderFromPathAsync(Path.GetFullPath(outputDirectory));
-        var output = await outputFolder.CreateFileAsync(
-            $"preview-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.mp4",
-            CreationCollisionOption.GenerateUniqueName);
-        try
-        {
-            var composition = new MediaComposition();
-            var duration = TimeSpan.FromSeconds(1d / frameRate);
-            foreach (var framePath in framePaths)
-            {
-                var frame = await StorageFile.GetFileFromPathAsync(framePath);
-                composition.Clips.Add(await MediaClip.CreateFromImageFileAsync(frame, duration));
-            }
-
-            var failure = await composition.RenderToFileAsync(
-                output,
-                MediaTrimmingPreference.Precise);
-            if (failure != TranscodeFailureReason.None)
-            {
-                throw new InvalidOperationException($"The recording encoder failed ({failure}).");
-            }
-
-            return output.Path;
-        }
-        finally
-        {
-            DeleteRecordingFrames(frameDirectory);
-        }
-    }
-
     public async Task<PreviewElementSelection?> PickElementAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -469,26 +380,7 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
         SetAutomationEnabled(false);
         InterruptAutomationDocument();
         if (_scriptExecutor is { } executor) _ = executor.DisposeAsync().AsTask();
-        var recordingTask = _recordingTask;
-        var recordingDirectory = _recordingDirectory;
-        _recordingCancellation?.Cancel();
-        _recordingCancellation?.Dispose();
-        _recordingCancellation = null;
-        _recordingTask = null;
-        _recordingDirectory = null;
-        if (recordingTask is not null && recordingDirectory is not null)
-        {
-            _ = recordingTask.ContinueWith(
-                static (task, state) =>
-                {
-                    _ = task.Exception;
-                    DeleteRecordingFrames((string)state!);
-                },
-                recordingDirectory,
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-        }
+        _ = CancelVideoRecordingAsync();
 
         if (_remoteRoute is { } route)
         {
@@ -779,46 +671,6 @@ public sealed partial class PreviewWebViewSurface : UserControl, IDisposable
             "The preview server presented an invalid HTTPS certificate.",
         _ => $"The page could not be loaded ({status}).",
     };
-
-    private async Task CaptureRecordingFramesAsync(
-        string frameDirectory,
-        int frameRate,
-        CancellationToken cancellationToken)
-    {
-        var frame = 0;
-        var interval = TimeSpan.FromSeconds(1d / frameRate);
-        while (!cancellationToken.IsCancellationRequested && frame < 1_440)
-        {
-            var started = DateTimeOffset.UtcNow;
-            var content = await CapturePreviewPngAsync();
-            await File.WriteAllBytesAsync(
-                Path.Combine(frameDirectory, $"frame-{frame++:D5}.png"),
-                content,
-                cancellationToken);
-            var remaining = interval - (DateTimeOffset.UtcNow - started);
-            if (remaining > TimeSpan.Zero)
-            {
-                await Task.Delay(remaining, cancellationToken);
-            }
-        }
-    }
-
-    private static void DeleteRecordingFrames(string frameDirectory)
-    {
-        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "PiStationDesktop", "preview-recordings"));
-        var target = Path.GetFullPath(frameDirectory);
-        if (target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
-            Directory.Exists(target))
-        {
-            try
-            {
-                Directory.Delete(target, recursive: true);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-    }
 
     private async Task ApplyColorSchemeAsync(PreviewColorScheme colorScheme)
     {

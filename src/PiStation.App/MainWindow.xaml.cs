@@ -24,6 +24,20 @@ public sealed partial class MainWindow : Window
     private bool _closeDialogOpen;
     private bool _allowClose;
     private Task? _closeTask;
+    internal Func<Task>? BeforeCloseAsync { get; set; }
+    private async void OnCloseTemporarySessionClicked(object sender, RoutedEventArgs e)
+    {
+        try { if (await ConfirmPlanDiscardAsync()) await CloseWithRecoveryAsync(); }
+        catch (Exception error) { _viewModel.ReportRuntimeError(error); }
+    }
+    internal void ReleaseSurfaces() => _shellPage.Release();
+    internal void MarkTemporary()
+    {
+        TitleBarBrandText.Text = "Temporary";
+        TemporarySessionNotice.Visibility = Visibility.Visible;
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(TitleBarBrandText,
+            "Conversation and draft are discarded when this window closes. Project edits and explicit exports remain.");
+    }
 
     public MainWindow(ShellViewModel viewModel, int textScalePercent = 100)
     {
@@ -31,9 +45,12 @@ public sealed partial class MainWindow : Window
         _viewModel = viewModel;
         _textScalePercent = textScalePercent;
         InitializeComponent();
+        _viewModel.ObserveWindowVisibility(() => AppWindow.IsVisible &&
+            AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized });
         InitializeQuitGesture();
         _expandedSidebarWidth = TitleBarSidebarColumn.Width;
         ApplyTheme();
+        InitializeAppearance();
         _viewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
         Closed += OnMainWindowClosed;
         Activated += OnReadWindowActivated;
@@ -92,6 +109,7 @@ public sealed partial class MainWindow : Window
     private async Task CloseCoreAsync()
     {
         await PrepareForTransitionAsync();
+        if (BeforeCloseAsync is not null) await BeforeCloseAsync();
         // Let a canceled native Closing event return before requesting the actual close.
         await Task.Yield();
         _allowClose = true;
@@ -109,6 +127,7 @@ public sealed partial class MainWindow : Window
 
     private void OnLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(ShellLayoutViewModel.Appearance) or nameof(ShellLayoutViewModel.Themes)) ApplyAppearance();
         if (e.PropertyName == nameof(ShellLayoutViewModel.QuitConfirmationModeIndex)) ResetQuitGesture();
         if (e.PropertyName == nameof(ShellLayoutViewModel.ThemePreference))
         {
@@ -118,6 +137,7 @@ public sealed partial class MainWindow : Window
 
     private void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
+        ReleaseAppearance();
         ResetQuitGesture();
         if (_quitTimer is not null) _quitTimer.Tick -= OnQuitTick;
         Activated -= OnReadWindowActivated;
@@ -168,14 +188,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyTheme()
     {
-        RootGrid.RequestedTheme = _viewModel.Layout.ThemePreference switch
-        {
-            AppThemePreference.Dark => ElementTheme.Dark,
-            AppThemePreference.Light => ElementTheme.Light,
-            AppThemePreference.System => ElementTheme.Default,
-            _ => ElementTheme.Dark,
-        };
-        UpdatePresentationHelpText();
+        ApplyAppearance();
     }
 
     private void UpdatePresentationHelpText()
@@ -184,7 +197,7 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetHelpText(
             RootGrid,
             $"Presentation: {_viewModel.Layout.ThemePreference} theme • " +
-            $"{_textScalePercent}% text profile • {displayScalePercent}% display scale");
+            $"{_textScalePercent}% text profile • {displayScalePercent}% display scale • {_viewModel.Layout.AppearanceSummary}");
     }
 
     private void OnSidebarCollapsedChanged(object? sender, EventArgs e)

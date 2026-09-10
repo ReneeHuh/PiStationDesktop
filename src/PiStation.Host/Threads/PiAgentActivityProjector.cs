@@ -121,7 +121,7 @@ internal static class PiAgentActivityProjector
             var activityId = mode is "parallel" or "chain" ? ChildId(toolCallId, index) : toolCallId;
             var previous = current.FirstOrDefault(activity => activity.ActivityId == activityId);
             var state = ReadAgentState(item, isFinal, isError);
-            var controlId = ReadString(details, "integration") == "pistation" && ReadString(item, "controlId") is { } candidate && Guid.TryParseExact(candidate, "N", out _)
+            var controlId = ReadString(details, "integration") is "pistation" or "pistation-external-v1" && ReadString(item, "controlId") is { } candidate && Guid.TryParseExact(candidate, "N", out _)
                 ? candidate : null;
             var task = Bounded(ReadString(item, "task"), SummaryLimit, string.Empty);
             var title = Bounded(ReadString(item, "agent"), 120, previous?.Title ?? $"Agent {index + 1}");
@@ -147,7 +147,7 @@ internal static class PiAgentActivityProjector
                 now,
                 IsTerminal(state) ? previous?.CompletedUtc ?? now : null,
                 ReadInt32(item, "toolCount") ?? CountTools(item),
-                ReadUsage(item),
+                ReadUsage(item) ?? previous?.Usage,
                 Bounded(ReadString(item, "model"), 160, previous?.Model),
                 Bounded(ReadString(item, "thinkingLevel"), 80, previous?.ReasoningLevel),
                 state == AgentActivityState.Completed ? Bounded(output, SummaryLimit, previous?.ResultSummary) : previous?.ResultSummary,
@@ -159,7 +159,11 @@ internal static class PiAgentActivityProjector
                 !IsTerminal(state) && (controlId is not null && state == AgentActivityState.Running || mode == "single"),
                 controlId,
                 Bounded(ReadString(item, "transcript") ?? ReadTranscript(item), 32768, previous?.Transcript),
-                controlId is not null && item.TryGetProperty("canResume", out var resumable) && resumable.ValueKind == JsonValueKind.True));
+                ReadString(details, "integration") == "pistation" && controlId is not null && item.TryGetProperty("canResume", out var resumable) && resumable.ValueKind == JsonValueKind.True,
+                Bounded(ReadString(item, "usageSessionId"), 256, previous?.UsageSessionId),
+                Bounded(ReadString(item, "usageSource"), 32, previous?.UsageSource),
+                Bounded(ReadString(item, "provider"), 160, previous?.UsageProvider),
+                ReadUsage(item) is not null ? ReadCost(item) : previous?.UsageCost));
             index++;
         }
 
@@ -410,6 +414,9 @@ internal static class PiAgentActivityProjector
             $"{ReadString(message, "role")}:\n{ExtractContentText(message)}"));
     }
 
+    private static decimal? ReadCost(JsonElement item) => item.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object &&
+        usage.TryGetProperty("cost", out var cost) && cost.ValueKind == JsonValueKind.Number && cost.TryGetDecimal(out var value) && value >= 0 ? value : null;
+
     private static TokenUsage? ReadUsage(JsonElement item)
     {
         if (!item.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object)
@@ -500,8 +507,8 @@ internal static class PiAgentActivityProjector
     private static long? ReadInt64(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(name, out var value) &&
-        value.ValueKind == JsonValueKind.Number &&
-        value.TryGetInt64(out var result)
+            value.ValueKind == JsonValueKind.Number &&
+            value.TryGetInt64(out var result) && result >= 0
             ? result
             : null;
 

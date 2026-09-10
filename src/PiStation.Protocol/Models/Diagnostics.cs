@@ -53,7 +53,8 @@ public sealed record DiagnosticsSnapshot(
     IReadOnlyList<string> RecentLogs,
     string ApplicationVersion,
     string ProtocolVersion,
-    string UpdateState);
+    string UpdateState,
+    RuntimeHealthSnapshot? Health = null);
 
 public sealed record ExportDiagnosticsRequest(string DestinationPath);
 

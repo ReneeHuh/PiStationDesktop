@@ -10,6 +10,33 @@ namespace PiStation.Host.Tests;
 
 public sealed class WorkspaceGitServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WhitespacePreferenceFiltersPreviewWithoutChangingWorkingFileOrStatus(bool staged)
+    {
+        using var temporaryDirectory = new HostTestDirectory();
+        var options = temporaryDirectory.CreateOptions();
+        var projectRoot = temporaryDirectory.CreateDirectory("project");
+        InitializeRepository(projectRoot);
+        var path = Path.Combine(projectRoot, "README.md");
+        await File.WriteAllTextAsync(path, "  baseline \t\n");
+        if (staged) RunGit(projectRoot, "add", "README.md");
+        var database = new HostDatabase(options);
+        await database.InitializeAsync();
+        var project = await new ProjectService(database).AddAsync(new AddProjectRequest(projectRoot));
+        var service = new WorkspaceGitService(database);
+        var request = new GetProjectChangeDiffRequest(project.ProjectId, "README.md");
+        var original = await service.GetDiffAsync(request);
+        Assert.Contains("+  baseline", original.DiffContent, StringComparison.Ordinal);
+        var filtered = await service.GetDiffAsync(request with { IgnoreWhitespace = true });
+        Assert.DoesNotContain("+  baseline", filtered.DiffContent, StringComparison.Ordinal);
+        Assert.Single((await service.GetChangesAsync(new GetProjectChangesRequest(project.ProjectId))).Changes);
+        Assert.Equal("  baseline \t\n", await File.ReadAllTextAsync(path));
+        Assert.Equal(original.DiffContent, (await service.GetDiffAsync(request)).DiffContent);
+        await File.WriteAllTextAsync(path, "actual change\n");
+        Assert.Contains("+actual change", (await service.GetDiffAsync(request with { IgnoreWhitespace = true })).DiffContent, StringComparison.Ordinal);
+    }
     [Fact]
     public async Task ChangesReportBranchAndStagedUnstagedAndUntrackedFiles()
     {

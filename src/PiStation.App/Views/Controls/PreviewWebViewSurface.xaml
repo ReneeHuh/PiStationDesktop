@@ -26,7 +26,7 @@
                     IsActive="True" />
                 <TextBlock
                     x:Name="InitializationMessage"
-                    FontSize="{StaticResource PiFontSizeCaption}"
+                    FontSize="{ThemeResource PiFontSizeCaption}"
                     Foreground="{ThemeResource PiTextMutedBrush}"
                     Text="Starting web preview…" />
             </StackPanel>

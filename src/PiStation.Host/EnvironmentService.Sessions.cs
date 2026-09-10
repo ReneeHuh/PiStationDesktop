@@ -74,14 +74,16 @@ public sealed partial class EnvironmentService
     public async Task<PiSessionSnapshot> InspectPiSessionPageAsync(PiSessionPageRequest request, CancellationToken cancellationToken = default)
     {
         if (request.Offset < 0 || request.Limit is < 1 or > 5000) throw new ArgumentException("Invalid session page size or offset.");
-        if (!Enum.IsDefined(request.Filter) || request.SearchQuery?.Length > 1024) throw new ArgumentException("Choose a tree filter and a search of at most 1,024 characters.");
+        if (!Enum.IsDefined(request.Filter) || request.SearchQuery?.Length > 1024 || request.CollapsedEntryIds?.Count > 1000 ||
+            request.CollapsedEntryIds?.Any(id => string.IsNullOrEmpty(id) || id.Length > 256) == true ||
+            request.AnchorEntryId?.Length > 256 || request.BranchDirection is < -1 or > 1) throw new ArgumentException("Choose a tree filter and a search of at most 1,024 characters.");
         var controller = await _threads.GetAsync(request.ThreadId, cancellationToken).ConfigureAwait(false);
         return await controller.WithSessionAsync((document, path) =>
         {
             if (request.ExpectedRevision is not null && request.ExpectedRevision != document.Revision)
                 throw new InvalidDataException("The session changed while paging. Inspect it again to load a consistent tree.");
             return Task.FromResult(CreateSessionSnapshot(request.ThreadId, path, document, request.Offset, request.Limit,
-                request.Filter, request.SearchQuery, request.ActiveBranchOnly));
+                request.Filter, request.SearchQuery, request.ActiveBranchOnly, request.CollapsedEntryIds, request.AnchorEntryId, request.BranchDirection, request.IncludeEntryText));
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -206,28 +208,66 @@ public sealed partial class EnvironmentService
     }
 
     internal static PiSessionSnapshot CreateSessionSnapshot(ThreadId threadId, string path, PiSessionDocument document, int offset = 0, int limit = 1000,
-        PiSessionTreeFilter filter = PiSessionTreeFilter.All, string? searchQuery = null, bool activeBranchOnly = false)
+        PiSessionTreeFilter filter = PiSessionTreeFilter.All, string? searchQuery = null, bool activeBranchOnly = false,
+        IReadOnlyList<string>? collapsedEntryIds = null, string? anchorEntryId = null, int branchDirection = 0, bool includeEntryText = false)
     {
         var branch = document.Branch();
         var activeIds = branch.Select(entry => PiSessionDocument.Text(entry, "id")!).ToHashSet(StringComparer.Ordinal);
-        var depths = new Dictionary<string, int>(StringComparer.Ordinal);
-        var rows = new List<PiSessionTreeEntry>();
         var labels = document.Labels();
         var tokensToFind = (searchQuery ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var matching = 0;
+        var parents = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var visibleAncestors = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var entries = document.Entries.ToDictionary(entry => PiSessionDocument.Text(entry, "id")!, StringComparer.Ordinal);
         foreach (var entry in document.Entries)
         {
             var id = PiSessionDocument.Text(entry, "id")!;
             var parent = PiSessionDocument.Text(entry, "parentId");
-            var depth = parent is null ? 0 : depths[parent] + 1;
-            depths[id] = depth;
-            labels.TryGetValue(id, out var label);
-            if (activeBranchOnly && !activeIds.Contains(id) || !PiSessionTreeQuery.Matches(entry, label.Label, document.LeafId, filter, tokensToFind)) continue;
-            matching++;
-            if (matching > offset && rows.Count < limit) rows.Add(new(id, parent, depth, entry["message"] is JsonObject message
-                ? PiSessionDocument.Text(message, "role") ?? "message" : PiSessionDocument.Text(entry, "type")!,
-                PiSessionDocument.Preview(entry), activeIds.Contains(id), PiSessionDocument.CanFork(entry), label.Label, label.Timestamp));
+            var visibleParent = parent is null ? null : visibleAncestors[parent];
+            var matches = (!activeBranchOnly || activeIds.Contains(id)) && PiSessionTreeQuery.Matches(entry,
+                labels.GetValueOrDefault(id).Label, document.LeafId, filter, tokensToFind);
+            visibleAncestors[id] = matches ? id : visibleParent;
+            if (matches) parents[id] = visibleParent;
         }
+        var children = parents.Keys.GroupBy(id => parents[id] ?? "").ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var collapsed = (collapsedEntryIds ?? []).ToHashSet(StringComparer.Ordinal);
+        var ordered = new List<PiSessionTreeEntry>();
+        var stack = new Stack<(string Id, int Depth)>();
+        foreach (var id in children.GetValueOrDefault("")?.Reverse() ?? []) stack.Push((id, 0));
+        while (stack.TryPop(out var next))
+        {
+            var entry = entries[next.Id];
+            var descendants = children.GetValueOrDefault(next.Id) ?? [];
+            labels.TryGetValue(next.Id, out var label);
+            ordered.Add(new(next.Id, PiSessionDocument.Text(entry, "parentId"), next.Depth,
+                entry["message"] is JsonObject message ? PiSessionDocument.Text(message, "role") ?? "message" : PiSessionDocument.Text(entry, "type")!,
+                PiSessionDocument.Preview(entry), activeIds.Contains(next.Id), PiSessionDocument.CanFork(entry), label.Label, label.Timestamp,
+                parents[next.Id], descendants.Length > 0, descendants.Length > 1));
+            if (!collapsed.Contains(next.Id)) foreach (var id in descendants.Reverse()) stack.Push((id, next.Depth + 1));
+        }
+        string? selectedText = null;
+        if (anchorEntryId is not null)
+        {
+            var anchor = ordered.FindIndex(row => row.Id == anchorEntryId);
+            if (anchor < 0) throw new InvalidDataException("The selected entry is hidden or no longer matches. Refresh the tree.");
+            if (branchDirection != 0)
+            {
+                var indices = branchDirection > 0 ? Enumerable.Range(anchor + 1, ordered.Count - anchor - 1) : Enumerable.Range(0, anchor).Reverse();
+                var target = indices.FirstOrDefault(index => ordered[index].IsBranchPoint, -1);
+                if (target < 0) throw new InvalidDataException("There are no more branch points in this view.");
+                anchor = target;
+                anchorEntryId = ordered[anchor].Id;
+            }
+            offset = anchor / limit * limit;
+            if (includeEntryText)
+            {
+                var entry = entries[anchorEntryId];
+                selectedText = entry["message"] is JsonObject message ? PiSessionDocument.MessageText(message)
+                    : PiSessionDocument.Text(entry, "summary") ?? PiSessionDocument.Text(entry, "name") ?? entry.ToJsonString();
+                if (selectedText.Length > 128 * 1024) throw new InvalidDataException("This entry exceeds the 128K clipboard limit. Export the session instead.");
+            }
+        }
+        var matching = ordered.Count;
+        var rows = ordered.Skip(offset).Take(limit).ToArray();
         var assistants = branch.Where(entry => entry["message"] is JsonObject message && PiSessionDocument.Text(message, "role") == "assistant").ToArray();
         long? tokens = 0;
         decimal? cost = 0;
@@ -240,7 +280,7 @@ public sealed partial class EnvironmentService
         return new(threadId, path, document.Revision, document.LeafId, rows, document.Entries.Count,
             branch.Count(entry => PiSessionDocument.Text(entry, "type") == "message"),
             configuration.Provider is { } provider && configuration.Model is { } model ? new(provider, model) : null,
-            configuration.Thinking, tokens, cost, offset + rows.Count < matching,
-            offset + rows.Count < matching ? offset + rows.Count : null, matching, filter, searchQuery, activeBranchOnly);
+            configuration.Thinking, tokens, cost, offset + rows.Length < matching,
+            offset + rows.Length < matching ? offset + rows.Length : null, matching, filter, searchQuery, activeBranchOnly, collapsedEntryIds, anchorEntryId, selectedText);
     }
 }

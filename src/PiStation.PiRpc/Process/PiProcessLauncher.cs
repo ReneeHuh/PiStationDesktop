@@ -45,7 +45,13 @@ public static class PiProcessLauncher
         startInfo.ArgumentList.Add(sessionDirectory);
         startInfo.ArgumentList.Add("--session-id");
         startInfo.ArgumentList.Add(options.SessionId);
+        if (options.TemporaryHistory) startInfo.ArgumentList.Add("--no-session");
         if (!options.DiscoverExtensions) startInfo.ArgumentList.Add("--no-extensions");
+        if (options.SdkAdapterPath is { } adapter && options.Installation.PiVersion >= new PiStation.PiRpc.Discovery.SemanticVersion(0, 85, 0))
+        {
+            startInfo.ArgumentList.Add("--extension");
+            startInfo.ArgumentList.Add(Path.GetFullPath(adapter));
+        }
 
         foreach (var argument in options.AdditionalArguments)
         {

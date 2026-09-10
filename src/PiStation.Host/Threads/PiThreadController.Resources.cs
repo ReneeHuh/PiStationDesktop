@@ -14,7 +14,7 @@ public sealed partial class PiThreadController
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _extensionFailures = new(StringComparer.OrdinalIgnoreCase);
     public async Task<PiResourcesSnapshot> ManageResourcesAsync(ManagePiResourcesRequest request, CancellationToken cancellationToken)
     {
-        if (request.ThreadId != _thread.ThreadId || request.Action is not ("inspect" or "toggle" or "trust" or "saveModel" or "packageInstall" or "packageRemove" or "packageUpdate" or "login" or "logout"))
+        if (request.ThreadId != _thread.ThreadId || request.Action is not ("inspect" or "reload" or "toolExecution" or "saveTransport" or "toggle" or "trust" or "saveModel" or "packageInstall" or "packageRemove" or "packageUpdate" or "login" or "logout"))
             throw new HostOperationException(ProtocolErrorCodes.PiCommandRejected, "The Pi management request is invalid.");
         await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -26,9 +26,15 @@ public sealed partial class PiThreadController
             var action = JsonSerializer.SerializeToNode(request, ProtocolJsonContext.Default.ManagePiResourcesRequest)!.AsObject();
             if (action.ToJsonString().Length > 64 * 1024)
                 throw new HostOperationException(ProtocolErrorCodes.PiCommandRejected, "Pi management request exceeds its size limit.");
+            if (request.Action == "reload") _extensionFailures.Clear();
             var data = await _process.Connection.ManageAsync(action, cancellationToken).ConfigureAwait(false);
             var result = data.Deserialize(ProtocolJsonContext.Default.PiResourcesSnapshot)
                 ?? throw new JsonException("Pi returned an empty resource inventory.");
+            if (request.Action == "reload")
+            {
+                _automationStatus = null;
+                await ApplyPiAutomationAsync(cancellationToken).ConfigureAwait(false);
+            }
             if (request.Action != "inspect")
             {
                 var refreshed = await _process.Connection.ManageAsync(new JsonObject { ["action"] = "inspect" }, cancellationToken).ConfigureAwait(false);
@@ -51,9 +57,9 @@ public sealed partial class PiThreadController
             foreach (var path in (_options.Extensions.Paths ?? []).Concat(_extensionFailures.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
                 if (!resources.Any(resource => string.Equals(resource.Path, path, StringComparison.OrdinalIgnoreCase)))
                     resources.Add(new("explicit:" + path, "extensions", Path.GetFileName(path), path, "Explicit extension", "temporary", true, false, false, ""));
-            resources = resources.Select(resource => resource with { LoadError = _extensionFailures.GetValueOrDefault(resource.Path) ??
-                _process.StandardError.Split('\n').FirstOrDefault(line => line.Replace('\\', '/').Contains(resource.Path.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase) &&
-                    (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("failed", StringComparison.OrdinalIgnoreCase))) }).ToList();
+            resources = resources.Select(resource => resource with { LoadError = resource.LoadError ?? _extensionFailures.GetValueOrDefault(resource.Path) ??
+                (result.AuthoritativeResources ? null : _process.StandardError.Split('\n').FirstOrDefault(line => line.Replace('\\', '/').Contains(resource.Path.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase) &&
+                    (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("failed", StringComparison.OrdinalIgnoreCase)))) }).ToList();
             TouchRuntime();
             return result with { Diagnostics = diagnostics, Resources = resources };
         }

@@ -7,6 +7,8 @@ import { Type } from "typebox";
 const PARAMETERS = Type.Object({
   action: Type.Union([
     Type.Literal("status"),
+    Type.Literal("recording_start"),
+    Type.Literal("recording_stop"),
     Type.Literal("open"),
     Type.Literal("resize"),
     Type.Literal("set_appearance"),
@@ -44,7 +46,7 @@ const PARAMETERS = Type.Object({
 });
 
 type BrowserParameters = {
-  readonly action: "evaluate" | "open" | "resize" | "set_appearance" | "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
+  readonly action: "recording_start" | "recording_stop" | "evaluate" | "open" | "resize" | "set_appearance" | "status" | "navigate" | "snapshot" | "click" | "type" | "screenshot" | "press_key" | "scroll" | "wait";
   readonly url?: string;
   readonly selector?: string;
   readonly value?: string;
@@ -90,7 +92,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
       throw new Error("Browser automation is off. Ask the user to enable it in Preview.");
     }
 
-    if (["evaluate", "open", "resize", "set_appearance", "navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
+    if (["recording_start", "recording_stop", "evaluate", "open", "resize", "set_appearance", "navigate", "click", "type", "press_key", "scroll"].includes(params.action) && permission !== "interact") {
       throw new Error("This browser permission is inspect-only. Ask the user to enable interaction.");
     }
 
@@ -108,7 +110,8 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     await rename(temporaryPath, requestPath);
 
     try {
-      const deadline = Date.now() + 30_000;
+      const timeout = params.action === "recording_stop" ? 120_000 : 30_000;
+      const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         signal.throwIfAborted();
         try {
@@ -127,7 +130,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
         }
         await delay(100, signal);
       }
-      throw new Error("The Pi Station preview did not answer the browser request within 30 seconds.");
+      throw new Error("The Pi Station preview did not answer the browser request before its deadline.");
     } finally {
       await unlink(requestPath).catch(() => undefined);
     }
@@ -142,6 +145,7 @@ export default function piStationBrowserExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use pistation_browser only for browser work the user requested; respect inspect-only permission and never ask to broaden it unnecessarily.",
       "Prefer snapshot and semantic actions. snapshot includes page text, element selectors/bounds, an accessibility tree, console/network failures, action history and a PNG image. Check truncated flags; diagnostics begin when automation first attaches and are cleared when access is disabled.",
+      "recording_start requires interact permission and uses the saved 30/60 FPS preference. Stop with recording_stop and the same tabId. Only the owning controller can stop it; a human can stop any recording. Capture is bounded to two minutes, 1280 pixels per edge and 64 MiB. Stop returns measured timing plus a video/mp4 artifact path readable on this runtime host, size and SHA-256. Save artifacts you need: only ten recordings per thread are retained. Access loss or closing the tab discards unfinished capture.",
       "evaluate requires expression and interact permission, returns {type,value}, awaits promises by default, and limits results to 64000 UTF-8 bytes. timeoutMs defaults to 5000 (max 20000). Cancellation attempts to stop execution; an unresponsive browser is closed. Already applied page changes and separately scheduled work are not rolled back.",
     ],
     parameters: PARAMETERS,

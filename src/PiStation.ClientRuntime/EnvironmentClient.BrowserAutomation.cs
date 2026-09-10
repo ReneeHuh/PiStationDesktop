@@ -33,7 +33,8 @@ public sealed partial class EnvironmentClient
                         try { await connection.InvokeAsync("CloseBrowserAutomation", lease.Id, timeout.Token).ConfigureAwait(false); }
                         catch (Exception) { /* Host connection/heartbeat expiry also releases the lease. */ }
                     }
-                }, lifetime.Token);
+                }, lifetime.Token,
+                (chunk, token) => connection.InvokeAsync<BrowserRecordingArtifact?>("UploadBrowserRecording", lease.Id, chunk, token));
         }
         catch { lifetime.Dispose(); throw; }
     }

@@ -6,19 +6,22 @@ public sealed partial class ShellViewModel
 {
     private bool _requiresPiSetup;
     private bool _runtimeSettingsLoaded;
+    private string? _runtimeRevision;
     private PiLaunchConfiguration? _loadedLaunchConfiguration;
     private readonly SemaphoreSlim _runtimeSettingsLoadGate = new(1, 1);
     public bool CanConfigurePiRuntime => CanOperate && _runtimeSettingsLoaded && (!IsRemote || IsConnected);
     public string PiExecutableBrowseLabel => IsRemote ? "Browse host…" : "Browse…";
     public string PiExecutablePathHeader => IsRemote ? "Pi executable or package path on the host" : "Pi executable or package path";
-    internal void ReportPiLaunchConfiguration(PiLaunchConfiguration launch) => RunOnUiThread(() =>
+    internal void ReportPiLaunchConfiguration(PiLaunchConfiguration launch, string? revision = null) => RunOnUiThread(() =>
     {
         _loadedLaunchConfiguration = launch;
+        _runtimeRevision = revision;
         Settings.PiArguments = PiStation.ClientRuntime.PiLaunchEditor.FormatArguments(launch);
         Settings.PiEnvironment = PiStation.ClientRuntime.PiLaunchEditor.FormatEnvironment(launch);
         Settings.PiCommandTimeout = launch.CommandTimeoutSeconds;
         Settings.PiShutdownTimeout = launch.ShutdownTimeoutSeconds;
         Settings.ToolSelection.Apply(launch.Tools);
+        Settings.RuntimePreferences.Apply(launch.Preferences);
         _runtimeSettingsLoaded = true;
         OnPropertyChanged(nameof(CanConfigurePiRuntime));
     });
@@ -53,10 +56,11 @@ public sealed partial class ShellViewModel
             var client = RequireClient();
             var launch = PiStation.ClientRuntime.PiLaunchEditor.Parse(Settings.PiArguments, Settings.PiEnvironment,
                 checked((int)Settings.PiCommandTimeout), checked((int)Settings.PiShutdownTimeout), _loadedLaunchConfiguration)
-                with { Tools = Settings.ToolSelection.Create() };
-            var result = await client.ConfigurePiRuntimeAsync(new ConfigurePiRuntimeRequest(path, extensions, launch), cancellationToken).ConfigureAwait(false);
+                with { Tools = Settings.ToolSelection.Create(), Preferences = Settings.RuntimePreferences.Create() };
+            var result = await client.ConfigurePiRuntimeAsync(new ConfigurePiRuntimeRequest(path, extensions, launch, _runtimeRevision), cancellationToken).ConfigureAwait(false);
             RunOnUiThread(() => { Settings.RuntimeSetupStatus = result.Message; if (result.Available) { RequiresPiSetup = false; _loadedLaunchConfiguration = launch; } });
             if (!result.Available) return;
+            _runtimeRevision = result.Revision;
             await client.DisconnectAsync(cancellationToken).ConfigureAwait(false);
             await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
             RunOnUiThread(ClearError);
@@ -79,7 +83,7 @@ public sealed partial class ShellViewModel
             {
                 ReportPiExtensions(configuration.Extensions);
                 ReportPiSetup(configuration.ExecutablePath, "Host runtime settings loaded.", requiresSetup: _client?.Descriptor?.PiAvailable != true);
-                ReportPiLaunchConfiguration(configuration.Launch ?? new());
+                ReportPiLaunchConfiguration(configuration.Launch ?? new(), configuration.Revision);
             }).ConfigureAwait(false);
         }
         catch (Exception exception)
@@ -87,6 +91,12 @@ public sealed partial class ShellViewModel
             RunOnUiThread(() => Settings.RuntimeSetupStatus = $"Host runtime settings could not load: {exception.Message}");
         }
         finally { _runtimeSettingsLoadGate.Release(); }
+    }
+
+    public Task ReloadPiRuntimeConfigurationAsync(CancellationToken cancellationToken = default)
+    {
+        PrepareToLoadHostRuntimeConfiguration();
+        return LoadPiRuntimeConfigurationAsync(cancellationToken);
     }
 
     internal void PrepareToLoadHostRuntimeConfiguration() => RunOnUiThread(() =>

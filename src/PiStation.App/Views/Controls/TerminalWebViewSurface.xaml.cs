@@ -145,6 +145,9 @@ public sealed partial class TerminalWebViewSurface : UserControl, IDisposable
         string fontFamily,
         double fontSize)
     {
+        // WebView2 accepts only fully opaque or fully transparent backgrounds. The terminal
+        // paints an opaque RGB canvas; native shell surface opacity must not reach this API.
+        background.A = 255;
         Browser.DefaultBackgroundColor = background;
         PostMessage(new
         {

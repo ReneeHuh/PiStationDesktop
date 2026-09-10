@@ -15,7 +15,8 @@ public sealed partial class EnvironmentService
         try
         {
             // Include startup overrides and preserve an empty PATH discovery choice.
-            return new(_options.ConfiguredPiExecutablePath, _options.Extensions, _options.LaunchConfiguration);
+            var configuration = new PiRuntimeConfiguration(_options.ConfiguredPiExecutablePath, _options.Extensions, _options.LaunchConfiguration);
+            return configuration with { Revision = PiRuntimeSettingsStore.Revision(configuration) };
         }
         finally { _runtimeConfigurationGate.Release(); }
     }
@@ -62,19 +63,26 @@ public sealed partial class EnvironmentService
         try
         {
             var path = string.IsNullOrWhiteSpace(request.ExecutablePath) ? null : request.ExecutablePath.Trim();
+            if (request.Revision is not null && request.Revision != PiRuntimeSettingsStore.Revision(
+                new(_options.ConfiguredPiExecutablePath, _options.Extensions, _options.LaunchConfiguration)))
+                throw new ArgumentException("Host runtime settings changed. Reload them before saving.");
             var extensions = PiRuntimeSettingsStore.Validate(request.Extensions ?? _options.Extensions);
             var launch = PiRuntimeSettingsStore.ValidateLaunch(request.Launch ?? _options.LaunchConfiguration);
             var installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = path }, cancellationToken).ConfigureAwait(false);
+            if (launch.Preferences is { } preferences && preferences != new PiRuntimePreferences() && installation.PiVersion < new SemanticVersion(0, 85, 0))
+                throw new ArgumentException("Dedicated runtime preferences require Pi 0.85.0 or later.");
             if (PiToolSelectionRules.IsManaged(launch.Tools) && installation.PiVersion < new SemanticVersion(0, 85, 0))
                 throw new ArgumentException("Dedicated tool selection requires Pi 0.85.0 or later. Update Pi manually, or use Pi defaults without exclusions.");
             PiToolSelectionRules.ValidateArguments(launch.Tools, _options.AdditionalPiArguments.Concat(launch.Arguments ?? []));
+            _ = PiRuntimePreferenceRules.Environment(launch with { Arguments = _options.AdditionalPiArguments.Concat(launch.Arguments ?? []).ToArray() });
             await PiRuntimeSettingsStore.SaveAsync(_options.CanonicalDataRoot, new(path, extensions, launch), cancellationToken).ConfigureAwait(false);
             _options.PiInstallation = installation;
             _options.ConfiguredPiExecutablePath = path;
             _options.Extensions = extensions;
             _options.LaunchConfiguration = launch;
             return new PiRuntimeSetupResult(true, path, installation.PiVersion.ToString(),
-                $"Pi {installation.PiVersion} is ready. Runtime, tool, and extension settings apply to new runtimes. Restart each idle thread to apply them there, then refresh its effective tool inventory.", extensions);
+                $"Pi {installation.PiVersion} is ready. Runtime, tool, and extension settings apply to new runtimes. Restart each idle thread to apply them there, then refresh its effective preferences and tool inventory.", extensions,
+                PiRuntimeSettingsStore.Revision(new(path, extensions, launch)));
         }
         catch (Exception exception) when (exception is PiDiscoveryException or IOException or UnauthorizedAccessException or ArgumentException)
         {

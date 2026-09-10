@@ -31,6 +31,7 @@
     <Compile Include="..\..\src\PiStation.App\Composition\QuitGesture.cs" Link="QuitGesture.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\ProactivePanels.cs" Link="ProactivePanels.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\ComposerPresentation.cs" Link="ComposerPresentation.cs" />
+    <Compile Include="..\..\src\PiStation.App\Composition\BrowserVideoCapture.cs" Link="BrowserVideoCapture.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\ComposerImageConverter.cs" Link="ComposerImageConverter.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.cs" Link="ShellLayoutViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Browser.cs" Link="ShellLayoutViewModel.Browser.cs" />
@@ -38,12 +39,16 @@
     <Compile Include="..\..\src\PiStation.App\Composition\BrowserLinkRouter.cs" Link="BrowserLinkRouter.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\BrowserProfilePaths.cs" Link="BrowserProfilePaths.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Interaction.cs" Link="ShellLayoutViewModel.Interaction.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\ShellLayoutViewModel.Appearance.cs" Link="ShellLayoutViewModel.Appearance.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\ThemeEditorViewModel.cs" Link="ThemeEditorViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\BrowserWorkspaceRegistry.cs" Link="BrowserWorkspaceRegistry.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchPreviewViewModel.cs" Link="WorkbenchPreviewViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchTerminalViewModel.cs" Link="WorkbenchTerminalViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchFilesViewModel.cs" Link="WorkbenchFilesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\PiSessionsViewModel.cs" Link="PiSessionsViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\PiToolsViewModel.cs" Link="PiToolsViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\UsageDashboardViewModel.cs" Link="UsageDashboardViewModel.cs" />
+    <Compile Include="..\..\src\PiStation.App\ViewModels\UsageLimitsViewModel.cs" Link="UsageLimitsViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\ViewModels\WorkbenchChangesViewModel.cs" Link="WorkbenchChangesViewModel.cs" />
     <Compile Include="..\..\src\PiStation.App\Composition\RemotePairingPageState.cs" Link="RemotePairingPageState.cs" />
   </ItemGroup>

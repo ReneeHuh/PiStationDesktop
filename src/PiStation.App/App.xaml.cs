@@ -62,6 +62,8 @@ public partial class App : Application
                 ? AppLaunchOptions.Parse(args.Arguments)
                 : AppLaunchOptions.Parse(processArguments);
             RemoteAccess = new RemoteAccessController(_launchOptions.DataRoot);
+            var abandoned = TemporarySessionStorage.CleanAbandoned(Path.Combine(_launchOptions.DataRoot, "temporary-sessions"));
+            if (abandoned.Count > 0) _launchOptions.Log("Some temporary storage is still in use or could not be removed.");
             ApplyUiTestTextScale(_launchOptions.UiTestTextScalePercent);
             var enableUiTestFaultControls =
                 _launchOptions.IsUiTest && _launchOptions.FakePiScenario is not null;
@@ -130,7 +132,7 @@ public partial class App : Application
     }
 
     internal Window? FindWindow(Microsoft.UI.Xaml.XamlRoot xamlRoot) =>
-        _remoteWindows.Keys.Where(window => !_remoteClosingWindows.Contains(window)).Append(_window)
+        _remoteWindows.Keys.Where(window => !_remoteClosingWindows.Contains(window)).Concat(_temporaryWindows).Append(_window)
             .FirstOrDefault(window => window?.Content?.XamlRoot == xamlRoot);
 
     internal Task<ContentDialogResult> ShowConnectionDialogAsync(ContentDialog dialog, CancellationToken cancellationToken) =>

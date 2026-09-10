@@ -29,7 +29,7 @@
                     x:Name="WorkspaceProjectStatusText"
                     MaxWidth="360"
                     automation:AutomationProperties.AutomationId="WorkspaceProjectStatusText"
-                    FontSize="{StaticResource PiFontSizeCaption}"
+                    FontSize="{ThemeResource PiFontSizeCaption}"
                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                     Text="{x:Bind ViewModel.Workspace.ActiveProjectName, Mode=OneWay}"
                     TextTrimming="CharacterEllipsis" />
@@ -39,7 +39,7 @@
                 Grid.Column="1"
                 VerticalAlignment="Center"
                 automation:AutomationProperties.AutomationId="WorkspaceSourceControlStatusText"
-                FontSize="{StaticResource PiFontSizeCaption}"
+                FontSize="{ThemeResource PiFontSizeCaption}"
                 Foreground="{ThemeResource PiTextMutedBrush}"
                 Text="{x:Bind ViewModel.WorkbenchChanges.SourceControlSummary, Mode=OneWay}" />
         </Grid>

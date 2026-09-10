@@ -39,8 +39,15 @@ try {
     & (Join-Path $uiTests 'Invoke-PiConfigurationSlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-PiResourcesSlice.ps1') -NoBuild -Capture
     & (Join-Path $uiTests 'Invoke-PiSessionsSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-TemporarySessionSlice.ps1') -NoBuild
+    & (Join-Path $uiTests 'Invoke-ReliabilityDiagnosticsSlice.ps1') -NoBuild -Capture
     & (Join-Path $uiTests 'Invoke-PiPlanSlice.ps1') -NoBuild -Capture
     & (Join-Path $uiTests 'Invoke-PiAgentsSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-PiShellSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-ExternalPromptEditorSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-PiSessionNavigationSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-PiSessionLabelsSlice.ps1') -NoBuild -Capture
+    & (Join-Path $uiTests 'Invoke-BrowserAutomationSlice.ps1')
     & (Join-Path $uiTests 'Invoke-ThreadLifecycleSlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-InputAccessibilitySlice.ps1') -Configuration $Configuration -NoBuild
     & (Join-Path $uiTests 'Invoke-HardeningSlice.ps1') -Configuration $Configuration -NoBuild

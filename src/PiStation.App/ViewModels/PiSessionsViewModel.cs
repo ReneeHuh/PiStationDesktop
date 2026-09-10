@@ -11,12 +11,13 @@ public sealed class PiSessionCandidateRow(PiSessionCandidate session)
     public string Details => $"{Session.EntryCount} entries · {Session.ModifiedUtc.LocalDateTime:g}\n{Session.ProjectDirectory}\n{Session.Path}";
 }
 
-public sealed class PiSessionTreeRow(PiSessionTreeEntry entry)
+public sealed class PiSessionTreeRow(PiSessionTreeEntry entry, bool collapsed = false, bool showTimestamp = false)
 {
     public PiSessionTreeEntry Entry { get; } = entry;
-    public string Title => $"{Entry.Kind} · {Entry.Preview}";
+    public string Title => $"{(Entry.HasChildren ? collapsed ? "▶ " : "▼ " : "· ")}{Entry.Kind} · {Entry.Preview}";
     public string Details => $"{(Entry.IsActiveBranch ? "Active branch" : "Other branch")} · entry {Entry.Id} · parent {Entry.ParentId ?? "root"}" +
-        (Entry.CanFork ? " · can fork here" : string.Empty) + (Entry.Label is null ? string.Empty : $" · Bookmark: {Entry.Label}");
+        (Entry.CanFork ? " · can fork here" : string.Empty) + (Entry.Label is null ? string.Empty : $" · Bookmark: {Entry.Label}") +
+        (showTimestamp && Entry.LabelTimestamp is { } timestamp ? $" · {timestamp}" : string.Empty);
     public Microsoft.UI.Xaml.Thickness Indent => new(Math.Min(Entry.Depth, 8) * 8, 0, 0, 0);
 }
 
@@ -38,6 +39,10 @@ public sealed class PiSessionsViewModel : ObservableObject
     private string _searchQuery = string.Empty;
     private int _filterIndex;
     private bool _activeBranchOnly;
+    private bool _showLabelTimestamps;
+    public HashSet<string> CollapsedEntryIds { get; } = new(StringComparer.Ordinal);
+    public bool ShowLabelTimestamps { get => _showLabelTimestamps; set { if (SetProperty(ref _showLabelTimestamps, value)) RefreshRows(); } }
+    public bool CanFold => CanNavigate && SelectedEntry?.Entry.HasChildren == true;
     public ObservableCollection<PiSessionCandidateRow> Candidates { get; } = [];
     public ObservableCollection<PiSessionTreeRow> Entries { get; } = [];
     public PiSessionSnapshot? Snapshot { get; private set; }
@@ -66,7 +71,8 @@ public sealed class PiSessionsViewModel : ObservableObject
         }
     }
     public bool IsCurrentQuery => Snapshot is { } snapshot && snapshot.Filter == (PiSessionTreeFilter)FilterIndex &&
-        (snapshot.SearchQuery ?? string.Empty) == SearchQuery && snapshot.ActiveBranchOnly == ActiveBranchOnly;
+        (snapshot.SearchQuery ?? string.Empty) == SearchQuery && snapshot.ActiveBranchOnly == ActiveBranchOnly &&
+        CollapsedEntryIds.SetEquals(snapshot.CollapsedEntryIds ?? []);
     public string SearchQuery { get => _searchQuery; set { if (SetProperty(ref _searchQuery, value)) RaiseActionState(); } }
     public int FilterIndex { get => _filterIndex; set { if (SetProperty(ref _filterIndex, value)) RaiseActionState(); } }
     public bool ActiveBranchOnly { get => _activeBranchOnly; set { if (SetProperty(ref _activeBranchOnly, value)) RaiseActionState(); } }
@@ -89,6 +95,7 @@ public sealed class PiSessionsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasMoreCandidates));
         OnPropertyChanged(nameof(HasMoreEntries));
         OnPropertyChanged(nameof(CanNavigate));
+        OnPropertyChanged(nameof(CanFold));
         OnPropertyChanged(nameof(CanSaveLabel));
         OnPropertyChanged(nameof(CanRemoveLabel));
     }
@@ -108,14 +115,15 @@ public sealed class PiSessionsViewModel : ObservableObject
     internal void Apply(PiSessionSnapshot snapshot, bool append = false)
     {
         if (append && (Snapshot?.Revision != snapshot.Revision || Snapshot.ThreadId != snapshot.ThreadId ||
-            Snapshot.Filter != snapshot.Filter || Snapshot.SearchQuery != snapshot.SearchQuery || Snapshot.ActiveBranchOnly != snapshot.ActiveBranchOnly))
+            Snapshot.Filter != snapshot.Filter || Snapshot.SearchQuery != snapshot.SearchQuery || Snapshot.ActiveBranchOnly != snapshot.ActiveBranchOnly ||
+            !(Snapshot.CollapsedEntryIds ?? []).SequenceEqual(snapshot.CollapsedEntryIds ?? [])))
             throw new InvalidOperationException("The session search changed. Refresh the tree before loading more.");
-        var selectedId = _selectedEntryId;
+        var selectedId = snapshot.SelectedEntryId ?? _selectedEntryId;
         var labelDraft = EntryLabel;
         Snapshot = snapshot;
         if (!append) Entries.Clear();
         var loadedIds = Entries.Select(row => row.Entry.Id).ToHashSet(StringComparer.Ordinal);
-        foreach (var entry in snapshot.Entries.Where(entry => loadedIds.Add(entry.Id))) Entries.Add(new(entry));
+        foreach (var entry in snapshot.Entries.Where(entry => loadedIds.Add(entry.Id))) Entries.Add(new(entry, CollapsedEntryIds.Contains(entry.Id), ShowLabelTimestamps));
         SelectedEntry = Entries.FirstOrDefault(row => row.Entry.Id == selectedId);
         if (append && SelectedEntry is not null) EntryLabel = labelDraft;
         Summary = $"{snapshot.ActiveMessageCount} messages in the active branch · {snapshot.TotalEntries} tree entries\n" +
@@ -126,9 +134,21 @@ public sealed class PiSessionsViewModel : ObservableObject
         RaiseActionState();
     }
 
+    private void RefreshRows()
+    {
+        var selected = SelectedEntry?.Entry.Id;
+        var labelDraft = EntryLabel;
+        var entries = Entries.Select(row => row.Entry).ToArray();
+        Entries.Clear();
+        foreach (var entry in entries) Entries.Add(new(entry, CollapsedEntryIds.Contains(entry.Id), ShowLabelTimestamps));
+        SelectedEntry = Entries.FirstOrDefault(row => row.Entry.Id == selected);
+        EntryLabel = labelDraft;
+    }
+
     internal void ClearThread()
     {
         Snapshot = null;
+        CollapsedEntryIds.Clear();
         NavigationPrompt = string.Empty;
         OnPropertyChanged(nameof(HasMoreEntries));
         SelectedEntry = null;

@@ -116,7 +116,11 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
     {
         _settingsPath = string.IsNullOrWhiteSpace(settingsPath) ? null : settingsPath;
         Load();
+        Themes = new ThemeEditorViewModel(this, _settingsPath is null ? null : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, "theme-library.json"));
+        Themes.PaletteChanged += (_, _) => OnPropertyChanged(nameof(Themes));
     }
+
+    public ThemeEditorViewModel Themes { get; }
 
     public bool IsSidebarCollapsed
     {
@@ -631,6 +635,7 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
             }
 
             _isSidebarCollapsed = snapshot.IsSidebarCollapsed;
+            _appearance = (snapshot.Appearance ?? new()).Normalize();
             _isRightPanelOpen = snapshot.IsRightPanelOpen;
             _rightPanelWidth = ClampWidth(snapshot.RightPanelWidth);
             _selectedPanel = Enum.IsDefined(snapshot.SelectedPanel)
@@ -800,7 +805,8 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
                 ComposerCollapseOnScroll,
                 ShowSkillsInSlashMenu,
                 _browserDefaults,
-                _browserLinkTarget);
+                _browserLinkTarget,
+                Appearance);
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(snapshot, SerializerOptions));
@@ -856,7 +862,8 @@ public sealed partial class ShellLayoutViewModel : ObservableObject
         bool ComposerCollapseOnScroll = true,
         bool ShowSkillsInSlashMenu = true,
         BrowserDefaults? BrowserDefaults = null,
-        BrowserLinkTarget BrowserLinkTarget = BrowserLinkTarget.System);
+        BrowserLinkTarget BrowserLinkTarget = BrowserLinkTarget.System,
+        AppearancePreferences? Appearance = null);
 }
 
 public sealed record ModelPickerPreference(PiModelSelection Model, bool Favorite = false, bool Hidden = false, int Order = 1000);

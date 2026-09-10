@@ -182,23 +182,7 @@ public sealed class PiSessionDocument
         return Encoding.UTF8.GetBytes(header.ToJsonString() + "\n" + string.Concat(entries.Select(entry => entry.ToJsonString() + "\n")));
     }
 
-    public string ToHtml(string title)
-    {
-        var labels = Labels();
-        var html = new StringBuilder("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>")
-            .Append(WebUtility.HtmlEncode(title)).Append("</title><style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui}article{border-top:1px solid #ccc;padding:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}small{color:#666}</style><h1>")
-            .Append(WebUtility.HtmlEncode(title)).Append("</h1><p>Active conversation branch. Referenced workspace files are external to this export.</p>");
-        foreach (var entry in Branch().Where(entry => entry["message"] is JsonObject))
-        {
-            var message = (JsonObject)entry["message"]!;
-            var label = labels.TryGetValue(Text(entry, "id")!, out var bookmark) ? " · " + bookmark.Label : string.Empty;
-            html.Append("<article><h2>").Append(WebUtility.HtmlEncode(Text(message, "role") ?? "Message"))
-                .Append(WebUtility.HtmlEncode(label))
-                .Append("</h2><small>").Append(WebUtility.HtmlEncode(Text(entry, "timestamp")))
-                .Append("</small><pre>").Append(WebUtility.HtmlEncode(MessageText(message))).Append("</pre></article>");
-        }
-        return html.Append("</html>").ToString();
-    }
+    public string ToHtml(string title) => PiSessionHtml.Render(this, title);
 
     public static string Preview(JsonObject entry, int limit = 240)
     {
@@ -207,7 +191,7 @@ public sealed class PiSessionDocument
         return text.Length > limit ? text[..limit] + "…" : text;
     }
 
-    private static string MessageText(JsonObject message) => message["content"] switch
+    public static string MessageText(JsonObject message) => message["content"] switch
     {
         JsonValue value when value.TryGetValue<string>(out var text) => text,
         JsonArray blocks => string.Join("\n", blocks.OfType<JsonObject>().Select(block => Text(block, "type") switch

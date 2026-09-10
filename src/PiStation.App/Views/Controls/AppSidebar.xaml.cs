@@ -14,6 +14,7 @@ namespace PiStation.App.Views.Controls;
 public sealed partial class AppSidebar : UserControl
 {
     private bool _isCollapsed;
+    private readonly PanelMotion _panelMotion;
     private ThreadId? _renamingThreadId;
     private TextBlock? _renamingTitle;
     private Grid? _renamingEditor;
@@ -24,6 +25,7 @@ public sealed partial class AppSidebar : UserControl
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _isCollapsed = ViewModel.Layout.IsSidebarCollapsed;
         InitializeComponent();
+        _panelMotion = new PanelMotion(Root, ViewModel.Layout, true);
         VisualStateManager.GoToState(this, _isCollapsed ? nameof(Collapsed) : nameof(Expanded), false);
         ViewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
     }
@@ -37,6 +39,7 @@ public sealed partial class AppSidebar : UserControl
     public ShellViewModel ViewModel { get; }
 
     public bool IsCollapsed => _isCollapsed;
+    internal void ReleasePanelMotion() => _panelMotion.Release();
 
     public void ToggleCollapsed() => ViewModel.Layout.IsSidebarCollapsed = !_isCollapsed;
 
@@ -166,6 +169,7 @@ public sealed partial class AppSidebar : UserControl
 
         _isCollapsed = ViewModel.Layout.IsSidebarCollapsed;
         VisualStateManager.GoToState(this, _isCollapsed ? nameof(Collapsed) : nameof(Expanded), true);
+        _panelMotion.SetOpen(true, reveal: true);
         CollapsedChanged?.Invoke(this, EventArgs.Empty);
     }
 

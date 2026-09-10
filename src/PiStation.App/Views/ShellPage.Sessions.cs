@@ -7,6 +7,26 @@ namespace PiStation.App.Views;
 
 public sealed partial class ShellPage
 {
+    private async void OnTemporarySessionClicked(object sender, RoutedEventArgs e)
+    {
+        try { if (Application.Current is App app) await app.OpenTemporarySessionAsync(ViewModel); }
+        catch (Exception error) { ViewModel.PiSessions.Status = error.Message; }
+    }
+    private async void OnSessionTreeKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (!ViewModel.PiSessions.CanAct || ViewModel.PiSessions.SelectedEntry is not { } row) return;
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (ctrl && e.Key == Windows.System.VirtualKey.C) { e.Handled = true; OnCopyPiSessionEntryClicked(sender, new()); }
+        else if (e.Key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
+        {
+            e.Handled = true;
+            var collapsed = ViewModel.PiSessions.CollapsedEntryIds.Contains(row.Entry.Id);
+            if ((e.Key == Windows.System.VirtualKey.Left && !collapsed) || (e.Key == Windows.System.VirtualKey.Right && collapsed)) await ViewModel.FoldSessionEntryAsync();
+        }
+        else if (ctrl && e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down)
+        { e.Handled = true; await ViewModel.NavigateSessionTreeAsync(e.Key == Windows.System.VirtualKey.Up ? -1 : 1); }
+    }
+
     private async Task OpenPiSessionsAsync()
     {
         SettingsNavigation.SelectedItem = SettingsNavigation.MenuItems.OfType<NavigationViewItem>()
@@ -25,6 +45,18 @@ public sealed partial class ShellPage
     private async void OnSavePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync();
     private async void OnRemovePiSessionLabelClicked(object sender, RoutedEventArgs e) => await ViewModel.SetPiSessionLabelAsync(remove: true);
     private async void OnClearPiSessionFiltersClicked(object sender, RoutedEventArgs e) => await ViewModel.ClearSessionTreeFiltersAsync();
+    private async void OnFoldPiSessionEntryClicked(object sender, RoutedEventArgs e) => await ViewModel.FoldSessionEntryAsync();
+    private async void OnExpandPiSessionTreeClicked(object sender, RoutedEventArgs e) => await ViewModel.FoldSessionEntryAsync(expandAll: true);
+    private async void OnPreviousPiBranchClicked(object sender, RoutedEventArgs e) => await ViewModel.NavigateSessionTreeAsync(-1);
+    private async void OnNextPiBranchClicked(object sender, RoutedEventArgs e) => await ViewModel.NavigateSessionTreeAsync(1);
+    private async void OnCopyPiSessionEntryClicked(object sender, RoutedEventArgs e)
+    {
+        if (await ViewModel.NavigateSessionTreeAsync(copy: true) is not { } text) return;
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(text);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        ViewModel.PiSessions.Status = "Selected entry copied.";
+    }
     private async void OnCancelPiSessionNavigationClicked(object sender, RoutedEventArgs e) => await ViewModel.CancelPiSessionNavigationAsync();
     private void OnCopyNavigationPromptClicked(object sender, RoutedEventArgs e)
     {

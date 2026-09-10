@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([ValidateSet(30, 60)][int] $FrameRate = 30)
 
 # Run after Invoke-CodeTests.ps1 has built Debug. Owns a fresh data root and only its captured app PID/job.
 $ErrorActionPreference = 'Stop'
@@ -8,6 +8,7 @@ $runRoot = Join-Path $repoRoot ('TestResults/browser-native-' + (Get-Date -Forma
 $dataRoot = Join-Path $runRoot 'data'
 $projectPath = Join-Path $runRoot 'browser-project'
 New-Item -ItemType Directory -Path $dataRoot, $projectPath -Force | Out-Null
+@{ Defaults = @{ Viewport = 0; ZoomFactor = 1; Appearance = 0; RecordingFramesPerSecond = $FrameRate }; LinkTarget = 0; Profiles = @(@{ Id = 'default'; Name = 'Default' }); DefaultProfileId = 'default' } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $dataRoot 'browser-settings.json')
 $ownedAppPid = $null
 $serverJob = $null
 $passed = $false
@@ -36,6 +37,11 @@ function Wait-Condition {
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Timed out: $Description"
 }
+function Test-AgentPermission {
+    param([string] $Mode)
+    try { return ([IO.File]::ReadAllText($script:permissionFile) | ConvertFrom-Json).mode -eq $Mode }
+    catch { if (-not (Test-Path -LiteralPath $script:permissionFile -PathType Leaf)) { return $false }; throw }
+}
 function Set-AgentPermission {
     param([string] $Name)
     Invoke-Ui invoke PreviewAutomationPermissionSelector | Out-Null
@@ -60,7 +66,7 @@ function Invoke-Browser {
         Wait-Condition { Test-Path -LiteralPath (Join-Path $runRoot 'evaluation-started.txt') } 'script execution before revocation' 10000
         Set-AgentPermission 'Agent inspect only'
     }
-    Wait-Condition { Test-Path -LiteralPath $responsePath } "browser response for $($InputData.action)" 30000
+    Wait-Condition { Test-Path -LiteralPath $responsePath } "browser response for $($InputData.action)" $(if ($InputData.action -eq "recording_stop") { 120000 } else { 30000 })
     $response = Get-Content -LiteralPath $responsePath -Raw | ConvertFrom-Json -Depth 30
     $response | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $runRoot "$id-$($InputData.action).json")
     if ($ExpectFailure) {
@@ -123,6 +129,7 @@ try {
         @($tree.windows | ForEach-Object { Get-TestThreadNodes $_ } | Where-Object { $_.name -eq 'browser-project' }).Count -gt 0
     } 'project sidebar row'
     Invoke-Ui invoke AddActionButton | Out-Null
+    Invoke-Ui wait-for HeaderNewThreadMenuItem --timeout 5000 | Out-Null
     Invoke-Ui invoke HeaderNewThreadMenuItem | Out-Null
     Wait-TestThread -Title 'Thread 1'
     Invoke-Ui invoke ToggleWorkbenchButton | Out-Null
@@ -143,6 +150,7 @@ try {
     Invoke-Browser @{ action = 'set_appearance'; colorScheme = 'dark' } | Out-Null
 
     Invoke-Ui invoke AddActionButton | Out-Null
+    Invoke-Ui wait-for HeaderNewThreadMenuItem --timeout 5000 | Out-Null
     Invoke-Ui invoke HeaderNewThreadMenuItem | Out-Null
     Wait-TestThread -Title 'Thread 2'
     Invoke-Browser @{ action = 'wait'; selector = '#state'; condition = 'text'; value = 'Document retained' } | Out-Null
@@ -161,6 +169,20 @@ try {
     foreach ($expression in @('(() => { throw new Error("fixture exception") })()', 'NaN', '42n', '(() => { const a = {}; a.self = a; return a; })()', '"x".repeat(65000)')) {
         Invoke-Browser @{ action = 'evaluate'; expression = $expression } -ExpectFailure | Out-Null
     }
+    Invoke-Browser @{ action = 'evaluate'; expression = "globalThis.recordingAnimation = setInterval(() => document.body.style.backgroundColor = 'hsl(' + (Date.now() % 360) + ',60%,60%)', 16); true" } | Out-Null
+    $startedRecording = Invoke-Browser @{ action = 'recording_start' }
+    if ($startedRecording.data.requestedFramesPerSecond -ne $FrameRate) { throw 'Saved recording frame rate was not applied.' }
+    Invoke-Browser @{ action = 'recording_start' } -ExpectFailure | Out-Null
+    Start-Sleep -Seconds 3
+    $recording = Invoke-Browser @{ action = 'recording_stop' }
+    $artifact = $recording.data.artifact
+    if (-not $artifact -or -not (Test-Path -LiteralPath $artifact.path)) { throw 'Recording did not deliver a host-readable artifact.' }
+    $video = [IO.File]::ReadAllBytes($artifact.path)
+    if ($video.Length -lt 1024 -or [Text.Encoding]::ASCII.GetString($video, 4, 4) -ne 'ftyp') { throw 'Recording is not a nonempty MP4.' }
+    if ((Get-FileHash -LiteralPath $artifact.path -Algorithm SHA256).Hash -ne $artifact.sha256) { throw 'Recording hash mismatch.' }
+    if ($recording.data.durationSeconds -lt 2 -or $recording.data.sourceFrames -lt 10) { throw 'Recording did not capture moving background content.' }
+    Invoke-Browser @{ action = 'recording_stop' } -ExpectFailure | Out-Null
+    Invoke-Browser @{ action = 'evaluate'; expression = 'clearInterval(globalThis.recordingAnimation); true' } | Out-Null
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     Invoke-Browser @{ action = 'evaluate'; expression = '(() => { while(true) {} })()'; timeoutMs = 500 } -ExpectFailure | Out-Null
     if ($elapsed.ElapsedMilliseconds -gt 6000) { throw 'Infinite evaluation exceeded its bounded termination window.' }
@@ -185,20 +207,40 @@ try {
     Invoke-Browser @{ action = 'open'; tabId = $tabId } | Out-Null
     Invoke-Browser @{ action = 'wait'; selector = '#state'; condition = 'text'; value = 'Document retained' } | Out-Null
     Invoke-Browser @{ action = 'evaluate'; expression = '(() => { navigator.sendBeacon("/evaluation-started", "started"); while(true) {} })()'; timeoutMs = 20000 } -ExpectFailure -RevokeAfterSubmit | Out-Null
-    Wait-Condition { (Get-Content -LiteralPath $permissionFile -Raw | ConvertFrom-Json).mode -eq 'inspect' } 'inspect-only lease'
+    Wait-Condition { Test-AgentPermission 'inspect' } 'inspect-only lease'
     Invoke-Browser @{ action = 'resize'; mode = 'fill' } -ExpectFailure | Out-Null
     Invoke-Browser @{ action = 'evaluate'; expression = '1 + 1' } -ExpectFailure | Out-Null
     $inspected = Invoke-Browser @{ action = 'snapshot'; timeoutMs = 15000 }
     if (-not $inspected.screenshotPng -or $inspected.data.title -ne 'Browser automation fixture') { throw 'Inspect snapshot failed after cancellation.' }
     Set-AgentPermission 'Agent interact'
-    Wait-Condition { (Get-Content -LiteralPath $permissionFile -Raw | ConvertFrom-Json).mode -eq 'interact' } 'restored interact lease'
-    Invoke-Browser @{ action = 'open'; reuseExistingTab = $false; open = $false; url = "http://127.0.0.1:$serverPort" } | Out-Null
+    Wait-Condition { Test-AgentPermission 'interact' } 'restored interact lease'
+    $secondTab = (Invoke-Browser @{ action = 'open'; reuseExistingTab = $false; open = $false; url = "http://127.0.0.1:$serverPort" }).data.tabId
     Invoke-Browser @{ action = 'wait'; condition = 'loaded'; timeoutMs = 15000 } | Out-Null
     $elapsed.Restart()
     Invoke-Browser @{ action = 'evaluate'; expression = 'new Promise(() => {})'; timeoutMs = 500 } -ExpectFailure | Out-Null
     if ($elapsed.ElapsedMilliseconds -gt 6000) { throw 'Unresolved promise exceeded its bounded termination window.' }
     $retained = Invoke-Browser @{ action = 'evaluate'; tabId = $tabId; expression = 'document.querySelector("#state").textContent' }
     if ($retained.data.value -ne 'Document retained') { throw 'Cancelling another tab damaged the retained document.' }
+    # An unresolved promise may require closing its unresponsive WebView. Recording ownership
+    # uses a fresh second tab after that separate termination/isolation check.
+    $secondTab = (Invoke-Browser @{ action = 'open'; reuseExistingTab = $false; open = $false; url = "http://127.0.0.1:$serverPort" }).data.tabId
+    Invoke-Browser @{ action = 'wait'; condition = 'loaded'; timeoutMs = 15000 } | Out-Null
+    Invoke-Browser @{ action = 'recording_start'; tabId = $tabId } | Out-Null
+    Invoke-Browser @{ action = 'recording_start'; tabId = $secondTab } | Out-Null
+    Invoke-Browser @{ action = 'recording_stop'; tabId = $tabId } | Out-Null
+    if (-not (Invoke-Browser @{ action = 'status'; tabId = $secondTab }).data.recording) { throw 'Stopping one recording canceled the other tab.' }
+    Set-AgentPermission 'Agent inspect only'
+    Wait-Condition { Test-AgentPermission 'inspect' } 'recording access revoked'
+    Wait-Condition { -not (Invoke-Browser @{ action = 'status'; tabId = $secondTab }).data.recording } 'revocation discards ongoing capture'
+    Set-AgentPermission 'Agent interact'
+    Wait-Condition { Test-AgentPermission 'interact' } 'new recording controller'
+    Invoke-Browser @{ action = 'open'; tabId = $tabId } | Out-Null
+    Invoke-Ui invoke PreviewRecordingButton | Out-Null
+    Wait-Condition { (Invoke-Browser @{ action = 'status'; tabId = $tabId }).data.recording } 'human recording started'
+    Invoke-Browser @{ action = 'recording_start'; tabId = $tabId } -ExpectFailure | Out-Null
+    Invoke-Browser @{ action = 'recording_stop'; tabId = $tabId } -ExpectFailure | Out-Null
+    Invoke-Ui invoke PreviewRecordingButton | Out-Null
+    Wait-Condition { -not (Invoke-Browser @{ action = 'status'; tabId = $tabId }).data.recording } 'human recording saved'
     $passed = $true
     Write-Output "Browser native slice passed. Evidence: $runRoot"
 } catch {

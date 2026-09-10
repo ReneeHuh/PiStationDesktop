@@ -9,7 +9,7 @@ public sealed partial class ShellViewModel
 
     private PiSessionPageRequest CreateSessionTreeRequest(ThreadId threadId, bool loadMore = false) => new(threadId,
         loadMore ? PiSessions.Snapshot?.NextOffset ?? 0 : 0, ExpectedRevision: loadMore ? PiSessions.Snapshot?.Revision : null,
-        Filter: (PiSessionTreeFilter)PiSessions.FilterIndex, SearchQuery: PiSessions.SearchQuery, ActiveBranchOnly: PiSessions.ActiveBranchOnly);
+        Filter: (PiSessionTreeFilter)PiSessions.FilterIndex, SearchQuery: PiSessions.SearchQuery, ActiveBranchOnly: PiSessions.ActiveBranchOnly, CollapsedEntryIds: PiSessions.CollapsedEntryIds.Order(StringComparer.Ordinal).ToArray());
 
     public async Task ClearSessionTreeFiltersAsync()
     {

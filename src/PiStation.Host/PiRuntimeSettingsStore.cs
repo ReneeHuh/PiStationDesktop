@@ -7,6 +7,8 @@ namespace PiStation.Host;
 public static class PiRuntimeSettingsStore
 {
     private const int MaximumSettingsBytes = 64 * 1024;
+    public static string Revision(PiRuntimeConfiguration configuration) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        JsonSerializer.SerializeToUtf8Bytes(configuration with { Revision = null }, ProtocolJsonContext.Default.PiRuntimeConfiguration)));
     public static PiRuntimeConfiguration Load(string dataRoot)
     {
         var path = Path.Combine(dataRoot, "pi-runtime.json");
@@ -70,6 +72,7 @@ public static class PiRuntimeSettingsStore
         if (configuration.CommandTimeoutSeconds is < 5 or > 600 || configuration.ShutdownTimeoutSeconds is < 1 or > 30)
             throw new ArgumentException("Command timeout must be 5–600 seconds; shutdown timeout must be 1–30 seconds.");
         var tools = configuration.Tools is null ? null : PiToolSelectionRules.Normalize(configuration.Tools);
+        _ = PiRuntimePreferenceRules.Environment(configuration);
         PiToolSelectionRules.ValidateArguments(tools, configuration.Arguments ?? []);
         return configuration with { Tools = tools };
     }

@@ -3,9 +3,10 @@ param([Parameter(Mandatory)][string] $Path)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$bitmap = [System.Drawing.Bitmap]::new([System.IO.Path]::GetFullPath($Path))
+try { $bitmap = [System.Drawing.Bitmap]::new([System.IO.Path]::GetFullPath($Path)) }
+catch { throw "Blank or invalid screenshot: $Path. The image is missing or could not be decoded." }
 try {
-    if ($bitmap.Width -lt 200 -or $bitmap.Height -lt 150) { throw "Screenshot is too small: $Path" }
+    if ($bitmap.Width -lt 200 -or $bitmap.Height -lt 150) { throw "Blank or invalid screenshot: $Path. The image is too small." }
     $minimum = 255
     $maximum = 0
     $changed = 0

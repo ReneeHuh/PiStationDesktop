@@ -15,6 +15,11 @@ if ($outputIndex -lt 0 -or $outputIndex + 1 -ge $ArgumentList.Count) {
 }
 
 $outputPath = $ArgumentList[$outputIndex + 1]
+# Some journeys call this helper directly; others already captured the file.
+if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
+    $captureOutput = & $FilePath @ArgumentList 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Screenshot failed with exit code $LASTEXITCODE.`n$($captureOutput | Out-String)" }
+}
 try {
     & (Join-Path $PSScriptRoot 'Assert-ValidScreenshot.ps1') -Path $outputPath
 }

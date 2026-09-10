@@ -72,6 +72,7 @@ public enum QuestionInputKind
     Select,
     Input,
     Editor,
+    Secret,
 }
 
 public enum QueuedMessageKind
@@ -165,7 +166,11 @@ public sealed record AgentActivityProjection(
     bool CanInterrupt,
     string? ControlId = null,
     string? Transcript = null,
-    bool CanResume = false);
+    bool CanResume = false,
+    string? UsageSessionId = null,
+    string? UsageSource = null,
+    string? UsageProvider = null,
+    decimal? UsageCost = null);
 
 public sealed record MessageProjection(
     string MessageId,
@@ -292,7 +297,8 @@ public sealed record ThreadProjection(
     PiPlanState? Plan = null,
     PiAgentSetup? AgentSetup = null,
     long CompletionSequence = 0,
-    PiShellExecution? ShellExecution = null)
+    PiShellExecution? ShellExecution = null,
+    ThreadHistoryCursor? EarlierHistory = null)
 {
     [JsonIgnore]
     public IReadOnlyList<MessageProjection> Messages

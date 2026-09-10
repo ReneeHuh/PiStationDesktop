@@ -75,9 +75,8 @@ internal sealed class BrowserSettingsStore
         }
     }
 
-    internal void Update(BrowserSettingsSnapshot snapshot)
+    internal void Update(BrowserSettingsSnapshot snapshot, bool requirePersistence = false)
     {
-        Snapshot = snapshot;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
@@ -85,7 +84,11 @@ internal sealed class BrowserSettingsStore
             File.Move(_path + ".tmp", _path, true);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        { System.Diagnostics.Trace.TraceWarning("Browser settings could not be saved: {0}", error.Message); }
+        {
+            if (requirePersistence) throw;
+            System.Diagnostics.Trace.TraceWarning("Browser settings could not be saved: {0}", error.Message);
+        }
+        Snapshot = snapshot;
         Changed?.Invoke();
     }
 }

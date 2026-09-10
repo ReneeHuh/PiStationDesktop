@@ -5,12 +5,12 @@ public enum BrowserLinkTarget { System, App }
 public sealed record BrowserDefaults(
     PreviewViewportPreset Viewport = PreviewViewportPreset.Responsive,
     double ZoomFactor = 1,
-    PreviewColorScheme Appearance = PreviewColorScheme.System)
+    PreviewColorScheme Appearance = PreviewColorScheme.System, int RecordingFramesPerSecond = 30)
 {
     public BrowserDefaults Normalize() => new(
         Enum.IsDefined(Viewport) ? Viewport : PreviewViewportPreset.Responsive,
         double.IsFinite(ZoomFactor) ? Math.Clamp(Math.Round(ZoomFactor, 2), 0.25, 3) : 1,
-        Enum.IsDefined(Appearance) ? Appearance : PreviewColorScheme.System);
+        Enum.IsDefined(Appearance) ? Appearance : PreviewColorScheme.System, RecordingFramesPerSecond == 60 ? 60 : 30);
 }
 
 public sealed partial class ShellLayoutViewModel
@@ -49,6 +49,7 @@ public sealed partial class ShellLayoutViewModel
         OnPropertyChanged(nameof(BrowserDefaultZoomPercent));
         OnPropertyChanged(nameof(BrowserDefaultAppearanceIndex));
         OnPropertyChanged(nameof(BrowserLinkTargetIndex));
+        OnPropertyChanged(nameof(BrowserRecordingFrameRateIndex));
         OnPropertyChanged(nameof(BrowserLinkTarget));
         OnPropertyChanged(nameof(BrowserProfiles));
         OnPropertyChanged(nameof(DefaultBrowserProfileId));
@@ -90,7 +91,14 @@ public sealed partial class ShellLayoutViewModel
         OnPropertyChanged(nameof(BrowserDefaultZoomPercent));
         OnPropertyChanged(nameof(BrowserDefaultAppearanceIndex));
         SaveBrowserSettings();
+        OnPropertyChanged(nameof(BrowserRecordingFrameRateIndex));
         Save();
+    }
+
+    public int BrowserRecordingFrameRateIndex
+    {
+        get => _browserDefaults.RecordingFramesPerSecond == 60 ? 1 : 0;
+        set => SetBrowserDefaults(_browserDefaults with { RecordingFramesPerSecond = value == 1 ? 60 : 30 });
     }
 
     public void RenameBrowserProfile(string profileId, string name)
@@ -102,6 +110,15 @@ public sealed partial class ShellLayoutViewModel
         _browserProfiles[index] = _browserProfiles[index] with { Name = normalized };
         OnPropertyChanged(nameof(BrowserProfiles));
         SaveBrowserSettings();
+        Save();
+    }
+
+    internal void CommitImportedBrowserProfile(BrowserProfilePreference profile)
+    {
+        if (_browserSettingsStore is null) throw new IOException("Browser settings storage is unavailable.");
+        if (_browserProfiles.Count >= 25 || _browserProfiles.Any(item => item.Id == profile.Id))
+            throw new InvalidOperationException("Remove an unused custom profile before importing another.");
+        _browserSettingsStore.Update(CreateBrowserSettingsSnapshot() with { Profiles = BrowserProfiles.Append(profile).ToArray() }, requirePersistence: true);
         Save();
     }
 

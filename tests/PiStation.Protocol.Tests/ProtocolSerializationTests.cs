@@ -14,6 +14,15 @@ namespace PiStation.Protocol.Tests;
 public sealed class ProtocolSerializationTests
 {
     [Fact]
+    public void DiffWhitespaceOptionRoundTripsAndOlderPayloadKeepsWhitespace()
+    {
+        var request = new GetProjectChangeDiffRequest(ProjectId.New(), "file.cs", IgnoreWhitespace: true);
+        var json = JsonSerializer.Serialize(request, ProtocolJsonContext.Default.GetProjectChangeDiffRequest);
+        Assert.Equal(request, JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.GetProjectChangeDiffRequest));
+        var older = json.Replace(",\"ignoreWhitespace\":true", "", StringComparison.Ordinal);
+        Assert.False(JsonSerializer.Deserialize(older, ProtocolJsonContext.Default.GetProjectChangeDiffRequest)!.IgnoreWhitespace);
+    }
+    [Fact]
     public void PiShellCommandsAndStreamEventsRoundTrip()
     {
         var execution = new PiShellExecution(CommandId.New(), ClientId.New(), "echo hello", true,

@@ -62,7 +62,7 @@ public sealed class RemoteHostWorkflowTests
         var loaded = await fixture.Client.GetPiRuntimeConfigurationAsync();
         var parsed = PiLaunchEditor.Parse(PiLaunchEditor.FormatArguments(loaded.Launch!), PiLaunchEditor.FormatEnvironment(loaded.Launch!),
             90, loaded.Launch!.ShutdownTimeoutSeconds, loaded.Launch);
-        var result = await fixture.Client.ConfigurePiRuntimeAsync(new(loaded.ExecutablePath, loaded.Extensions, parsed));
+        var result = await fixture.Client.ConfigurePiRuntimeAsync(new(loaded.ExecutablePath, loaded.Extensions, parsed, loaded.Revision));
         Assert.True(result.Available, result.Message);
         var after = await fixture.Client.GetPiRuntimeConfigurationAsync();
         Assert.Equal(loaded.ExecutablePath, after.ExecutablePath);
@@ -70,6 +70,11 @@ public sealed class RemoteHostWorkflowTests
         Assert.True(after.Extensions.DiscoverInstalled);
         Assert.Equal(loaded.Launch.Arguments, after.Launch!.Arguments);
         Assert.Equal(loaded.Launch.EnvironmentVariables, after.Launch.EnvironmentVariables);
+        Assert.Equal(result.Revision, after.Revision);
+        Assert.NotEqual(loaded.Revision, after.Revision);
+        var stale = await fixture.Client.ConfigurePiRuntimeAsync(new(loaded.ExecutablePath, loaded.Extensions, parsed with { CommandTimeoutSeconds = 95 }, loaded.Revision));
+        Assert.False(stale.Available);
+        Assert.Contains("changed", stale.Message);
         Assert.Equal(90, after.Launch.CommandTimeoutSeconds);
         Assert.Equal(8, after.Launch.ShutdownTimeoutSeconds);
         Assert.Equal(loaded.Launch.Tools!.Mode, after.Launch.Tools!.Mode);
@@ -116,16 +121,35 @@ public sealed class RemoteHostWorkflowTests
         var options = directory.CreateHostOptions();
         await using var fixture = await RemoteFixture.StartAsync(options, directory);
         Assert.Null((await fixture.Client.GetPiRuntimeConfigurationAsync()).ExecutablePath);
+        var telemetry = await fixture.Client.GetRuntimeHealthAsync();
+        await fixture.Client.SaveRuntimeHealthSettingsAsync(telemetry.Background.Settings with { MetricsEnabled = false,
+            OtlpEndpoint = "https://collector.invalid/private-trace-address", OtlpMetricsEndpoint = "https://collector.invalid/private-metric-address" });
         var destination = Path.Combine(directory.Path, "client", "chosen.json");
         var result = await fixture.Client.ExportDiagnosticsAsync(new(destination));
         var content = await File.ReadAllTextAsync(destination);
         Assert.Equal(destination, result.Path);
         Assert.Equal(new FileInfo(destination).Length, result.ByteLength);
         Assert.DoesNotContain(options.CanonicalDataRoot, content, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-trace-address", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-metric-address", content, StringComparison.Ordinal);
         using var json = JsonDocument.Parse(content);
         Assert.Contains("[redacted]", content, StringComparison.Ordinal);
         await using var viewer = fixture.CreateClient(RemoteAccessLevel.ReadOnly);
         await viewer.ConnectAsync();
+        var health = await viewer.GetRuntimeHealthAsync();
+        Assert.NotEmpty(health.Processes);
+        var usageQuery = new UsageQuery(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow);
+        Assert.Empty((await viewer.GetUsageDashboardAsync(usageQuery)).Scan.Roots);
+        Assert.Empty((await viewer.GetUsageLimitsAsync()).Settings.Sources);
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.RefreshUsageLimitsAsync());
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.SaveUsageLimitSourceAsync(new(0, null, "Denied", "http://localhost:8317", true, "fixture")));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.RemoveUsageLimitSourceAsync(new(0, "denied")));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.RefreshUsageDashboardAsync(new(usageQuery, Rescan: true)));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.GetUsageDashboardAsync(usageQuery with { HistoryDirectory = directory.Path }));
+        await viewer.ReportClientActivityAsync(new(true, true, true, false, false));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.SaveRuntimeHealthSettingsAsync(health.Background.Settings));
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.ClearRuntimeHealthAsync());
+        await Assert.ThrowsAnyAsync<Exception>(() => viewer.TerminateDiagnosticProcessAsync(new(Environment.ProcessId, 0)));
         await Assert.ThrowsAnyAsync<Exception>(() => viewer.GetPiRuntimeConfigurationAsync());
         await Assert.ThrowsAnyAsync<Exception>(() => viewer.BrowseHostPathAsync(new(directory.Path)));
         var rejectedDestination = Path.Combine(directory.Path, "rejected.json");

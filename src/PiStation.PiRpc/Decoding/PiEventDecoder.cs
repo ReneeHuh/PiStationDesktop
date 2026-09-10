@@ -73,6 +73,10 @@ public sealed class PiEventDecoder
         var method = GetRequiredString(record, "method");
         var title = GetOptionalString(record, "title") ?? string.Empty;
         var timeout = GetOptionalInt32(record, "timeout");
+        var placeholder = GetOptionalString(record, "placeholder");
+        var componentId = placeholder is { Length: 54 } && placeholder.StartsWith("[pistation:component:", StringComparison.Ordinal) &&
+            placeholder.EndsWith(']') && Guid.TryParseExact(placeholder[21..^1], "N", out var componentGuid)
+                ? componentGuid.ToString("N") : null;
         return method switch
         {
             "confirm" => new PiConfirmRequestedEvent(
@@ -81,10 +85,15 @@ public sealed class PiEventDecoder
                 GetRequiredString(record, "message"),
                 timeout),
             "select" => new PiSelectRequestedEvent(id, title, GetRequiredStringArray(record, "options"), timeout),
-            "input" => new PiInputRequestedEvent(id, title, GetOptionalString(record, "placeholder"), timeout),
+            "input" => new PiInputRequestedEvent(id, title,
+                componentId is not null ? "Enter text or a key: Enter, Escape, Up, Down, Tab, Ctrl+C…" :
+                    placeholder == "[pistation:secret]" ? null : placeholder, timeout,
+                placeholder == "[pistation:secret]", componentId),
             "editor" => new PiEditorRequestedEvent(id, title, GetOptionalString(record, "prefill")),
             "notify" => new PiExtensionUiUpdateEvent(id, method, Text: GetRequiredString(record, "message"),
                 Severity: GetOptionalString(record, "notifyType")),
+            "setStatus" when GetRequiredString(record, "statusKey") == "pistation-component-closed" &&
+                Guid.TryParseExact(GetOptionalString(record, "statusText"), "N", out var closedId) => new PiComponentClosedEvent(closedId.ToString("N")),
             "setStatus" => new PiExtensionUiUpdateEvent(id, method, GetRequiredString(record, "statusKey"), GetOptionalString(record, "statusText")),
             "setWidget" => new PiExtensionUiUpdateEvent(id, method, GetRequiredString(record, "widgetKey"),
                 Lines: record.TryGetProperty("widgetLines", out var lines) && lines.ValueKind == JsonValueKind.Array

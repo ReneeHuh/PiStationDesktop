@@ -39,6 +39,7 @@ public sealed partial class RightPanelHost : UserControl
         }
     }
     private readonly HashSet<TerminalWebViewSurface> _terminalInitializationStarted = [];
+    private readonly PanelMotion _panelMotion;
     private readonly HashSet<PreviewWebViewSurface> _previewInitializationStarted = [];
     private readonly Dictionary<string, PreviewWebViewSurface> _previewSurfaces = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TerminalPaneVisual> _terminalPaneVisuals = new(StringComparer.Ordinal);
@@ -73,6 +74,7 @@ public sealed partial class RightPanelHost : UserControl
         _browserRuntimeHost = browserRuntimeHost ?? throw new ArgumentNullException(nameof(browserRuntimeHost));
         ViewModel.OpenPreviewLink = OpenBrowserLinkInPreviewAsync;
         InitializeComponent();
+        _panelMotion = new PanelMotion(Root, ViewModel.Layout, ViewModel.Layout.IsRightPanelOpen);
         _browserAutomationTimer = DispatcherQueue.CreateTimer();
         _browserAutomationTimer.Interval = TimeSpan.FromMilliseconds(250);
         _browserAutomationTimer.Tick += OnBrowserAutomationTimerTick;
@@ -109,6 +111,7 @@ public sealed partial class RightPanelHost : UserControl
     }
 
     public ShellViewModel ViewModel { get; }
+    internal void ReleasePanelMotion() => _panelMotion.Release();
 
     internal void StopBrowserAutomation()
     {
@@ -615,23 +618,25 @@ public sealed partial class RightPanelHost : UserControl
 
         try
         {
-            if (!tab.IsRecording)
+            var model = ViewModel.Browsers.Find(tab.TabId)?.Model ?? ViewModel.WorkbenchPreview;
+            if (!surface.IsRecording)
             {
-                await surface.StartRecordingAsync();
-                ViewModel.WorkbenchPreview.SetRecording(true);
-                ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, "Recording preview • maximum 2 minutes");
+                await surface.StartVideoRecordingAsync("human", ViewModel.PreviewCaptureRoot,
+                    ViewModel.Layout.BrowserDefaults.RecordingFramesPerSecond, CancellationToken.None, CancellationToken.None);
+                tab.IsRecording = true;
+                model.SetCaptureStatus(tab.TabId, "Recording preview • maximum 2 minutes");
             }
             else
             {
                 ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, "Encoding preview recording…");
-                var path = await surface.StopRecordingAsync(ViewModel.PreviewCaptureRoot);
-                ViewModel.WorkbenchPreview.SetRecording(false);
-                ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Recording saved • {path}", path);
+                var video = await surface.StopVideoRecordingAsync(null, CancellationToken.None);
+                tab.IsRecording = false;
+                model.SetCaptureStatus(tab.TabId, $"Recording saved • {video.EffectiveFramesPerSecond:F1} FPS • {video.Path}", video.Path);
             }
         }
         catch (Exception exception)
         {
-            ViewModel.WorkbenchPreview.SetRecording(false);
+            tab.IsRecording = surface.IsRecording;
             ViewModel.SetWorkbenchPreviewCaptureStatus(tab.TabId, $"Recording failed: {exception.Message}");
         }
     }
@@ -1883,10 +1888,10 @@ public sealed partial class RightPanelHost : UserControl
         }
 
         surface.SetTheme(
-            ResourceBrushColor("PiTextPrimaryBrush", Windows.UI.Color.FromArgb(255, 212, 212, 212)),
-            ResourceBrushColor("PiCanvasBrush", Windows.UI.Color.FromArgb(255, 24, 24, 27)),
-            ResourceBrushColor("PiAccentBrush", Windows.UI.Color.FromArgb(255, 124, 156, 255)),
-            ResourceBrushColor("PiSelectionBrush", Windows.UI.Color.FromArgb(90, 98, 126, 234)),
+            ResourceBrushColor("PiTerminalForegroundBrush", Windows.UI.Color.FromArgb(255, 212, 212, 212)),
+            ResourceBrushColor("PiTerminalBackgroundBrush", Windows.UI.Color.FromArgb(255, 24, 24, 27)),
+            ResourceBrushColor("PiTerminalCursorBrush", Windows.UI.Color.FromArgb(255, 124, 156, 255)),
+            ResourceBrushColor("PiTerminalSelectionBrush", Windows.UI.Color.FromArgb(90, 98, 126, 234)),
             ViewModel.Layout.TerminalFontFamily,
             ViewModel.Layout.TerminalFontSize);
     }
@@ -2490,6 +2495,7 @@ public sealed partial class RightPanelHost : UserControl
 
     private void OnLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ShellLayoutViewModel.IsRightPanelOpen)) _panelMotion.SetOpen(ViewModel.Layout.IsRightPanelOpen);
         if (e.PropertyName is nameof(ShellLayoutViewModel.SelectedPanel) or nameof(ShellLayoutViewModel.IsRightPanelOpen))
             SynchronizeBrowserSurfaces();
         if (e.PropertyName == nameof(ShellLayoutViewModel.SelectedPanel))
@@ -2502,7 +2508,7 @@ public sealed partial class RightPanelHost : UserControl
             UpdateWidthHelpText();
         }
         else if (e.PropertyName is nameof(ShellLayoutViewModel.TerminalFontFamily) or
-                 nameof(ShellLayoutViewModel.TerminalFontSize))
+                 nameof(ShellLayoutViewModel.TerminalFontSize) or nameof(ShellLayoutViewModel.Themes) or nameof(ShellLayoutViewModel.Appearance))
         {
             ApplyTerminalWebTheme();
         }

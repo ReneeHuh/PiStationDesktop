@@ -9,11 +9,12 @@ using PiStation.Protocol.Streaming;
 
 namespace PiStation.Host.Persistence;
 
-public sealed partial class HostDatabase
+public sealed partial class HostDatabase : IAsyncDisposable
 {
     private readonly string _connectionString;
     private readonly HostOptions _options;
     private EnvironmentId? _environmentId;
+    private readonly SqliteConnection? _memoryKeeper;
 
     public HostDatabase(HostOptions options)
     {
@@ -26,13 +27,16 @@ public sealed partial class HostDatabase
         Directory.CreateDirectory(options.AttachmentStagingRoot);
         _connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = options.DatabasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Private,
+            DataSource = options.TemporaryHistory ? "pistation-temporary-" + Guid.NewGuid().ToString("N") : options.DatabasePath,
+            Mode = options.TemporaryHistory ? SqliteOpenMode.Memory : SqliteOpenMode.ReadWriteCreate,
+            Cache = options.TemporaryHistory ? SqliteCacheMode.Shared : SqliteCacheMode.Private,
             ForeignKeys = true,
             Pooling = false,
         }.ToString();
+        if (options.TemporaryHistory) { _memoryKeeper = new SqliteConnection(_connectionString); _memoryKeeper.Open(); }
     }
+
+    public ValueTask DisposeAsync() => _memoryKeeper?.DisposeAsync() ?? ValueTask.CompletedTask;
 
     public EnvironmentId EnvironmentId => _environmentId ??
         throw new InvalidOperationException("Initialize the host database before using environment-owned records.");
@@ -308,6 +312,12 @@ public sealed partial class HostDatabase
         await EnsureThreadWorkspaceColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "ThreadDrafts", "ContextJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "UsageEvents", "CostKnown", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "UsageEvents", "OriginKind", "TEXT NOT NULL DEFAULT 'legacy'", cancellationToken).ConfigureAwait(false);
+        await using (var usageRecords = connection.CreateCommand())
+        {
+            usageRecords.CommandText = "CREATE TABLE IF NOT EXISTS UsageRecords (RecordKey TEXT PRIMARY KEY, ThreadId TEXT NOT NULL REFERENCES Threads(ThreadId) ON DELETE CASCADE, RecordJson TEXT NOT NULL);";
+            await usageRecords.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await EnsureColumnAsync(connection, "PromptStashes", "ContextJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "PromptStashes", "AttachmentsJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "ThreadInboxMetadata", "CompletionSequence", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
@@ -1166,6 +1176,7 @@ public sealed partial class HostDatabase
         long cacheTokens,
         long totalTokens,
         decimal? estimatedCost,
+        string originKind = "legacy",
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -1173,9 +1184,9 @@ public sealed partial class HostDatabase
         command.CommandText = """
             INSERT INTO UsageEvents
                 (ThreadId, Provider, Model, InputTokens, OutputTokens, CacheTokens,
-                 TotalTokens, EstimatedCost, CostKnown, CreatedUtc)
+                 TotalTokens, EstimatedCost, CostKnown, CreatedUtc, OriginKind)
             VALUES
-                ($threadId, $provider, $model, $input, $output, $cache, $total, $cost, $costKnown, $createdUtc);
+                ($threadId, $provider, $model, $input, $output, $cache, $total, $cost, $costKnown, $createdUtc, $origin);
             """;
         command.Parameters.AddWithValue("$threadId", threadId.Value);
         command.Parameters.AddWithValue("$provider", provider);
@@ -1186,6 +1197,7 @@ public sealed partial class HostDatabase
         command.Parameters.AddWithValue("$total", totalTokens);
         command.Parameters.AddWithValue("$cost", (estimatedCost ?? 0).ToString(CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$costKnown", estimatedCost is null ? 0 : 1);
+        command.Parameters.AddWithValue("$origin", originKind);
         command.Parameters.AddWithValue("$createdUtc", FormatDate(DateTimeOffset.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

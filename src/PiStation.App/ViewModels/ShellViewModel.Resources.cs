@@ -33,12 +33,14 @@ public sealed partial class ShellViewModel
             PiResources.Status = "Refresh the selected thread before making changes.";
             return;
         }
+        var apiKeyLogin = action == "loginApiKey";
+        if (apiKeyLogin) action = "login";
         var request = new ManagePiResourcesRequest(thread.ThreadId, action,
             action is "login" or "logout" ? PiResources.SelectedProvider?.ProviderId : resource?.Resource.Id, enabled,
-            action == "saveModel" ? PiResources.Snapshot?.ModelsRevision : resource?.Resource.Revision,
+            action == "saveTransport" ? PiResources.Snapshot?.NativePreferences?.TransportRevision : action == "saveModel" ? PiResources.Snapshot?.ModelsRevision : resource?.Resource.Revision,
             action == "saveModel" ? PiResources.CreateModel() : null,
             PiResources.PackageSource.Trim(), PiResources.PackageLocal, PiResources.PackageSearchQuery,
-            action == "packageSearch" ? _packageSearchOffset : 0);
+            action == "packageSearch" ? _packageSearchOffset : 0, action == "saveTransport" ? PiResources.Transport : null, action == "login" ? apiKeyLogin ? "api_key" : "oauth" : null, action == "toolExecution" ? PiResources.ToolExecution : null);
         PiResources.IsBusy = true;
         PiResources.Status = action == "inspect" ? "Reading Pi resources…" : "Saving Pi configuration…";
         try
@@ -48,6 +50,13 @@ public sealed partial class ShellViewModel
             {
                 if (SelectedThread?.ThreadId == thread.ThreadId) PiResources.Apply(thread.ThreadId, snapshot);
             }).ConfigureAwait(false);
+            if (action is "reload" or "login" or "logout")
+                await RefreshPiConfigurationAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+            if (action == "reload")
+            {
+                var discovery = await RequireClient().GetComposerDiscoveryAsync(thread.ThreadId, cancellationToken).ConfigureAwait(false);
+                await RunOnUiThreadAsync(() => { if (SelectedThread?.ThreadId == thread.ThreadId) ComposerPower.ApplyDiscovery(discovery); }).ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {

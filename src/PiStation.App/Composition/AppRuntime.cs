@@ -21,6 +21,22 @@ internal sealed class AppRuntime(
 
     public ValueTask DisposeAsync() => DisposeAsync(flushDraft: true);
 
+    // Temporary storage may be deleted only after every owner has stopped writing.
+    internal async Task DisposeTemporaryAsync()
+    {
+        await _disposeGate.WaitAsync();
+        try
+        {
+            if (_disposed) return;
+            await _viewModel.DisposeAsync();
+            if (transport is not null) await transport.DisposeAsync();
+            await _client.DisposeAsync();
+            if (_host is not null) await _host.DisposeAsync();
+            _disposed = true;
+        }
+        finally { _disposeGate.Release(); }
+    }
+
     public void NotifyActivated() => _client.NotifyNetworkRestored();
 
     public string ExportDiagnostics() => _client.ExportDiagnostics();

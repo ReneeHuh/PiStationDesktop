@@ -57,6 +57,8 @@ public sealed record HostOptions
 
     public string CanonicalDataRoot => Path.GetFullPath(ApplicationDataRoot);
 
+    public bool TemporaryHistory { get; init; }
+
     public string DatabasePath => Path.Combine(CanonicalDataRoot, "host.db");
 
     public string SessionRoot => Path.Combine(CanonicalDataRoot, "sessions");

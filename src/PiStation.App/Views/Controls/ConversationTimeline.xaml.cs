@@ -24,10 +24,19 @@ public sealed partial class ConversationTimeline : UserControl
     public ShellViewModel ViewModel { get; }
     public event EventHandler<bool>? ReadingHistoryChanged;
 
-    public void RevealMessage(string messageId)
+    public async void RevealMessage(string messageId)
     {
         var itemId = messageId.StartsWith("message-", StringComparison.Ordinal) ? messageId : $"message-{messageId}";
+        var thread = _scrollThread;
         _followOutput = false;
+        // A citation may point outside the initial window. Stop on a failed
+        // page or navigation change; loading remains bounded to each page.
+        while (ViewModel.Thread.Timeline.All(item => item.ItemId != itemId) && ViewModel.Thread.CanLoadHistory)
+        {
+            var count = ViewModel.Thread.Timeline.Count;
+            await ViewModel.LoadEarlierHistoryAsync();
+            if (_scrollThread != thread || ViewModel.Thread.Timeline.Count <= count) return;
+        }
         if (ViewModel.Thread.Timeline.FirstOrDefault(item =>
                 string.Equals(item.ItemId, itemId, StringComparison.Ordinal)) is { } item)
         {
@@ -153,6 +162,17 @@ public sealed partial class ConversationTimeline : UserControl
         QueueScroll();
     }
 
+    private async void OnLoadEarlierClicked(object sender, RoutedEventArgs e)
+    {
+        var thread = _scrollThread;
+        var anchor = ViewModel.Thread.Timeline.FirstOrDefault()?.ItemId;
+        _followOutput = false;
+        ReadingHistoryChanged?.Invoke(this, true);
+        await ViewModel.LoadEarlierHistoryAsync();
+        if (_scrollThread == thread && ViewModel.Thread.Timeline.FirstOrDefault(item => item.ItemId == anchor) is { } existing)
+            TranscriptList.ScrollIntoView(existing, ScrollIntoViewAlignment.Leading);
+    }
+
     private void OnCitationRequested(object? sender, string messageId) => DispatcherQueue.TryEnqueue(() => RevealMessage(messageId));
     private async void OnWorkspaceLinkRequested(object? sender, string link) => await ViewModel.OpenMarkdownLinkAsync(link);
     private async void OnBrowserLinkRequested(object? sender, BrowserLinkEventArgs args) =>
@@ -221,6 +241,18 @@ public sealed partial class ConversationTimeline : UserControl
         }
     }
 
+    private void OnSecretQuestionChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is PasswordBox { DataContext: QuestionTimelineItemViewModel question } password) question.AnswerText = password.Password;
+    }
+
+    private static void ClearSecretInput(DependencyObject element, QuestionTimelineItemViewModel question)
+    {
+        if (element is PasswordBox box && ReferenceEquals(box.DataContext, question)) box.Password = string.Empty;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+            ClearSecretInput(VisualTreeHelper.GetChild(element, index), question);
+    }
+
     private async void OnAnswerQuestionClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: QuestionTimelineItemViewModel question })
@@ -233,12 +265,15 @@ public sealed partial class ConversationTimeline : UserControl
             : question.AnswerText;
         if (answer is not null)
         {
+            if (question.InputKind == QuestionInputKind.Secret) { question.AnswerText = string.Empty; ClearSecretInput(this, question); }
             await ViewModel.AnswerQuestionAsync(InteractionId.Parse(question.InteractionId), answer);
         }
     }
 
     private async void OnCancelInteractionClicked(object sender, RoutedEventArgs e)
     {
+        if (sender is Button { DataContext: QuestionTimelineItemViewModel { InputKind: QuestionInputKind.Secret } secret })
+        { secret.AnswerText = string.Empty; ClearSecretInput(this, secret); }
         var interactionId = (sender as Button)?.DataContext switch
         {
             ApprovalTimelineItemViewModel approval => approval.InteractionId,

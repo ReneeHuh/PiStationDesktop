@@ -6,6 +6,8 @@ namespace PiStation.App.Composition;
 internal sealed record AppLaunchOptions
 {
     public required string DataRoot { get; init; }
+    public bool TemporaryHistory { get; init; }
+    public PiStation.Protocol.Models.PiRuntimeConfiguration? RuntimeOverride { get; init; }
 
     public string? PiExecutable { get; init; }
 

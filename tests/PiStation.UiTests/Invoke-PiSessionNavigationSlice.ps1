@@ -21,6 +21,7 @@ function Invoke-CheckedNative {
 }
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
+    if ($Arguments -contains 'PromptInput' -and $Arguments[0] -in @('set-value', 'focus', 'click', 'invoke', 'type', 'send-keys', 'inspect', 'get-value', 'get-property', 'wait-for') -and $Arguments -notcontains '--gone') { Expand-TestComposer }
     Invoke-CheckedNative 'winapp' (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json'))
 }
 function Start-TestApp {
@@ -67,7 +68,7 @@ function Select-SessionRow {
     param([string] $List, [string] $Text)
     $tree = Invoke-Ui 'inspect' $List '--depth' '8' | ConvertFrom-Json -Depth 100
     $matches = @($tree.windows | ForEach-Object { Get-TestThreadNodes $_ } | Where-Object {
-        $_.type -eq 'ListItem' -and @(Get-TestThreadNodes $_ | Where-Object { $_.name -eq $Text }).Count -gt 0
+        $_.type -eq 'ListItem' -and @(Get-TestThreadNodes $_ | Where-Object { ($_.name -replace '^[▶▼·] ', '') -eq $Text }).Count -gt 0
     })
     if ($matches.Count -ne 1) { throw "Expected one row for $Text; found $($matches.Count)." }
     Invoke-Ui 'invoke' $matches[0].selector | Out-Null

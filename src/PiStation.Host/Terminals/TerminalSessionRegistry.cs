@@ -23,6 +23,8 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
     private Task _pollTask = Task.CompletedTask;
     private const int MaximumRetainedInactiveSessions = 128;
     public bool HasActiveWork => _sessions.Values.Any(session => session.Descriptor.State == TerminalSessionState.Running);
+    internal IEnumerable<Diagnostics.OwnedProcessRoot> DiagnosticRoots => _sessions.Values.Select(session => session.DiagnosticRoot).OfType<Diagnostics.OwnedProcessRoot>();
+    internal Func<bool>? BackgroundRefreshAllowed { get; set; }
     private readonly ThreadWorkspaceResolver _workspaceResolver;
 
     public int ActiveCount => _sessions.Values.Count(static session =>
@@ -88,7 +90,7 @@ internal sealed class TerminalSessionRegistry : IAsyncDisposable
         {
             while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
             {
-                try { PollActivity(); }
+                try { if (BackgroundRefreshAllowed?.Invoke() != false) PollActivity(); }
                 catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
                 { System.Diagnostics.Trace.TraceWarning("Terminal activity is temporarily unavailable: {0}", error.Message); }
             }

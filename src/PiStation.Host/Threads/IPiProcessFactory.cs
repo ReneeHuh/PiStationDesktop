@@ -26,15 +26,19 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
         var additionalArguments = _options.AdditionalPiArguments.ToList();
         var launch = PiRuntimeSettingsStore.ValidateLaunch(_options.LaunchConfiguration);
         additionalArguments.AddRange(launch.Arguments ?? []);
+        _ = PiRuntimePreferenceRules.Environment(launch with { Arguments = additionalArguments });
+        if (launch.Preferences is { } preferences && preferences != new PiRuntimePreferences() && installation.PiVersion < new PiStation.PiRpc.Discovery.SemanticVersion(0, 85, 0))
+            throw new InvalidOperationException("Dedicated runtime preferences require Pi 0.85.0 or later.");
         PiToolSelectionRules.ValidateArguments(launch.Tools, additionalArguments);
         if (PiToolSelectionRules.IsManaged(launch.Tools) && installation.PiVersion < new PiStation.PiRpc.Discovery.SemanticVersion(0, 85, 0))
             throw new InvalidOperationException("Dedicated tool selection requires Pi 0.85.0 or later. Update Pi manually, or use Pi defaults without exclusions.");
         additionalArguments.AddRange(PiToolSelectionRules.LaunchArguments(launch.Tools));
-        var environmentVariables = new Dictionary<string, string?>(launch.EnvironmentVariables ?? new Dictionary<string, string?>(), StringComparer.OrdinalIgnoreCase);
+        var environmentVariables = PiRuntimePreferenceRules.Environment(launch);
         // Always replace inherited policy; an old parent-process value must not leak into a new runtime.
         environmentVariables["PISTATION_TOOL_SELECTION"] = System.Text.Json.JsonSerializer.Serialize(
             launch.Tools ?? new(), PiStation.Protocol.Serialization.ProtocolJsonContext.Default.PiToolSelection);
         environmentVariables["PISTATION_PERMISSION_MODE"] = "full-access";
+        environmentVariables["PISTATION_QUOTA_ROOT"] = Path.Combine(_options.CanonicalDataRoot, "quota-feeds");
         var extensions = _options.Extensions;
         if (_options.PlanExtensionPath is { } planPath)
         {
@@ -72,6 +76,8 @@ public sealed class PiProcessFactory(HostOptions options) : IPiProcessFactory
             new PiProcessLaunchOptions
             {
                 Installation = installation,
+                SdkAdapterPath = _options.ManagementExtensionPath is { } manager && File.Exists(Path.Combine(Path.GetDirectoryName(manager)!, "pistation-sdk.ts")) ? Path.Combine(Path.GetDirectoryName(manager)!, "pistation-sdk.ts") : null,
+                TemporaryHistory = _options.TemporaryHistory,
                 ProjectDirectory = thread.WorkspaceMode == ThreadWorkspaceMode.Worktree
                     ? thread.WorktreePath ?? throw new InvalidOperationException("The thread worktree path is missing.")
                     : project.CanonicalPath,

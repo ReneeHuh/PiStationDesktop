@@ -1,3 +1,4 @@
+import { registerChildControls } from "./pistation-child-controls.mjs";
 // Native subagents use isolated Pi SDK sessions in the owned runtime.
 import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import * as PiSdk from "@earendil-works/pi-coding-agent";
@@ -42,6 +43,7 @@ const textOf = (message: any) => typeof message.content === "string" ? message.c
   block.type === "text" ? block.text : block.type === "toolCall" ? `[${block.name}] ${clip(JSON.stringify(block.arguments), 2000)}` : "").filter(Boolean).join("\n");
 
 export default function (pi: any) {
+  const external = registerChildControls(pi);
   const root = process.env.PISTATION_AGENT_ROOT;
   const settingsPath = process.env.PISTATION_AGENT_SETTINGS;
   const active = new Map<string, AbortController>();
@@ -69,10 +71,10 @@ export default function (pi: any) {
       if (!root || !settingsPath) throw new Error("PiStation agent storage is unavailable. Restart the runtime.");
       if (request.action === "stop") {
         const child = active.get(request.controlId);
-        if (!child) throw new Error("This child is no longer running.");
-        child.abort();
+        if (child) child.abort();
+        else if (!await external.stop(request.controlId)) throw new Error("This child is no longer running or its extension has not registered a control handle.");
       } else if (request.action !== "inspect") {
-        if (!ctx.isIdle() || ctx.hasPendingMessages() || active.size) throw new Error("Finish the active workflow before changing agent setup.");
+        if (!ctx.isIdle() || ctx.hasPendingMessages() || active.size || external.size) throw new Error("Finish the active workflow before changing agent setup.");
         const current = settings();
         if (request.expectedRevision !== current.revision) throw new Error("Agent settings changed. Refresh before saving.");
         if (request.action === "prepare") {
@@ -193,6 +195,8 @@ export default function (pi: any) {
           ({ session } = await createAgentSession({ cwd: ctx.cwd, modelRuntime: runtime, model,
             thinkingLevel: ctx.thinkingLevel, tools: filterChildTools(preset.tools), sessionManager: manager, settingsManager: memorySettings, resourceLoader: loader }));
           const sessionFile = manager.getSessionFile();
+          result.usageSessionId = manager.getSessionId();
+          result.usageSource = "session";
           if (!sessionFile) throw new Error("The child session has no persistence path.");
           atomic(join(root!, result.controlId, "child.json"), { preset, sessionFile: sessionFile.replaceAll("\\", "/").split("/").at(-1) });
           result.model = modelName; result.thinkingLevel = session.thinkingLevel;
@@ -211,7 +215,8 @@ export default function (pi: any) {
               result.stopReason = message.stopReason;
               result.errorMessage = clip(message.errorMessage, 4000);
               for (const key of ["input", "output", "cacheRead", "cacheWrite"]) result.usage[key] += message.usage?.[key] ?? 0;
-              result.usage.cost += message.usage?.cost?.total ?? 0;
+              const cost = message.usage?.cost?.total;
+              result.usage.cost = result.usage.cost !== null && Number.isFinite(cost) && cost >= 0 ? result.usage.cost + cost : null;
             }
           };
           for (const message of session.messages) capture(message, false);

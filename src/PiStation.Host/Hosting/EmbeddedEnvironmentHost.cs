@@ -73,7 +73,7 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
             kestrel.Listen(IPAddress.Loopback, 0);
         });
         builder.Services.AddSingleton(environment);
-        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); }).AddJsonProtocol(json =>
+        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter(new PiStation.Host.Diagnostics.OperationDiagnosticsFilter(environment.Health)); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); }).AddJsonProtocol(json =>
             json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
         var application = builder.Build();
         application.UseWebSockets();
@@ -96,7 +96,7 @@ public sealed class EmbeddedEnvironmentHost : IAsyncDisposable
             var address = addresses?.Select(static value => new Uri(value)).SingleOrDefault()
                 ?? throw new InvalidOperationException("Kestrel did not report its loopback address.");
             var host = new EmbeddedEnvironmentHost(application, environment, address, credential, dataLock);
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindows() && !options.TemporaryHistory)
                 host._sshListener = await SshEnvironmentHost.ShareAsync(options, environment,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
             return host;

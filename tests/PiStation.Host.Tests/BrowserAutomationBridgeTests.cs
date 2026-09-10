@@ -39,6 +39,8 @@ public sealed class BrowserAutomationBridgeTests
     [InlineData("resize")]
     [InlineData("set_appearance")]
     [InlineData("evaluate")]
+    [InlineData("recording_start")]
+    [InlineData("recording_stop")]
     public async Task InspectAccessRejectsEveryInteraction(string operation)
     {
         using var directory = new HostTestDirectory();
@@ -164,6 +166,39 @@ public sealed class BrowserAutomationBridgeTests
             new(true, JsonSerializer.SerializeToElement(new string('x', BrowserAutomationLimits.MaximumEvaluationBytes))), "d", "c", CancellationToken.None));
         await bridge.CompleteAsync(lease.Id, request.Id, new(true, JsonSerializer.SerializeToElement(new { type = "number", value = 42 })), "d", "c", CancellationToken.None);
         Assert.True(ReadResult(directory.Path, thread, request.Id).Success);
+    }
+
+    [Fact]
+    public async Task RecordingChunksAreOwnedOrderedBoundedAndDiscardedOnDisconnect()
+    {
+        using var directory = new HostTestDirectory();
+        await using var bridge = new BrowserAutomationBridge(directory.Path);
+        var thread = ThreadId.New();
+        var lease = await bridge.OpenAsync(new(thread, BrowserAutomationAccess.Interact), "d", "c", CancellationToken.None);
+        var request = WriteRequest(directory.Path, thread, lease.Id, "recording_stop");
+        await bridge.PollAsync(lease.Id, "d", "c", CancellationToken.None);
+        byte[] header = [0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50];
+        var chunk = new BrowserRecordingChunk(request.Id, 0, header, false);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => bridge.UploadRecordingAsync(lease.Id, chunk, "other", "c", CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => bridge.UploadRecordingAsync(lease.Id, chunk with { Content = new byte[65537] }, "d", "c", CancellationToken.None));
+        Assert.Null(await bridge.UploadRecordingAsync(lease.Id, chunk, "d", "c", CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => bridge.UploadRecordingAsync(lease.Id, chunk, "d", "c", CancellationToken.None));
+        var artifacts = Path.Combine(directory.Path, thread.Value, "artifacts");
+        Assert.Empty(Directory.GetFiles(artifacts));
+        Assert.Null(await bridge.UploadRecordingAsync(lease.Id, chunk, "d", "c", CancellationToken.None));
+        var artifact = await bridge.UploadRecordingAsync(lease.Id, new(request.Id, header.Length, [1, 2, 3], true), "d", "c", CancellationToken.None);
+        Assert.NotNull(artifact);
+        Assert.Equal(header.Concat(new byte[] { 1, 2, 3 }), File.ReadAllBytes(artifact.Path));
+        Assert.Equal(15, artifact.SizeBytes);
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(artifact.Path))), artifact.Sha256);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => bridge.UploadRecordingAsync(lease.Id, chunk, "d", "c", CancellationToken.None));
+        await bridge.CompleteAsync(lease.Id, request.Id, new(true), "d", "c", CancellationToken.None);
+        request = WriteRequest(directory.Path, thread, lease.Id, "recording_stop");
+        await bridge.PollAsync(lease.Id, "d", "c", CancellationToken.None);
+        await bridge.UploadRecordingAsync(lease.Id, chunk with { RequestId = request.Id }, "d", "c", CancellationToken.None);
+        await bridge.CloseAsync(lease.Id, "d", "c");
+        Assert.Empty(Directory.GetFiles(artifacts, "*.partial"));
+        Assert.True(File.Exists(artifact.Path));
     }
 
     private static BrowserAutomationRequest WriteRequest(string root, ThreadId thread, string controller, string operation, DateTimeOffset? created = null)

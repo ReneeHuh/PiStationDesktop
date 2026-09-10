@@ -44,6 +44,9 @@ public sealed partial class ShellPage
         }
         await ViewModel.ManagePiResourcesAsync(action);
     }
+    private async void OnSavePiTransportClicked(object sender, RoutedEventArgs e) => await ViewModel.ManagePiResourcesAsync("saveTransport");
+    private async void OnReloadPiRuntimeClicked(object sender, RoutedEventArgs e) => await ViewModel.ReloadPiRuntimeConfigurationAsync();
+
     private async void OnPiNativeAccountClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: string action })

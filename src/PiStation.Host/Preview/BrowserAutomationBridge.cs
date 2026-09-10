@@ -8,7 +8,7 @@ using PiStation.Protocol.Serialization;
 namespace PiStation.Host.Preview;
 
 /// <summary>Connection-owned, expiring access to Pi's host-local browser inbox.</summary>
-public sealed class BrowserAutomationBridge : IAsyncDisposable
+public sealed partial class BrowserAutomationBridge : IAsyncDisposable
 {
     private readonly string? _root;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -45,6 +45,10 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
             SafeDirectory(directory);
             SafeDirectory(Path.Combine(directory, "requests"));
             SafeDirectory(Path.Combine(directory, "responses"));
+            var artifacts = Path.Combine(directory, "artifacts");
+            SafeDirectory(artifacts);
+            foreach (var partial in new DirectoryInfo(artifacts).EnumerateFiles("*.mp4.partial"))
+                if ((partial.Attributes & FileAttributes.ReparsePoint) == 0 && Guid.TryParseExact(partial.Name[..^12], "D", out _)) partial.Delete();
             var session = new Session(Convert.ToHexString(RandomNumberGenerator.GetBytes(24)), thread, directory, request.Access, principal, connection, disconnected);
             // A claimed command must never be replayed, including after a host crash.
             foreach (var marker in Directory.EnumerateFiles(Path.Combine(directory, "requests"), "*.claimed"))
@@ -151,7 +155,7 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
             ? session : throw new UnauthorizedAccessException("The browser controller has ended. Reconnect or enable browser access again.");
 
     private static bool Pending(Session session, BrowserAutomationRequest request) =>
-        request.ControllerId == session.Id && request.CreatedUtc >= DateTimeOffset.UtcNow.AddSeconds(-30) && request.CreatedUtc <= DateTimeOffset.UtcNow.AddSeconds(5) &&
+        request.ControllerId == session.Id && request.CreatedUtc >= DateTimeOffset.UtcNow - BrowserAutomationLimits.RequestLifetime(request.Operation) && request.CreatedUtc <= DateTimeOffset.UtcNow.AddSeconds(5) &&
         File.Exists(Path.Combine(session.Directory, "requests", request.Id + ".json"));
 
     private static void Renew(Session session)
@@ -174,6 +178,7 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
 
     private static void WriteResult(Session session, string id, BrowserAutomationResult result)
     {
+        DiscardRecordingUpload(session);
         SafeDirectory(Path.Combine(session.Directory, "requests"));
         SafeDirectory(Path.Combine(session.Directory, "responses"));
         AtomicWrite(Path.Combine(session.Directory, "responses", id + ".json"), JsonSerializer.SerializeToUtf8Bytes(result, ProtocolJsonContext.Default.BrowserAutomationResult));
@@ -221,6 +226,7 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
 
     private void End(Session session, string reason = "Browser host stopped")
     {
+        DiscardRecordingUpload(session);
         _sessions.Remove(session.Id);
         SafeDirectory(session.Directory);
         File.Delete(Path.Combine(session.Directory, "permission.json"));
@@ -266,5 +272,8 @@ public sealed class BrowserAutomationBridge : IAsyncDisposable
         public DateTimeOffset LastCleanup { get; set; }
         public DateTimeOffset PermissionWritten { get; set; }
         public BrowserAutomationRequest? Active { get; set; }
+        public FileStream? RecordingUpload { get; set; }
+        public string? RecordingRequestId { get; set; }
+        public BrowserRecordingArtifact? RecordingArtifact { get; set; }
     }
 }

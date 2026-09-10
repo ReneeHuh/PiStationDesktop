@@ -1,3 +1,5 @@
+$script:expandingTestComposer = $false
+
 function Get-TestThreadNodes {
     param($Node)
     if ($null -eq $Node) { return }
@@ -21,6 +23,15 @@ function Select-TestThread {
                 Get-TestThreadNodes -Node $_ | Where-Object { $_.type -eq 'Text' -and $_.name -eq $Title }
             ).Count -gt 0
         })
+        if ($matches.Count -eq 0) {
+            # The compact tab strip virtualizes older tabs; the project list
+            # exposes all threads and supplies an unambiguous semantic selector.
+            $projects = Invoke-Ui 'inspect' 'ProjectSelector' '--depth' '12' | ConvertFrom-Json -Depth 100
+            $matches = @($projects.windows | ForEach-Object { Get-TestThreadNodes -Node $_ } | Where-Object {
+                $_.type -eq 'ListItem' -and @(Get-TestThreadNodes -Node $_ | Where-Object { $_.type -eq 'ListItem' }).Count -eq 1 -and
+                    @(Get-TestThreadNodes -Node $_ | Where-Object { $_.type -eq 'Text' -and $_.name -eq $Title }).Count -gt 0
+            })
+        }
         if ($matches.Count -eq 1) {
             Invoke-Ui 'invoke' $matches[0].selector | Out-Null
             return
@@ -75,4 +86,32 @@ function Wait-TestProjectSummary {
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "The project sidebar did not expose '$summary' with thread '$ThreadTitle' for '$ProjectName'."
+}
+
+# Called before legacy journeys interact with the prompt; inspecting the resting state is not a mutation.
+function Expand-TestComposer {
+    if ($script:expandingTestComposer) { return }
+    $script:expandingTestComposer = $true
+    try {
+        $tree = Invoke-Ui 'inspect' '--depth' '14' | ConvertFrom-Json -Depth 100
+        $button = @($tree.windows | ForEach-Object { Get-TestThreadNodes $_ } | Where-Object {
+            $_.automationId -eq 'ExpandComposerButton' -and $_.isOffscreen -ne $true
+        })
+        if ($button.Count -eq 1) {
+            Invoke-Ui 'invoke' 'ExpandComposerButton' | Out-Null
+            Invoke-Ui 'wait-for' 'PromptInput' '--timeout' '5000' | Out-Null
+        }
+    } finally { $script:expandingTestComposer = $false }
+}
+
+function Select-TestProject {
+    param([string] $Name = 'fixture-project')
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $tree = Invoke-Ui 'inspect' 'ProjectSelector' '--depth' '12' | ConvertFrom-Json -Depth 100
+        $button = @($tree.windows | ForEach-Object { Get-TestThreadNodes $_ } | Where-Object { $_.type -eq 'Button' -and $_.name -eq $Name }) | Select-Object -First 1
+        if ($button) { Invoke-Ui 'invoke' $button.selector | Out-Null; return }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Project not found: $Name"
 }

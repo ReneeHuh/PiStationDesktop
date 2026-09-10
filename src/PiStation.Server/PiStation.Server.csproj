@@ -8,7 +8,7 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="..\PiStation.App\PiExtensions\*.ts" Link="PiExtensions\%(Filename)%(Extension)"
+    <Content Include="..\PiStation.App\PiExtensions\*.ts;..\PiStation.App\PiExtensions\*.mjs" Link="PiExtensions\%(Filename)%(Extension)"
       CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>

@@ -10,11 +10,115 @@ using PiStation.Host.Threads;
 using PiStation.Protocol.Identifiers;
 using PiStation.Protocol.Models;
 using PiStation.Protocol.Serialization;
+using Xunit.Abstractions;
 
 namespace PiStation.ClientRuntime.Tests;
 
-public sealed class BrowserAutomationTransportTests
+public sealed class BrowserAutomationTransportTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task ProtectedQuotaSettingsCrossAuthenticatedTransportsWithoutReturningKeys(string transport)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var initial = await host.Client.GetUsageLimitsAsync(timeout.Token);
+        var saved = await host.Client.SaveUsageLimitSourceAsync(new(initial.Settings.Revision, null, "Transport fixture", "http://127.0.0.1:8317", false, "isolated-quota-key"), timeout.Token);
+        var configuration = Assert.Single(saved.Settings.Sources); Assert.True(configuration.HasKey);
+        Assert.DoesNotContain("isolated-quota-key", JsonSerializer.Serialize(saved, ProtocolJsonContext.Default.UsageLimitsDashboard));
+        await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => host.Client.SaveUsageLimitSourceAsync(new(initial.Settings.Revision, configuration.Id, "Stale", configuration.BaseUrl, false), timeout.Token));
+        var snapshot = await host.Client.RefreshUsageLimitsAsync(timeout.Token);
+        Assert.Equal("Monitoring disabled.", Assert.Single(snapshot.Sources, source => source.Kind == "cliproxy").Error);
+        Assert.Empty((await host.Client.RemoveUsageLimitSourceAsync(new(saved.Settings.Revision, configuration.Id), timeout.Token)).Settings.Sources);
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task UsageDashboardFiltersAndHistoricalRescanCrossAuthenticatedTransports(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var history = directory.CreateDirectory("usage-fixture");
+        var now = DateTimeOffset.UtcNow;
+        var header = JsonSerializer.Serialize(new { type = "session", version = 3, id = "transport-usage", cwd = directory.Path });
+        var entry = JsonSerializer.Serialize(new { type = "message", id = "usage-1", message = new { role = "assistant", provider = "usage-fixture-provider", model = "fixture-model", timestamp = now.ToUnixTimeMilliseconds(), content = "usage fixture",
+            usage = new { input = 10, output = 20, cacheRead = 3, cacheWrite = 4, totalTokens = 37, cost = new { total = .12m } } } });
+        await File.WriteAllLinesAsync(Path.Combine(history, "usage.jsonl"), [header, entry], timeout.Token);
+        var query = new UsageQuery(now.AddMinutes(-1), now.AddMinutes(1), Provider: "usage-fixture-provider", HistoryDirectory: history);
+        var report = await host.Client.RefreshUsageDashboardAsync(new(query, Rescan: true), timeout.Token);
+        Assert.Equal(37, report.Totals.TotalTokens); Assert.Equal(.12m, report.Totals.KnownCostUsd);
+        Assert.Equal("fixture-model", Assert.Single(report.Breakdown).Model);
+        var cached = await host.Client.GetUsageDashboardAsync(query, timeout.Token); Assert.Equal(report.Totals, cached.Totals); Assert.True(cached.Scan.CachedFiles > 0);
+        Assert.Empty((await host.Client.GetUsageDashboardAsync(query with { Model = "missing" }, timeout.Token)).Breakdown);
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task PagedHistoryReconstructsImportedSessionAcrossAuthenticatedTransports(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var project = (await host.Client.GetThreadAsync(host.Thread, timeout.Token)).ProjectId;
+        var source = Path.Combine(directory.Path, "history.jsonl");
+        var lines = new List<string> { JsonSerializer.Serialize(new { type = "session", version = 3, id = Guid.NewGuid().ToString("N"), cwd = directory.Path, timestamp = DateTimeOffset.UtcNow }) };
+        for (var i = 0; i < 90; i++) lines.Add(JsonSerializer.Serialize(new { type = "message", id = $"entry-{i}", parentId = i == 0 ? null : $"entry-{i - 1}", timestamp = DateTimeOffset.UtcNow,
+            message = new { role = i % 2 == 0 ? "user" : "assistant", content = $"History item {i}", stopReason = "stop" } }));
+        await File.WriteAllLinesAsync(source, lines, timeout.Token);
+        var imported = await host.Client.CopyPiSessionAsync(new(Guid.NewGuid(), project, SourcePath: source, Title: "Long history"), timeout.Token);
+        await using var subscription = host.Client.SubscribeThread(imported.ThreadId);
+        await UntilAsync(() => subscription.Store.IsSynchronized && subscription.Store.Current?.EarlierHistory is not null, timeout.Token);
+        Assert.Equal(20, subscription.Store.Current!.Timeline.OfType<PiStation.Protocol.Projections.MessageTimelineItem>().Count());
+        var stale = await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => host.Client.ReadThreadHistoryAsync(
+            new(imported.ThreadId, ProjectionEpoch.New(), subscription.Store.Current.EarlierHistory!.BeforeItemId), timeout.Token));
+        Assert.Contains("history changed", stale.Message, StringComparison.OrdinalIgnoreCase);
+        while (subscription.Store.Current.EarlierHistory is { } cursor)
+        {
+            var projection = subscription.Store.Current;
+            var page = await host.Client.ReadThreadHistoryAsync(new(imported.ThreadId, projection.ProjectionEpoch, cursor.BeforeItemId), timeout.Token);
+            await UntilAsync(() => subscription.Store.TryMergeHistory(page), timeout.Token);
+        }
+        Assert.Equal(Enumerable.Range(0, 90).Select(i => $"History item {i}"), subscription.Store.Current.Timeline.OfType<PiStation.Protocol.Projections.MessageTimelineItem>().Select(item => item.Text));
+        Assert.Equal(lines, await File.ReadAllLinesAsync(source, timeout.Token));
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task RuntimeHealthSettingsMetricsAndActivityCrossAuthenticatedTransports(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        var health = await host.Client.GetRuntimeHealthAsync(timeout.Token);
+        var saved = await host.Client.SaveRuntimeHealthSettingsAsync(health.Background.Settings with { TracingEnabled = true }, timeout.Token);
+        Assert.Equal(health.Background.Settings.Revision + 1, saved.Revision);
+        var stale = await Assert.ThrowsAsync<Microsoft.AspNetCore.SignalR.HubException>(() => host.Client.SaveRuntimeHealthSettingsAsync(health.Background.Settings, timeout.Token));
+        Assert.Contains("Refresh before saving", stale.Message, StringComparison.Ordinal);
+        var policy = await host.Client.ReportClientActivityAsync(new(true, true, true, false, false), timeout.Token);
+        Assert.True(policy.ActiveClients > 0);
+        await host.Client.ListProjectsAsync(timeout.Token);
+        health = await host.Client.GetRuntimeHealthAsync(timeout.Token);
+        Assert.Contains(health.Traces, trace => trace.Operation == "ListProjects");
+        Assert.Contains(health.Metrics, metric => metric.Operation == "ListProjects" && metric.Count > 0);
+        Assert.False((await host.Client.TerminateDiagnosticProcessAsync(new(Environment.ProcessId, 0), timeout.Token)).Succeeded);
+        await host.Client.ClearRuntimeHealthAsync(timeout.Token);
+        Assert.DoesNotContain((await host.Client.GetRuntimeHealthAsync(timeout.Token)).Traces, trace => trace.Operation == "ListProjects");
+    }
+
     [Theory]
     [InlineData("local")]
     [InlineData("https")]
@@ -26,6 +130,8 @@ public sealed class BrowserAutomationTransportTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
         var project = (await host.Client.GetThreadAsync(host.Thread, timeout.Token)).ProjectId;
+        var settings = (await host.Client.GetRuntimeHealthAsync(timeout.Token)).Background.Settings;
+        await host.Client.SaveRuntimeHealthSettingsAsync(settings with { TracingEnabled = true }, timeout.Token);
         await using var session = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
         var first = host.WriteRequest("wait");
         var active = await NextAsync(session, timeout.Token);
@@ -59,6 +165,10 @@ public sealed class BrowserAutomationTransportTests
             host.Factory.Release.TrySetResult();
             await starting;
             if (queued is not null) await queued;
+            output.WriteLine("Browser polling: " + JsonSerializer.Serialize(session.PollingDiagnostics));
+            var diagnostics = await host.Client.GetRuntimeHealthAsync(timeout.Token);
+            output.WriteLine("Host operation metrics: " + JsonSerializer.Serialize(diagnostics.Metrics));
+            Assert.Contains(diagnostics.Metrics, metric => metric.Operation == "GetComposerDiscovery" && metric.MaximumMilliseconds >= 6000);
         }
     }
 
@@ -122,6 +232,33 @@ public sealed class BrowserAutomationTransportTests
             else Assert.Equal<byte>(png, result.ScreenshotPng!);
             Assert.Null(session.TakeNext());
         }
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("https")]
+    [InlineData("ssh")]
+    public async Task RecordingArtifactIsTransferredToItsRuntimeHost(string transport)
+    {
+        if (transport == "ssh" && !OperatingSystem.IsWindows()) return;
+        using var directory = new ClientTestDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await using var host = await BrowserHost.StartAsync(directory, transport, timeout.Token);
+        await using var session = await host.Client.OpenBrowserAutomationAsync(new(host.Thread, BrowserAutomationAccess.Interact), timeout.Token);
+        var request = host.WriteRequest("recording_stop");
+        var work = await NextAsync(session, timeout.Token);
+        var bytes = RandomNumberGenerator.GetBytes(200_007);
+        "ftyp"u8.CopyTo(bytes.AsSpan(4));
+        var localFile = Path.Combine(directory.Path, "client-video.mp4");
+        await File.WriteAllBytesAsync(localFile, bytes, timeout.Token);
+        var artifact = await session.UploadRecordingAsync(work, localFile);
+        Assert.NotEqual(localFile, artifact.Path);
+        Assert.StartsWith(host.ThreadDirectory, artifact.Path);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(artifact.Path, timeout.Token));
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes)), artifact.Sha256);
+        await session.CompleteAsync(work, new(true, JsonSerializer.SerializeToElement(new { artifact })));
+        Assert.True((await host.ReadResultAsync(request.Id, timeout.Token)).Success);
+        Assert.True(session.IsActive, session.Error);
     }
 
     [Fact]

@@ -144,9 +144,9 @@ public sealed class WorkspaceGitService(
                 "The selected project is not inside a Git repository.");
         }
 
-        var staged = await RunDiffAsync(projectRoot, normalizedPath, staged: true, request.MaximumCharacters, cancellationToken)
+        var staged = await RunDiffAsync(projectRoot, normalizedPath, staged: true, request.MaximumCharacters, request.IgnoreWhitespace, cancellationToken)
             .ConfigureAwait(false);
-        var workingTree = await RunDiffAsync(projectRoot, normalizedPath, staged: false, request.MaximumCharacters, cancellationToken)
+        var workingTree = await RunDiffAsync(projectRoot, normalizedPath, staged: false, request.MaximumCharacters, request.IgnoreWhitespace, cancellationToken)
             .ConfigureAwait(false);
         EnsureSuccess(staged, "The staged diff could not be read.");
         EnsureSuccess(workingTree, "The working-tree diff could not be read.");
@@ -350,9 +350,11 @@ public sealed class WorkspaceGitService(
         string relativePath,
         bool staged,
         int maximumCharacters,
+        bool ignoreWhitespace,
         CancellationToken cancellationToken)
     {
         var arguments = new List<string> { "diff" };
+        if (ignoreWhitespace) arguments.Add("--ignore-all-space");
         if (staged)
         {
             arguments.Add("--cached");

@@ -21,6 +21,7 @@ public sealed class PiProcess : IAsyncDisposable
         int standardErrorCharacterLimit)
     {
         _process = process;
+        StartedUtcTicks = process.StartTime.ToUniversalTime().Ticks;
         Connection = connection;
         _shutdownTimeout = shutdownTimeout;
         _stderr = new BoundedTextBuffer(standardErrorCharacterLimit);
@@ -31,6 +32,7 @@ public sealed class PiProcess : IAsyncDisposable
     public PiRpcConnection Connection { get; }
 
     public int Id => _process.Id;
+    public long StartedUtcTicks { get; }
 
     public Task<int?> Exit => _exitTask;
 

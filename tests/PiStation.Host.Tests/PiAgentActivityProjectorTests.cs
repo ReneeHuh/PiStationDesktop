@@ -8,6 +8,18 @@ namespace PiStation.Host.Tests;
 public sealed class PiAgentActivityProjectorTests
 {
     [Fact]
+    public void ExternalAdapterHandleEnablesTargetedStopWithoutClaimingBundledResume()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        using var result = JsonDocument.Parse("""{"details":{"integration":"pistation-external-v1","mode":"single","results":[{"agent":"external","status":"running","controlId":"CONTROL_ID","canResume":true}]}}""".Replace("CONTROL_ID", id, StringComparison.Ordinal));
+        var projected = PiAgentActivityProjector.Update("external-tool", result.RootElement, [], false, false, null, DateTimeOffset.UnixEpoch);
+        var child = Assert.Single(projected);
+        Assert.Equal(id, child.ControlId);
+        Assert.True(child.CanInterrupt);
+        Assert.False(child.CanResume);
+    }
+
+    [Fact]
     public void RejectedNativeChainFinishesPendingChildrenWithoutInventingResults()
     {
         using var args = JsonDocument.Parse("""{"mode":"chain","tasks":[{"agent":"scout","task":"Read"},{"agent":"missing","task":"Never"}]}""");

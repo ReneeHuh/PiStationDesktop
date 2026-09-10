@@ -37,6 +37,8 @@ internal sealed class TerminalSession : IAsyncDisposable
 
     public TerminalSessionDescriptor Descriptor => Journal.Descriptor;
     public int? ProcessId => _process is { HasExited: false } ? _process.ProcessId : null;
+    internal Diagnostics.OwnedProcessRoot? DiagnosticRoot => _process is { HasExited: false } process
+        ? new(process.ProcessId, process.StartedUtcTicks, "terminal", Descriptor.TerminalSessionId.Value) : null;
 
     private void QueuePersistence() => _dirty.Writer.TryWrite(0);
     private async Task PersistChangesAsync()

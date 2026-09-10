@@ -5,8 +5,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { DefaultPackageManager, getAgentDir, ModelRuntime, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getProviders as getBuiltinProviders } from "@earendil-works/pi-ai/compat";
 import { getPermissionMode, getToolSelection, permissionModes, reviewToolCall, setPermissionMode } from "./pistation-permissions.ts";
 import registerSessions from "./pistation-sessions.ts";
+import { registerQuotaFeeds } from "./pistation-quotas.mjs";
 
 const commandName = "pistation-desktop-resources";
 const kinds = ["extensions", "skills", "prompts"] as const;
@@ -32,6 +34,12 @@ function requireRevision(actual: string, expected: unknown) {
 
 export default function (pi: any) {
   registerSessions(pi);
+  registerQuotaFeeds(pi);
+  let startupTransport: string | undefined;
+  pi.on("session_start", (_event: any, ctx: any) => {
+    // Snapshot at startup; saving later does not pretend the existing Agent changed transport.
+    startupTransport = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() }).getTransport();
+  });
   pi.on("tool_call", (event: any, ctx: any) => reviewToolCall(event, ctx));
   pi.registerCommand(commandName, {
     description: "PiStation resource and provider management",
@@ -50,6 +58,24 @@ export default function (pi: any) {
               thinkingLevels: getSupportedThinkingLevels(model) })),
           } }));
           return;
+        }
+        const sdk = (globalThis as any)[Symbol.for("pistation.sdk")];
+        if (request.action === "reload") {
+          if (!sdk) throw new Error("In-process desktop reload requires Pi 0.85 or later with the PiStation SDK adapter.");
+          const reply = sdk.ui.context.setStatus;
+          sdk.ui.reset();
+          try {
+            await ctx.reload();
+            reply("pistation-management:" + request.id, JSON.stringify({ success: true, data: { message: "Resources reloaded in the same Pi process. Conversation preserved." } }));
+          } catch (error) {
+            reply("pistation-management:" + request.id, JSON.stringify({ success: false, error: "Reload failed: " + limit((error as Error).message) + ". Restart this thread to recover." }));
+          }
+          return;
+        }
+        if (request.action === "toolExecution") {
+          if (!sdk) throw new Error("Tool batch controls require Pi 0.85 or later with the PiStation SDK adapter.");
+          if (!["parallel", "sequential"].includes(request.toolExecution)) throw new Error("Choose parallel or sequential tool execution.");
+          sdk.session.agent.toolExecution = request.toolExecution;
         }
         const agentDir = getAgentDir();
         const trusted = ctx.isProjectTrusted();
@@ -115,8 +141,29 @@ export default function (pi: any) {
           source: "Pi system prompt", scope: "effective", enabled: true, confirmedLoaded: true, canToggle: false, revision: "",
         });
 
-        let message = "Loaded state reflects this runtime; saved changes apply after restart.";
-        if (request.action === "toggle") {
+        const loader = sdk?.session.resourceLoader;
+        if (loader) {
+          const loaded = loader.getExtensions();
+          for (const resource of resources.filter(item => item.kind === "extensions")) resource.confirmedLoaded = false;
+          for (const entry of [...loaded.extensions.map((extension: any) => ({ path: extension.path, loaded: true })),
+              ...loaded.errors.map((error: any) => ({ path: error.path, loaded: false, error: limit(error.error) }))]) {
+            let resource = resources.find(item => item.kind === "extensions" && key("extensions", item.path) === key("extensions", entry.path));
+            if (!resource) { resource = { id: key("extensions", entry.path), kind: "extensions", name: basename(entry.path), path: entry.path,
+              source: "Pi resource loader", scope: "effective", enabled: true, canToggle: false, revision: "" }; resources.push(resource); }
+            resource.confirmedLoaded = entry.loaded; resource.loadError = entry.error ?? null;
+          }
+        }
+        let message = request.action === "toolExecution" ? "Tool execution updated for this runtime. Per-tool sequential restrictions still apply." : "Loaded state reflects this runtime; saved changes apply after reload or restart.";
+        if (request.action === "saveTransport") {
+          if (settingsErrors.length) throw new Error("Fix Pi settings errors before saving transport.");
+          if (!["auto", "sse", "websocket", "websocket-cached"].includes(request.transport)) throw new Error("Choose auto, SSE or WebSocket transport.");
+          requireRevision(hash(JSON.stringify(settings.getGlobalSettings())), request.revision);
+          if (typeof settings.setTransport !== "function") throw new Error("This Pi version does not support transport preferences.");
+          settings.setTransport(request.transport);
+          await settings.flush();
+          if (settings.drainErrors().length) throw new Error("Pi transport settings could not be saved.");
+          message = "Transport saved in this host user's Pi settings. Trusted project overrides still win. Restart each thread to apply it.";
+        } else if (request.action === "toggle") {
           if (settingsErrors.length) throw new Error("Fix the Pi settings errors before changing resources.");
           const resource = resources.find(item => item.id === request.resourceId);
           if (!resource?.canToggle || typeof request.enabled !== "boolean") throw new Error("This resource must be managed through its explicit launch configuration.");
@@ -215,12 +262,13 @@ export default function (pi: any) {
             const abort = new AbortController();
             const timer = setTimeout(() => abort.abort(), 8 * 60 * 1000);
             try {
-              await runtime.login(providerId, "oauth", {
+              const authType = request.authType ?? "oauth";
+              if (!["oauth", "api_key"].includes(authType)) throw new Error("Choose browser or API-key sign-in.");
+              await runtime.login(providerId, authType, {
                 signal: abort.signal,
                 prompt: async (prompt: any) => {
-                  if (prompt.type === "secret") throw new Error("Use Pi's login terminal for secret entry. This desktop sign-in supports browser and device-code flows.");
-                  const answer = prompt.type === "select" ? await ctx.ui.select(prompt.message, prompt.options.map((option: any) => option.label))
-                    : await ctx.ui.input(prompt.message, prompt.placeholder);
+                  const answer = prompt.type === "select" ? await ctx.ui.select(prompt.message, prompt.options.map((option: any) => option.label), { signal: abort.signal, timeout: 8 * 60 * 1000 })
+                    : await ctx.ui.input(prompt.message, "[pistation:secret]", { signal: abort.signal, timeout: 8 * 60 * 1000 });
                   if (answer === undefined) { abort.abort(); throw new Error("Sign-in cancelled."); }
                   return prompt.type === "select" ? prompt.options.find((option: any) => option.label === answer)?.id ?? answer : answer;
                 },
@@ -235,20 +283,24 @@ export default function (pi: any) {
               });
             } finally { clearTimeout(timer); }
           }
-          await ctx.modelRegistry.refresh();
+          await ctx.modelRegistry.refresh({ allowNetwork: false });
           message = request.action === "login" ? "Signed in. Provider credentials refreshed." : "Signed out of stored Pi credentials. Environment or ambient credentials may remain configured.";
           ctx.ui.setStatus("Pi sign-in", message);
-        } else if (request.action !== "inspect") throw new Error("Unsupported Pi management action.");
+        } else if (request.action !== "inspect" && request.action !== "toolExecution") throw new Error("Unsupported Pi management action.");
 
-        const providerIds = [...new Set(ctx.modelRegistry.getAll().map((model: any) => model.provider))] as string[];
+        const providerIds = [...new Set([...(sdk?.session.modelRuntime.getProviders() ?? getBuiltinProviders()).map((provider: any) => typeof provider === "string" ? provider : provider.id),
+          ...ctx.modelRegistry.getAll().map((model: any) => model.provider)].filter((id: any) => typeof id === "string" && id.length > 0))] as string[];
         const providers = providerIds.sort().slice(0, 128).map(providerId => {
           const auth = ctx.modelRegistry.getProviderAuthStatus(providerId);
           return { providerId, displayName: limit(ctx.modelRegistry.getProviderDisplayName(providerId), 256),
             credentialConfigured: !!auth.configured, credentialSource: limit(auth.source ?? "none", 64),
-            modelCount: ctx.modelRegistry.getAll().filter((model: any) => model.provider === providerId).length };
+            modelCount: ctx.modelRegistry.getAll().filter((model: any) => model.provider === providerId).length,
+            supportsOAuth: !!ctx.modelRegistry.getProvider(providerId)?.auth?.oauth?.login,
+            supportsApiKey: !!ctx.modelRegistry.getProvider(providerId)?.auth?.apiKey?.login };
         });
         let modelsRevision = "";
         const diagnostics = settingsErrors.map((error: any) => limit(error.error?.message ?? error.message ?? "Pi settings could not be read."));
+        for (const diagnostic of [...(loader?.getSkills().diagnostics ?? []), ...(loader?.getPrompts().diagnostics ?? [])]) diagnostics.push(limit(`${diagnostic.path ?? "resource"}: ${diagnostic.message}`));
         diagnostics.push(...missing.map(source => "Package not installed: " + limit(source)));
         try { modelsRevision = hash(readConfiguration(join(agentDir, "models.json")).text); }
         catch (error) { diagnostics.push(limit((error as Error).message)); }
@@ -267,6 +319,16 @@ export default function (pi: any) {
           agentDirectory: agentDir, projectDirectory: ctx.cwd, projectTrusted: trusted,
           savedProjectTrust: new ProjectTrustStore(agentDir).get(ctx.cwd),
           resources: resources.slice(0, 1024).map(({ metadata, originalPath, ...resource }) => resource),
+          nativePreferences: {
+            savedTransport: settings.getGlobalSettings().transport ?? "auto",
+            transportRevision: hash(JSON.stringify(settings.getGlobalSettings())),
+            projectTransport: settings.getProjectSettings().transport ?? null, startupTransport: startupTransport ?? null,
+            cacheRetention: process.env.PI_CACHE_RETENTION === "long" ? "long" : "short (provider default)",
+            telemetry: process.env.PI_TELEMETRY === undefined ? (settings.getEnableInstallTelemetry() ? "enabled (Pi settings)" : "disabled (Pi settings)") : (/^(1|true|yes)$/i.test(process.env.PI_TELEMETRY) ? "enabled (environment)" : "disabled (environment)"),
+            offline: /^(1|true|yes)$/i.test(process.env.PI_OFFLINE ?? ""),
+            skipVersionCheck: !!process.env.PI_SKIP_VERSION_CHECK,
+          },
+          authoritativeResources: !!loader, toolExecution: sdk?.session.agent.toolExecution ?? null, supportsDesktopComponents: !!sdk,
           providers, diagnostics, modelsRevision, message, packages: packageManager.listConfiguredPackages(), toolInventory,
         };
         ctx.ui.setStatus("pistation-management:" + request.id, JSON.stringify({ success: true, data }));

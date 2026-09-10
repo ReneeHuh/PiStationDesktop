@@ -182,8 +182,20 @@
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
+    <SolidColorBrush x:Key="PiSidebarForegroundBrush" Color="{ThemeResource PiTextPrimaryColor}" />
+    <SolidColorBrush x:Key="PiMessageForegroundBrush" Color="{ThemeResource PiTextPrimaryColor}" />
+    <SolidColorBrush x:Key="PiCodeForegroundBrush" Color="{ThemeResource PiTextPrimaryColor}" />
+    <SolidColorBrush x:Key="PiCodeBackgroundBrush" Color="{ThemeResource PiControlSurfaceColor}" />
+    <SolidColorBrush x:Key="PiTerminalBackgroundBrush" Color="{ThemeResource PiCanvasColor}" />
+    <SolidColorBrush x:Key="PiTerminalForegroundBrush" Color="{ThemeResource PiTextPrimaryColor}" />
+    <SolidColorBrush x:Key="PiTerminalCursorBrush" Color="{ThemeResource PiAccentColor}" />
+    <SolidColorBrush x:Key="PiTerminalSelectionBrush" Color="#5A627EEA" />
+
     <FontFamily x:Key="PiSansFontFamily">Segoe UI Variable Text</FontFamily>
     <FontFamily x:Key="PiMonospaceFontFamily">Cascadia Mono</FontFamily>
+    <FontFamily x:Key="PiComposerFontFamily">Segoe UI</FontFamily>
+    <x:Double x:Key="PiComposerFontSize">14</x:Double>
+    <x:Double x:Key="PiCodeFontSize">13</x:Double>
 
     <x:Double x:Key="PiFontSizeCaption">11</x:Double>
     <x:Double x:Key="PiFontSizeBody">13</x:Double>
@@ -235,56 +247,56 @@
     <CornerRadius x:Key="PiRadiusPill">999</CornerRadius>
 
     <Style x:Key="PiPageTitleTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeTitle}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeTitle}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
     </Style>
 
     <Style x:Key="PiPanelHeaderTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeHeading}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeHeading}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
     </Style>
 
     <Style x:Key="PiBodyTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
     </Style>
 
     <Style x:Key="PiMutedTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextSecondaryBrush}" />
     </Style>
 
     <Style x:Key="PiSectionLabelTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeCaption}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="CharacterSpacing" Value="80" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextMutedBrush}" />
     </Style>
 
     <Style x:Key="PiMonospaceTextStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiMonospaceFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiMonospaceFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
     </Style>
 
     <Style x:Key="PiMarkdownBodyStyle" TargetType="RichTextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiSansFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBodyLarge}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiSansFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBodyLarge}" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
         <Setter Property="IsTextSelectionEnabled" Value="True" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
     <Style x:Key="PiMarkdownCodeTextStyle" TargetType="RichTextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource PiMonospaceFontFamily}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontFamily" Value="{ThemeResource PiMonospaceFontFamily}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="Foreground" Value="{ThemeResource PiTextPrimaryBrush}" />
         <Setter Property="IsTextSelectionEnabled" Value="True" />
     </Style>
@@ -401,7 +413,7 @@
     </Style>
 
     <Style x:Key="PiPillTextStyle" TargetType="TextBlock" BasedOn="{StaticResource PiMutedTextStyle}">
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeCaption}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
@@ -444,7 +456,7 @@
         <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
@@ -453,7 +465,7 @@
     <Style x:Key="PiCompactButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
         <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
         <Setter Property="Padding" Value="7,2" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeCaption}" />
     </Style>
 
     <Style x:Key="PiIconButtonStyle" TargetType="Button" BasedOn="{StaticResource PiSecondaryButtonStyle}">
@@ -511,7 +523,7 @@
         <Setter Property="Foreground" Value="{ThemeResource PiTextSecondaryBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="0" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
@@ -591,7 +603,7 @@
         <Setter Property="MinHeight" Value="{StaticResource PiControlHeight}" />
         <Setter Property="Padding" Value="{StaticResource PiCompactControlPadding}" />
         <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
@@ -611,7 +623,7 @@
         <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
@@ -623,7 +635,7 @@
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="0" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBodyLarge}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBodyLarge}" />
     </Style>
 
     <Style x:Key="PiComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
@@ -631,7 +643,7 @@
         <Setter Property="Background" Value="{ThemeResource PiControlSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource PiBorderBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
@@ -639,7 +651,7 @@
 
     <Style x:Key="PiComposerComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource PiComboBoxStyle}">
         <Setter Property="MinHeight" Value="{StaticResource PiControlHeightCompact}" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeCaption}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeCaption}" />
         <Setter Property="Padding" Value="7,2" />
     </Style>
 
@@ -649,7 +661,7 @@
         <Setter Property="Padding" Value="8,3" />
         <Setter Property="CornerRadius" Value="{StaticResource PiRadiusControl}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="FontSize" Value="{StaticResource PiFontSizeBody}" />
+        <Setter Property="FontSize" Value="{ThemeResource PiFontSizeBody}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PiFocusBrush}" />
         <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />

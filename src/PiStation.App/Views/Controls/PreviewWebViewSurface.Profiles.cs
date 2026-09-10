@@ -5,7 +5,7 @@ namespace PiStation.App.Views.Controls;
 
 public sealed partial class PreviewWebViewSurface
 {
-    private static async Task<CoreWebView2Environment> GetProfileEnvironmentAsync(string path)
+    internal static async Task<CoreWebView2Environment> GetProfileEnvironmentAsync(string path)
     {
         path = Path.GetFullPath(path);
         var pending = ProfileEnvironments.GetOrAdd(path,

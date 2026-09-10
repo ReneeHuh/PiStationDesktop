@@ -175,6 +175,12 @@ internal sealed partial class FakePiServer : IDisposable
                 }
                 if (_arguments.Scenario == "extension-ui" && command["message"]?.GetValue<string>() == "/review")
                 {
+                    await _writer.WriteAsync(new JsonObject { ["type"] = "extension_ui_request", ["id"] = "component-question", ["method"] = "input",
+                        ["title"] = "Asynchronous component", ["placeholder"] = "[pistation:component:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]" }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await _writer.WriteAsync(new JsonObject { ["type"] = "extension_ui_request", ["id"] = "wrong-close", ["method"] = "setStatus",
+                        ["statusKey"] = "pistation-component-closed", ["statusText"] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await _writer.WriteAsync(new JsonObject { ["type"] = "extension_ui_request", ["id"] = "actual-close", ["method"] = "setStatus",
+                        ["statusKey"] = "pistation-component-closed", ["statusText"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, cancellationToken: cancellationToken).ConfigureAwait(false);
                     await _writer.WriteAsync(Response(id, type), cancellationToken: cancellationToken).ConfigureAwait(false);
                     break;
                 }
@@ -482,6 +488,7 @@ internal sealed partial class FakePiServer : IDisposable
                     ["message"] = "Fake blocking dialog",
                 }, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
+            case "secret-interactions":
             case "interactions":
                 _pendingInteractionPrompt = message;
                 await _writer.WriteAsync(Response(id, "prompt"), cancellationToken: cancellationToken)
@@ -935,7 +942,7 @@ internal sealed partial class FakePiServer : IDisposable
             return;
         }
 
-        if (_arguments.Scenario != "interactions" || _pendingInteractionPrompt is null)
+        if (_arguments.Scenario is not ("interactions" or "secret-interactions") || _pendingInteractionPrompt is null)
         {
             return;
         }
@@ -952,7 +959,8 @@ internal sealed partial class FakePiServer : IDisposable
             {
                 ["type"] = "extension_ui_request",
                 ["id"] = "question-1",
-                ["method"] = "select",
+                ["method"] = _arguments.Scenario == "secret-interactions" ? "input" : "select",
+                ["placeholder"] = _arguments.Scenario == "secret-interactions" ? "[pistation:secret]" : null,
                 ["title"] = "Choose the next action",
                 ["options"] = new JsonArray("Run tests", "Skip tests"),
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -972,7 +980,7 @@ internal sealed partial class FakePiServer : IDisposable
             cancellationToken).ConfigureAwait(false);
         var prompt = _pendingInteractionPrompt;
         _pendingInteractionPrompt = null;
-        await EmitInteractionCompletionAsync(prompt, answer, cancellationToken).ConfigureAwait(false);
+        await EmitInteractionCompletionAsync(prompt, _arguments.Scenario == "secret-interactions" ? "Credential received" : answer, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task EmitInteractionCompletionAsync(

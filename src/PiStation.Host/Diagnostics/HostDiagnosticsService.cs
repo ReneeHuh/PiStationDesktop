@@ -23,6 +23,7 @@ internal sealed partial class HostDiagnosticsService(
     private readonly HostOptions _options = options;
     private readonly TerminalSessionRegistry _terminals = terminals;
     private readonly PiThreadRegistry _threads = threads;
+    internal RuntimeHealthService? Health { get; set; }
 
     public void Record(string message)
     {
@@ -45,7 +46,7 @@ internal sealed partial class HostDiagnosticsService(
                 _options.CanonicalDataRoot, IsSensitive: true),
         };
         diagnostics.AddRange(await SourceControlHostingService.GetToolDiagnosticsAsync(cancellationToken).ConfigureAwait(false));
-        var process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         var resources = new ResourceTelemetry(
             DateTimeOffset.UtcNow,
             process.WorkingSet64,
@@ -64,7 +65,7 @@ internal sealed partial class HostDiagnosticsService(
             _logs.Reverse().Take(200).Reverse().ToArray(),
             typeof(HostDiagnosticsService).Assembly.GetName().Version?.ToString() ?? "0.0.0",
             ProtocolVersion.Current.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "Check for updates in the desktop app. Directly installed developer packages have no automatic update feed.");
+            "Check for updates in the desktop app. Directly installed developer packages have no automatic update feed.", Health?.Snapshot());
     }
 
     public async Task<ExportDiagnosticsResult> ExportAsync(
@@ -94,6 +95,10 @@ internal sealed partial class HostDiagnosticsService(
                 ? item with { Detail = "[redacted]" }
                 : item with { Detail = Redact(item.Detail) }).ToArray(),
             RecentLogs = snapshot.RecentLogs.Select(Redact).ToArray(),
+            Health = snapshot.Health is not { } health ? null : health with {
+                Background = health.Background with { Settings = health.Background.Settings with {
+                    OtlpEndpoint = health.Background.Settings.OtlpEndpoint is null ? null : "[redacted]",
+                    OtlpMetricsEndpoint = health.Background.Settings.OtlpMetricsEndpoint is null ? null : "[redacted]" } } },
         };
         return new(JsonSerializer.SerializeToUtf8Bytes(redacted, ProtocolJsonContext.Default.DiagnosticsSnapshot), DateTimeOffset.UtcNow);
     }

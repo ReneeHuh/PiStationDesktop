@@ -28,12 +28,19 @@ public sealed class PiExtensionRuntimeTests
             initial.ProjectionEpoch, null, new ThreadStartTurnCommand("/review")), timeout.Token);
         Assert.True(receipt.State is CommandReceiptState.Accepted or CommandReceiptState.Completed);
         var sawUi = initial.ExtensionUi?.EditorSuggestion is not null;
+        var sawComponentClose = false;
         while (await stream.MoveNextAsync())
         {
             if (stream.Current is ThreadEventEnvelope { Event: PiExtensionUiChangedEvent { Update.Method: "set_editor_text" } }) sawUi = true;
+            if (stream.Current is ThreadEventEnvelope { Event: InteractionResolvedEvent { State: InteractionState.Canceled } resolved })
+            {
+                Assert.Equal("component-question", resolved.InteractionId.Value);
+                sawComponentClose = true;
+            }
             if (stream.Current is ThreadEventEnvelope { Event: TurnSettledEvent }) break;
         }
         Assert.True(sawUi);
+        Assert.True(sawComponentClose);
         var restart = await host.Environment.ExecuteThreadCommandAsync(new(ProtocolVersion.Current,
             host.Environment.GetDescriptor().EnvironmentId, ClientId.New(), CommandId.New(), thread.ThreadId,
             initial.ProjectionEpoch, null, new ThreadRestartRuntimeCommand()), timeout.Token);

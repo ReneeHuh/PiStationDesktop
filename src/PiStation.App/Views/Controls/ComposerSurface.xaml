@@ -75,7 +75,7 @@
             automation:AutomationProperties.AutomationId="ExpandComposerButton"
             automation:AutomationProperties.Name="Expand message composer">
             <StackPanel Spacing="4">
-                <TextBlock x:Name="RestingComposerPreview" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="RestingComposerPreview" FontFamily="{ThemeResource PiComposerFontFamily}" FontSize="{ThemeResource PiComposerFontSize}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="Click or press Enter to edit" FontSize="12" Foreground="{ThemeResource PiTextSecondaryBrush}" />
             </StackPanel>
         </Button>
@@ -128,9 +128,9 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontWeight="SemiBold" Text="{x:Bind Name}" />
+                                    <TextBlock FontFamily="{ThemeResource PiMonospaceFontFamily}" FontWeight="SemiBold" Text="{x:Bind Name}" />
                                     <TextBlock Grid.Column="1" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind Description}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="2" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Source}" />
+                                    <TextBlock Grid.Column="2" FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Source}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -226,7 +226,7 @@
                     <DataTemplate x:DataType="viewModels:ComposerContextChipViewModel">
                         <Border Margin="0,0,6,0" Style="{StaticResource PiAttachmentChipStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock VerticalAlignment="Center" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiAccentBrush}" Text="{x:Bind Kind}" />
+                                <TextBlock VerticalAlignment="Center" FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiAccentBrush}" Text="{x:Bind Kind}" />
                                 <Button MaxWidth="220" Click="OnContextSourceClicked" Content="{x:Bind Label}" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Go to source" />
                                 <Button Content="Comment" Click="OnEditCitationComment" Style="{StaticResource PiToolbarButtonStyle}" />
                                 <Button Click="OnRemoveContextClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Remove context">
@@ -283,7 +283,7 @@
                                 <TextBlock
                                     Grid.Column="2"
                                     VerticalAlignment="Center"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind Detail}" />
                                 <Button
@@ -303,6 +303,7 @@
 
             <TextBox
                 x:Name="PromptInput"
+                FontFamily="{ThemeResource PiComposerFontFamily}" FontSize="{ThemeResource PiComposerFontSize}"
                 IsReadOnly="{x:Bind ViewModel.IsComposerReadOnly, Mode=OneWay}"
                 Grid.Row="3"
                 Height="48"
@@ -328,7 +329,7 @@
                 Height="{x:Bind ViewModel.Composer.AttachmentNoticeHeight, Mode=OneWay}"
                 Margin="4,2,4,0"
                 automation:AutomationProperties.AutomationId="AttachmentNoticeText"
-                FontSize="{StaticResource PiFontSizeCaption}"
+                FontSize="{ThemeResource PiFontSizeCaption}"
                 Foreground="{ThemeResource PiTextMutedBrush}"
                 Text="{x:Bind ViewModel.Composer.AttachmentNotice, Mode=OneWay}"
                 TextWrapping="Wrap" />
@@ -400,7 +401,7 @@
                                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                                     <StackPanel>
                                                         <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                                        <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Text}" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Text}" TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
                                                     <Button Grid.Column="1" Click="OnRestorePromptStashClicked" Content="Restore" Style="{StaticResource PiToolbarButtonStyle}" />
                                                     <Button Grid.Column="2" Click="OnDeletePromptStashClicked" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Delete stash"><FontIcon FontSize="10" Glyph="&#xE74D;" /></Button>
@@ -514,7 +515,7 @@
                             VerticalAlignment="Center"
                             automation:AutomationProperties.AutomationId="PiConfigurationStatusText"
                             automation:AutomationProperties.LiveSetting="Polite"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.PiConfiguration.Status, Mode=OneWay}"
                             TextTrimming="CharacterEllipsis"
@@ -525,7 +526,7 @@
                             VerticalAlignment="Center"
                             automation:AutomationProperties.AutomationId="DraftStatusText"
                             automation:AutomationProperties.LiveSetting="Polite"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.Composer.Status, Mode=OneWay}" />
                     </Grid>
@@ -586,7 +587,7 @@
                                 VerticalAlignment="Center"
                                 automation:AutomationProperties.AutomationId="TurnQueueSummaryText"
                                 automation:AutomationProperties.LiveSetting="Polite"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.Thread.Queue.Summary, Mode=OneWay}" />
                             <TextBlock
@@ -594,7 +595,7 @@
                                 VerticalAlignment="Center"
                                 automation:AutomationProperties.AutomationId="TurnQueueDeliveryStateText"
                                 automation:AutomationProperties.LiveSetting="Polite"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiAccentBrush}"
                                 Text="{x:Bind ViewModel.Thread.Queue.DeliveryStateLabel, Mode=OneWay}" />
                         </StackPanel>
@@ -647,7 +648,7 @@
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
                         <TextBlock
                             VerticalAlignment="Center"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="Delivery" />
                         <Button

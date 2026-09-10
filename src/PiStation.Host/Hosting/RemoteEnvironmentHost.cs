@@ -69,7 +69,7 @@ public sealed class RemoteEnvironmentHost : IAsyncDisposable
         });
         // Do not register the shared disposable environment in DI: this listener does not own it.
         builder.Services.AddTransient(_ => new EnvironmentHub(environment));
-        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter<RemoteAuthorizationFilter>(); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
+        builder.Services.AddSignalR(options => { EnvironmentTransportLimits.Configure(options); options.AddFilter<RemoteAuthorizationFilter>(); options.AddFilter(new PiStation.Host.Diagnostics.OperationDiagnosticsFilter(environment.Health)); options.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
             .AddJsonProtocol(json => json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
         builder.Services.AddRateLimiter(options =>
         {

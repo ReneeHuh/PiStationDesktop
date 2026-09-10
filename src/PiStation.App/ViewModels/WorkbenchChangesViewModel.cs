@@ -133,8 +133,9 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
     public WorkbenchChangeItemViewModel? SelectedChange
     {
         get => _selectedChange;
-        internal set => SetProperty(ref _selectedChange, value);
+        internal set { if (value is not null) IsCheckpointDiff = false; SetProperty(ref _selectedChange, value); }
     }
+    internal bool IsCheckpointDiff { get; private set; }
 
     public string DiffPath
     {
@@ -272,6 +273,7 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
 
     internal void ClearDiff()
     {
+        IsCheckpointDiff = false;
         SelectedChange = null;
         DiffPath = "Select a change";
         DiffContent = string.Empty;
@@ -280,6 +282,7 @@ public sealed class WorkbenchChangesViewModel : ObservableObject
 
     internal void BeginCheckpointDiff(int turnCount, CheckpointDiffScope scope, string? relativePath)
     {
+        IsCheckpointDiff = true;
         SelectedChange = null;
         DiffPath = relativePath ?? (scope == CheckpointDiffScope.Turn
             ? $"Turn {turnCount} changes"

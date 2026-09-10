@@ -6,6 +6,26 @@ namespace PiStation.PiRpc.Tests;
 
 public sealed class PiSessionDocumentTests
 {
+    [Fact]
+    public void RichHtmlRendersMarkdownThinkingToolsAndImagesWithoutExecutableContent()
+    {
+        var document = PiSessionDocument.Parse(Encoding.UTF8.GetBytes(Fixture()));
+        var entry = document.Entries[^1];
+        entry["message"]!["content"] = new JsonArray(
+            new JsonObject { ["type"] = "text", ["text"] = "## Heading\n\n**bold** [bad](javascript:alert%281%29) ![remote](https://example.com/tracker.png)\n\n<script>alert(1)</script>" },
+            new JsonObject { ["type"] = "thinking", ["thinking"] = "Reasoning" },
+            new JsonObject { ["type"] = "toolCall", ["name"] = "read", ["arguments"] = new JsonObject { ["path"] = "<unsafe>" } },
+            new JsonObject { ["type"] = "image", ["mimeType"] = "image/png", ["data"] = "aGVsbG8=" });
+        var html = document.ToHtml("Review");
+        Assert.Contains("<strong>bold</strong>", html);
+        Assert.Contains("<summary>Thinking</summary>", html);
+        Assert.Contains("Tool: read", html);
+        Assert.Contains("src=\"data:image/png;base64,", html);
+        Assert.DoesNotContain("href=\"javascript:", html);
+        Assert.DoesNotContain("src=\"https:", html);
+        Assert.DoesNotContain("<script>", html);
+    }
+
     public static string Fixture(string cwd = "C:/project") =>
         new JsonObject { ["type"] = "session", ["version"] = 3, ["id"] = "11111111111111111111111111111111", ["cwd"] = cwd, ["timestamp"] = "2026-09-06T00:00:00Z" }.ToJsonString() + "\n" +
         """

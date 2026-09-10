@@ -35,7 +35,7 @@ internal static class AppBootstrapper
         PiInstallation? piInstallation = null;
         PiStation.Protocol.Models.PiRuntimeConfiguration configuration;
         string? settingsError = null;
-        try { configuration = PiRuntimeSettingsStore.Load(launchOptions.DataRoot); }
+        try { configuration = launchOptions.RuntimeOverride ?? PiRuntimeSettingsStore.Load(launchOptions.DataRoot); }
         catch (Exception exception) when (exception is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException)
         {
             configuration = new(null, new());
@@ -43,7 +43,7 @@ internal static class AppBootstrapper
         }
         var configuredPath = launchOptions.PiExecutable ?? configuration.ExecutablePath;
         viewModel.ReportPiExtensions(configuration.Extensions);
-        viewModel.ReportPiLaunchConfiguration(configuration.Launch ?? new());
+        viewModel.ReportPiLaunchConfiguration(configuration.Launch ?? new(), PiRuntimeSettingsStore.Revision(configuration with { ExecutablePath = configuredPath, Launch = configuration.Launch ?? new() }));
         try
         {
             piInstallation = await ResolvePiAsync(launchOptions with { PiExecutable = configuredPath }, cancellationToken).ConfigureAwait(false);
@@ -58,6 +58,7 @@ internal static class AppBootstrapper
         var hostOptions = new HostOptions
         {
             ApplicationDataRoot = launchOptions.DataRoot,
+            TemporaryHistory = launchOptions.TemporaryHistory,
             EnvironmentName = Environment.MachineName,
             PiInstallation = piInstallation,
             ConfiguredPiExecutablePath = configuredPath,

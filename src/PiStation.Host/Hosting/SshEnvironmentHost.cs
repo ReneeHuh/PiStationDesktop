@@ -115,7 +115,7 @@ public sealed class SshEnvironmentHost : IAsyncDisposable
                 kestrel.Listen(IPAddress.Loopback, 0, listener => listener.UseHttps(identity.Certificate));
             });
             builder.Services.AddTransient(_ => new EnvironmentHub(environment));
-            builder.Services.AddSignalR(signalR => { EnvironmentTransportLimits.Configure(signalR); signalR.AddFilter<SshAuthorizationFilter>(); signalR.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
+            builder.Services.AddSignalR(signalR => { EnvironmentTransportLimits.Configure(signalR); signalR.AddFilter<SshAuthorizationFilter>(); signalR.AddFilter(new PiStation.Host.Diagnostics.OperationDiagnosticsFilter(environment.Health)); signalR.AddFilter(new PiStation.Host.Updates.RemoteUpdateDrainFilter(environment)); })
                 .AddJsonProtocol(json => json.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ProtocolJsonContext.Default));
             builder.Services.AddRateLimiter(options =>
             {

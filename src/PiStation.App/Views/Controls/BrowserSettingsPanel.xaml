@@ -29,6 +29,12 @@
         <ComboBox x:Name="DefaultProfileSelector" Header="Default browser profile" DisplayMemberPath="Name"
             HorizontalAlignment="Stretch" SelectionChanged="OnDefaultProfileChanged"
             automation:AutomationProperties.AutomationId="BrowserDefaultProfileSetting" />
+        <ComboBox Header="Recording frame rate" HorizontalAlignment="Stretch"
+            SelectedIndex="{x:Bind ViewModel.Layout.BrowserRecordingFrameRateIndex, Mode=TwoWay}"
+            automation:AutomationProperties.AutomationId="BrowserRecordingFrameRateSetting">
+            <ComboBoxItem Content="30 FPS" /><ComboBoxItem Content="60 FPS" />
+        </ComboBox>
+        <TextBlock Text="Recordings use up to 1280 pixels per edge, two minutes and 64 MiB. Actual frame rate depends on page rendering and encoder performance." TextWrapping="Wrap" />
         <TextBlock Text="Profiles keep separate cookies and logins for each environment. Choose Incognito on a new tab for a private session; those tabs are not restored." TextWrapping="Wrap" />
         <ContentControl x:Name="ProfileEditor" HorizontalContentAlignment="Stretch">
         <StackPanel Spacing="8">
@@ -45,6 +51,16 @@
                 <Button Content="Clear data" Click="OnClear" automation:AutomationProperties.AutomationId="BrowserClearProfileButton" />
                 <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" automation:AutomationProperties.AutomationId="BrowserRemoveProfileButton" />
             </StackPanel>
+        </StackPanel>
+        </ContentControl>
+        <ContentControl x:Name="ImportEditor" HorizontalContentAlignment="Stretch">
+        <StackPanel Spacing="8">
+            <TextBlock Text="Import cookies from an installed browser" FontWeight="SemiBold" />
+            <TextBlock Text="Copy cookies and sign-ins from a selected local Firefox or compatible Helium profile into a new profile for this environment. Source data stays unchanged. Unsupported encrypted, partitioned or container cookies are skipped. Chrome and Edge import is unavailable." TextWrapping="Wrap" />
+            <Button Content="Find local browser profiles" Click="OnFindImportSources" automation:AutomationProperties.AutomationId="BrowserFindImportSources" />
+            <ComboBox x:Name="ImportSourceSelector" Header="Source profile" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch" automation:AutomationProperties.AutomationId="BrowserImportSource" />
+            <TextBox x:Name="ImportName" Header="New PiStation profile name" MaxLength="48" Text="Imported browser" />
+            <Button Content="Copy cookies into new profile" Click="OnImportCookies" automation:AutomationProperties.AutomationId="BrowserImportCookies" />
         </StackPanel>
         </ContentControl>
         <StackPanel x:Name="Confirmation" Spacing="6" Visibility="Collapsed">

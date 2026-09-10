@@ -32,6 +32,7 @@ internal sealed class ConPtyTerminalProcess : IAsyncDisposable
         SafeFileHandle outputWriteHandle)
     {
         _process = process;
+        StartedUtcTicks = process.StartTime.ToUniversalTime().Ticks;
         _pseudoConsole = pseudoConsole;
         _inputReadHandle = inputReadHandle;
         _input = new FileStream(inputWriteHandle, FileAccess.Write, bufferSize: 4096, isAsync: false);
@@ -41,6 +42,7 @@ internal sealed class ConPtyTerminalProcess : IAsyncDisposable
 
     public Stream Output => _output;
     public int ProcessId => _process.Id;
+    public long StartedUtcTicks { get; }
 
     public bool HasExited
     {

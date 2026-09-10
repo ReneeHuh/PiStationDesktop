@@ -8,6 +8,8 @@ using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using PiStation.ClientRuntime;
 using PiStation.App.Views;
+using PiStation.App.ViewModels;
+using System.ComponentModel;
 
 namespace PiStation.App.Views.Controls;
 
@@ -17,6 +19,8 @@ public sealed class DiffView : UserControl
     private readonly ComboBox _layout = new() { ItemsSource = new[] { "Unified", "Split" }, SelectedIndex = 0, MinWidth = 90 };
     private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
     private IReadOnlyList<DiffLine> _document = [];
+    private ShellLayoutViewModel? _preferences;
+    private bool _synchronizingLayout;
 
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(nameof(Text), typeof(string), typeof(DiffView),
         new PropertyMetadata(string.Empty, static (owner, _) => ((DiffView)owner).LoadDocument()));
@@ -58,13 +62,49 @@ public sealed class DiffView : UserControl
                 Render();
             }
         };
-        _layout.SelectionChanged += (_, _) => Render();
+        _layout.SelectionChanged += (_, _) =>
+        {
+            if (_synchronizingLayout) return;
+            if (_preferences is not null) _preferences.DiffLayoutIndex = _layout.SelectedIndex;
+            Render();
+        };
+        AutomationProperties.SetAutomationId(_layout, "DiffLayoutSelector");
+        Loaded += (_, _) =>
+        {
+            DetachPreferences();
+            _preferences = AppearanceResources.Settings(this);
+            if (_preferences is not null) _preferences.PropertyChanged += OnAppearanceChanged;
+            SynchronizePreferences();
+        };
+        Unloaded += (_, _) => DetachPreferences();
         SizeChanged += (_, _) => Render();
         ActualThemeChanged += (_, _) => Render();
         Grid.SetRow(_lines, 1);
         grid.Children.Add(_lines);
         Content = grid;
         AutomationProperties.SetName(_lines, "Changed lines. Select a range to add review context.");
+        AutomationProperties.SetAutomationId(_lines, "DiffLines");
+    }
+
+    private void DetachPreferences()
+    {
+        if (_preferences is not null) _preferences.PropertyChanged -= OnAppearanceChanged;
+        _preferences = null;
+    }
+    private void OnAppearanceChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ShellLayoutViewModel.Appearance)) SynchronizePreferences();
+    }
+    private void SynchronizePreferences()
+    {
+        _synchronizingLayout = true;
+        try { _layout.SelectedIndex = _preferences?.DiffLayoutIndex ?? 0; }
+        finally { _synchronizingLayout = false; }
+        var wrap = _preferences?.WordWrap ?? true;
+        ScrollViewer.SetHorizontalScrollMode(_lines, wrap ? ScrollMode.Disabled : ScrollMode.Enabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(_lines, wrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+        AutomationProperties.SetHelpText(this, $"{(_layout.SelectedIndex == 1 ? "Split" : "Unified")} diff • word wrap {(wrap ? "on" : "off")}");
+        Render();
     }
 
     private static void AddButton(Panel parent, string label, Action action)
@@ -77,7 +117,13 @@ public sealed class DiffView : UserControl
     private IEnumerable<DiffLine> SelectedLines() => _lines.SelectedItems.OfType<DiffRow>()
         .SelectMany(static row => row.Right is { } right ? new[] { row.Left, right } : [row.Left]);
 
-    private void LoadDocument() { _document = DiffDocument.Parse(Text ?? string.Empty); _collapsed.Clear(); Render(); }
+    private void LoadDocument()
+    {
+        // Offsets belong to one patch. A whitespace reload or another file must not reuse
+        // selection coordinates from the previous document; layout-only renders retain them.
+        _lines.SelectedItems.Clear();
+        _document = DiffDocument.Parse(Text ?? string.Empty); _collapsed.Clear(); Render();
+    }
 
     private void NavigateHunk(int delta)
     {
@@ -110,10 +156,10 @@ public sealed class DiffView : UserControl
                 var added = new List<DiffLine>();
                 while (index < visible.Length && visible[index].Kind == DiffLineKind.Addition) added.Add(visible[index++]);
                 for (var pair = 0; pair < Math.Max(removed.Count, added.Count); pair++)
-                    rows.Add(new DiffRow(pair < removed.Count ? removed[pair] : added[pair], pair < added.Count && pair < removed.Count ? added[pair] : null, true, ActualWidth / 2, ActualTheme));
+                    rows.Add(new DiffRow(pair < removed.Count ? removed[pair] : added[pair], pair < added.Count && pair < removed.Count ? added[pair] : null, true, ActualWidth / 2, ActualTheme, this));
                 index--;
             }
-            else rows.Add(new DiffRow(line, split && line.Kind == DiffLineKind.Context ? line : null, split, ActualWidth / 2, ActualTheme));
+            else rows.Add(new DiffRow(line, split && line.Kind == DiffLineKind.Context ? line : null, split, ActualWidth / 2, ActualTheme, this));
         }
         _lines.ItemsSource = rows;
         foreach (var row in rows.Where(row => selectedOffsets.Contains(row.Left.Offset) || (row.Right is not null && selectedOffsets.Contains(row.Right.Offset)))) _lines.SelectedItems.Add(row);
@@ -130,7 +176,7 @@ public sealed class DiffView : UserControl
         protected override string GetClassNameCore() => nameof(DiffView);
     }
 
-    public sealed record DiffRow(DiffLine Left, DiffLine? Right, bool Split, double Width, ElementTheme Theme = ElementTheme.Default)
+    public sealed record DiffRow(DiffLine Left, DiffLine? Right, bool Split, double Width, ElementTheme Theme = ElementTheme.Default, FrameworkElement? Owner = null)
     {
         public string LeftText => Split && Left.Kind == DiffLineKind.Addition ? string.Empty : Left.Text;
         public string RightText => Right?.Text ?? (Split && Left.Kind == DiffLineKind.Addition ? Left.Text : string.Empty);
@@ -145,10 +191,11 @@ public sealed class DiffView : UserControl
             ".cs" => "csharp", ".js" or ".jsx" or ".ts" or ".tsx" => "javascript", ".py" => "python",
             ".json" => "json", ".html" => "html", ".css" => "css", ".xml" or ".xaml" => "xml", _ => string.Empty,
         };
-        private Brush Background(DiffLineKind kind) => ThemeResourceLookup.Get<Brush>(Theme, kind switch
+        private Brush Background(DiffLineKind kind)
         {
-            DiffLineKind.Addition => "PiSuccessSurfaceBrush", DiffLineKind.Deletion => "PiCriticalSurfaceBrush", _ => "PiControlSurfaceBrush",
-        });
+            var key = kind switch { DiffLineKind.Addition => "PiSuccessSurfaceBrush", DiffLineKind.Deletion => "PiCriticalSurfaceBrush", _ => Owner is null ? "PiControlSurfaceBrush" : "PiCodeBackgroundBrush" };
+            return Owner is null ? ThemeResourceLookup.Get<Brush>(Theme, key) : ThemeResourceLookup.Get<Brush>(Owner, key);
+        }
     }
 }
 
@@ -169,7 +216,12 @@ public sealed class DiffCodeLine : UserControl
     private static void Changed(DependencyObject sender, DependencyPropertyChangedEventArgs args) => ((DiffCodeLine)sender).Render();
     private void Render()
     {
-        var block = new RichTextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = Foreground, TextWrapping = TextWrapping.Wrap, IsHitTestVisible = false };
+        var block = new RichTextBlock
+        {
+            FontFamily = ThemeResourceLookup.Get<FontFamily>(this, "PiMonospaceFontFamily"),
+            FontSize = ThemeResourceLookup.Get<double>(this, "PiCodeFontSize"), Foreground = Foreground,
+            TextWrapping = AppearanceResources.Settings(this)?.CodeTextWrapping ?? TextWrapping.Wrap, IsHitTestVisible = false,
+        };
         var paragraph = new Paragraph();
         var language = string.IsNullOrWhiteSpace(SyntaxLanguage) ? null : Languages.FindById(SyntaxLanguage);
         if (language is null || (Code?.Length ?? 0) > 4096) paragraph.Inlines.Add(new Run { Text = Code ?? string.Empty });

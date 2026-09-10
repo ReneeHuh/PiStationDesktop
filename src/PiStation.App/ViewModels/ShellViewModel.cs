@@ -1978,6 +1978,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task SelectWorkbenchChangeAsync(WorkbenchChangeItemViewModel? change)
     {
+        _appearanceCheckpoint = null;
         var project = SelectedProject;
         Interlocked.Exchange(ref _workbenchDiffLoadCancellation, null)?.Cancel();
         if (project is null || change is null)
@@ -2001,11 +2002,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 new GetProjectChangeDiffRequest(
                     project.ProjectId,
                     change.RelativePath,
-                    ThreadId: SelectedThread?.ThreadId),
+                    ThreadId: SelectedThread?.ThreadId,
+                    IgnoreWhitespace: Layout.DiffIgnoreWhitespace),
                 loadCancellation.Token).ConfigureAwait(false);
             RunOnUiThread(() =>
             {
-                if (SelectedProject?.ProjectId != project.ProjectId ||
+                if (loadCancellation.IsCancellationRequested || SelectedProject?.ProjectId != project.ProjectId ||
                     WorkbenchChanges.SelectedChange?.RelativePath != change.RelativePath)
                 {
                     return;
@@ -2072,13 +2074,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         RunOnUiThread(() =>
         {
             Layout.SelectedPanel = WorkbenchPanelKind.Changes;
+            _appearanceCheckpoint = new GetThreadCheckpointDiffRequest(thread.ThreadId, turnCount, scope, relativePath, Layout.DiffIgnoreWhitespace);
             Layout.IsRightPanelOpen = true;
             WorkbenchChanges.BeginCheckpointDiff(turnCount, scope, relativePath);
         });
         try
         {
             var result = await RequireClient().GetThreadCheckpointDiffAsync(
-                new GetThreadCheckpointDiffRequest(thread.ThreadId, turnCount, scope, relativePath),
+                new GetThreadCheckpointDiffRequest(thread.ThreadId, turnCount, scope, relativePath, Layout.DiffIgnoreWhitespace),
                 loadCancellation.Token).ConfigureAwait(false);
             RunOnUiThread(() =>
             {
@@ -3558,6 +3561,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             finally { _pullRequestReview.Dispose(); }
         }
         _inboxTimer?.Stop();
+        _activityTimer?.Stop();
+        if (_activityTimer is not null) _activityTimer.Tick -= OnActivityTimer;
         if (_inboxTimer is not null) _inboxTimer.Tick -= OnInboxTimer;
         CloseFileMentionSuggestions();
         CancelWorkbenchFiles();

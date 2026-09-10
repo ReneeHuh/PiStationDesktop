@@ -145,7 +145,17 @@ public sealed partial class ShellPage
         files.SelectionChanged += (_, _) => review.SelectedFile = files.SelectedItem as PullRequestChangedFile;
         files.SetBinding(ListView.SelectedItemProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.SelectedFile)), Mode = BindingMode.OneWay });
         var fileSummary = BindText(review, nameof(review.SelectedFileSummary));
-        var lines = new ListView { ItemsSource = review.Lines, MaxHeight = 220, SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "DisplayText" };
+        var lines = new ListView
+        {
+            ItemsSource = review.Lines, MaxHeight = 220, SelectionMode = ListViewSelectionMode.Single,
+            FontFamily = ThemeResourceLookup.Get<Microsoft.UI.Xaml.Media.FontFamily>(this, "PiMonospaceFontFamily"),
+            FontSize = ThemeResourceLookup.Get<double>(this, "PiCodeFontSize"),
+            ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+                "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><TextBlock Text=\"{Binding DisplayText}\" TextWrapping=\"" +
+                (ViewModel.Layout.WordWrap ? "Wrap" : "NoWrap") + "\" /></DataTemplate>"),
+        };
+        ScrollViewer.SetHorizontalScrollMode(lines, ViewModel.Layout.WordWrap ? ScrollMode.Disabled : ScrollMode.Enabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(lines, ViewModel.Layout.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
         AutomationProperties.SetAutomationId(lines, "PullRequestReviewDiffLines");
         lines.SelectionChanged += (_, _) => review.SelectedLine = lines.SelectedItem as PullRequestReviewLineViewModel;
         lines.SetBinding(ListView.SelectedItemProperty, new Binding { Source = review, Path = new PropertyPath(nameof(review.SelectedLine)), Mode = BindingMode.OneWay });

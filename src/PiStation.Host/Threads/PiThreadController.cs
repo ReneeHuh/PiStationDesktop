@@ -443,7 +443,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                         result.Usage.CacheReadTokens + result.Usage.CacheWriteTokens,
                         result.Usage.TotalTokens,
                         result.Usage.TotalCost,
-                        cancellationToken).ConfigureAwait(false);
+                        originKind: "compaction", cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 return new ContextCompactionResult(
                     result.Summary,
@@ -1126,7 +1126,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             ResolveInteraction(new InteractionResolvedEvent(
                 question.InteractionId,
                 InteractionState.Answered,
-                Answer: answer));
+                Answer: question.InputKind == QuestionInputKind.Secret ? "Credential supplied" : answer));
         }
         finally
         {
@@ -1276,6 +1276,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
             {
             }
         }
+        _componentInteraction = null;
     }
 
     private async Task ApplyPiEventAsync(PiRpcEvent @event)
@@ -1283,6 +1284,9 @@ public sealed partial class PiThreadController : IAsyncDisposable
         TouchRuntime();
         switch (@event)
         {
+            case PiComponentClosedEvent closed:
+                await CloseComponentInteractionAsync(closed.ComponentId).ConfigureAwait(false);
+                break;
             case PiIdlePromptCompletedEvent completed when Journal.Projection.CurrentTurnId?.Value == completed.Tag:
                 await SettleAsync().ConfigureAwait(false);
                 break;
@@ -1330,6 +1334,8 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     completed.Message,
                     isComplete: true)));
                 CaptureTurnUsage(completed.Message, completed.Usage);
+                if (Usage.UsageRecord.Read(completed.Message, _thread.PiSessionId, GetAssistantMessageId()) is { } usageRecord)
+                    await _database.SaveUsageRecordAsync(_thread.ThreadId, usageRecord, _shutdown.Token).ConfigureAwait(false);
                 break;
             case PiToolExecutionStartedEvent started:
                 Journal.Commit(new ToolStartedEvent(new ToolProjection(
@@ -1413,9 +1419,11 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     requested.TimeoutMilliseconds);
                 break;
             case PiInputRequestedEvent requested:
+                if (requested.ComponentId is not null)
+                    _componentInteraction = (requested.ComponentId, InteractionId.Parse(requested.RequestId));
                 Journal.Commit(new QuestionRequestedEvent(
                     InteractionId.Parse(requested.RequestId),
-                    QuestionInputKind.Input,
+                    requested.IsSecret ? QuestionInputKind.Secret : QuestionInputKind.Input,
                     requested.Title,
                     requested.Placeholder,
                     [],
@@ -1564,7 +1572,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     usage.CacheReadTokens + usage.CacheWriteTokens,
                     usage.TotalTokens,
                     usage.TotalCost,
-                    CancellationToken.None).ConfigureAwait(false);
+                    originKind: "chat", cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
         }
         else

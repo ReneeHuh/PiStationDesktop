@@ -13,11 +13,12 @@ public sealed partial class ShellViewModel
     internal void SetWindowActive(bool active)
     {
         _windowActive = active;
-        if (!IsRemote || active && _runtimeStopped) return;
-        if (!active)
+        StartActivityReporting();
+        if (!IsRemote) return;
+        if (_runtimeStopped)
         {
             _remoteRefreshTimer?.Stop();
-            if (_runtimeStopped && _remoteRefreshTimer is { } timer)
+            if (_remoteRefreshTimer is { } timer)
             {
                 timer.Tick -= OnRemoteRefreshTick;
                 _remoteRefreshTimer = null;
@@ -39,7 +40,7 @@ public sealed partial class ShellViewModel
 
     private async Task RefreshRemoteWorkspaceAsync()
     {
-        if (!_windowActive || !IsRemote || _runtimeStopped || _remoteRefreshPending || !IsConnected ||
+        if (!BackgroundRefreshAllowed || !IsRemote || _runtimeStopped || _remoteRefreshPending || !IsConnected ||
             _commandPending || SelectedProject is not { } project) return;
         _remoteRefreshPending = true;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));

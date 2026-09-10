@@ -48,6 +48,12 @@ public static partial class ThreadProjectionReducer
         entries = ActiveBranch(entries, leafId);
         var activeIds = entries.Where(entry => entry.TryGetProperty("id", out _)).Select(entry => entry.GetProperty("id").GetString()).ToHashSet(StringComparer.Ordinal);
         var timeline = new List<TimelineItem>();
+        var timelineIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+        void AppendOrReplace(TimelineItem item)
+        {
+            if (timelineIndices.TryGetValue(item.ItemId, out var index)) timeline[index] = item;
+            else { timelineIndices.Add(item.ItemId, timeline.Count); timeline.Add(item); }
+        }
         var hydratedTurnIds = new List<TurnId>();
         TurnId? hydratedTurnId = null;
         DateTimeOffset? hydratedTurnStartedUtc = null;
@@ -60,7 +66,7 @@ public static partial class ThreadProjectionReducer
             if (entry.TryGetProperty("type", out var kind) && kind.GetString() == "branch_summary")
             {
                 var summaryId = entry.GetProperty("id").GetString()!;
-                timeline.Add(new MessageTimelineItem("summary-" + summaryId, null, summaryId, MessageRole.System,
+                AppendOrReplace(new MessageTimelineItem("summary-" + summaryId, null, summaryId, MessageRole.System,
                     "Branch summary\n" + entry.GetProperty("summary").GetString(), true));
                 continue;
             }
@@ -80,8 +86,7 @@ public static partial class ThreadProjectionReducer
             {
                 if (hydratedTurnId is not null)
                 {
-                    timeline = AddOrReplace(
-                        timeline,
+                    AppendOrReplace(
                         CreateTurnBoundary(
                             hydratedTurnId.Value,
                             TurnBoundaryKind.Settled,
@@ -99,8 +104,7 @@ public static partial class ThreadProjectionReducer
                 hydratedTurnLastUtc = entryTimestamp;
                 hydratedTurnUsage = null;
                 hydratedContextTokens = null;
-                timeline = AddOrReplace(
-                    timeline,
+                AppendOrReplace(
                     CreateTurnBoundary(hydratedTurnId.Value, TurnBoundaryKind.Started));
             }
 
@@ -117,13 +121,27 @@ public static partial class ThreadProjectionReducer
                 }
             }
 
-            timeline = AddOrReplaceMessage(timeline, hydratedMessage, hydratedTurnId);
+            // Hydration builds one private list. Copying the growing immutable
+            // projection per message made long sessions quadratic.
+            if (timelineIndices.ContainsKey($"message-{hydratedMessage.MessageId}"))
+            {
+                // Preserve duplicate-entry compatibility without penalizing the
+                // normal session format, whose entry IDs are unique.
+                timeline = AddOrReplaceMessage(timeline, hydratedMessage, hydratedTurnId);
+                timelineIndices.Clear();
+                for (var index = 0; index < timeline.Count; index++) timelineIndices[timeline[index].ItemId] = index;
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(hydratedMessage.Thinking))
+                    AppendOrReplace(new ThinkingTimelineItem($"thinking-{id}", hydratedTurnId, id, hydratedMessage.Thinking, true));
+                AppendOrReplace(new MessageTimelineItem($"message-{id}", hydratedTurnId, id, hydratedMessage.Role, hydratedMessage.Text, true, hydratedMessage.Content));
+            }
         }
 
         if (hydratedTurnId is not null)
         {
-            timeline = AddOrReplace(
-                timeline,
+            AppendOrReplace(
                 CreateTurnBoundary(
                     hydratedTurnId.Value,
                     TurnBoundaryKind.Settled,

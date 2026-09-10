@@ -21,6 +21,7 @@ function Invoke-CheckedNative {
 }
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
+    if ($Arguments -contains 'PromptInput' -and $Arguments[0] -in @('set-value', 'focus', 'click', 'invoke', 'type', 'send-keys', 'inspect', 'get-value', 'get-property', 'wait-for') -and $Arguments -notcontains '--gone') { Expand-TestComposer }
     Invoke-CheckedNative 'winapp' (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json'))
 }
 function Start-TestApp {
@@ -86,7 +87,7 @@ try {
     Invoke-Ui 'wait-for' 'ProjectPathInput' '--timeout' '5000' | Out-Null
     Invoke-Ui 'set-value' 'ProjectPathInput' $projectPath | Out-Null
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
-    Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
+    Select-TestProject 'fixture-project'
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
     Wait-TestThread 'Thread 1'
     Invoke-Ui 'set-value' 'PromptInput' 'Keep this draft while managing Pi.' | Out-Null
@@ -118,8 +119,7 @@ try {
     Assert-Prompt 'Keep this draft while managing Pi.'
     Stop-TestApp
     Start-TestApp
-    Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
-    Invoke-Ui 'invoke' 'fixture-project' | Out-Null
+    Select-TestProject 'fixture-project'
     Wait-TestThread 'Thread 1'
     Select-TestThread 'Thread 1'
     Assert-Prompt 'Keep this draft while managing Pi.'

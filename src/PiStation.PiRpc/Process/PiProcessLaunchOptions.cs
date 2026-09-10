@@ -17,6 +17,10 @@ public sealed record PiProcessLaunchOptions
 
     public bool DiscoverExtensions { get; init; }
 
+    public string? SdkAdapterPath { get; init; }
+
+    public bool TemporaryHistory { get; init; }
+
     public IReadOnlyDictionary<string, string?> EnvironmentVariables { get; init; } =
         new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 

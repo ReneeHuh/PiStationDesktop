@@ -13,8 +13,7 @@
         x:Name="Root"
         automation:AutomationProperties.AutomationId="RightPanelHost"
         automation:AutomationProperties.Name="Workbench"
-        Style="{StaticResource PiWorkbenchSurfaceStyle}"
-        Visibility="{x:Bind ViewModel.Layout.RightPanelVisibility, Mode=OneWay}">
+        Style="{StaticResource PiWorkbenchSurfaceStyle}">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="6" />
@@ -220,7 +219,7 @@
                                 <TextBlock
                                     x:Name="GitBranchDetailText"
                                     automation:AutomationProperties.AutomationId="GitBranchDetailText"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind ViewModel.WorkbenchChanges.BranchDetail, Mode=OneWay}"
                                     TextTrimming="CharacterEllipsis" />
@@ -242,7 +241,7 @@
                             Grid.Row="1"
                             automation:AutomationProperties.AutomationId="WorkbenchChangesStatusText"
                             automation:AutomationProperties.LiveSetting="Polite"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.WorkbenchChanges.Status, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.WorkbenchChanges.StatusVisibility, Mode=OneWay}" />
@@ -365,8 +364,8 @@
                                                 Text="{x:Bind FileName}"
                                                 TextTrimming="CharacterEllipsis" />
                                             <TextBlock
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                FontSize="{ThemeResource PiFontSizeCaption}"
                                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                                 Text="{x:Bind RelativePath}"
                                                 TextTrimming="CharacterEllipsis" />
@@ -385,8 +384,8 @@
                                                 Text="{x:Bind AreaLabel}" />
                                             <TextBlock
                                                 HorizontalAlignment="Right"
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                FontSize="{ThemeResource PiFontSizeCaption}"
                                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                                 Text="{x:Bind LineSummary}" />
                                         </StackPanel>
@@ -416,7 +415,7 @@
                             <TextBlock
                                 x:Name="WorkbenchDiffPathText"
                                 automation:AutomationProperties.AutomationId="WorkbenchDiffPathText"
-                                FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
                                 Foreground="{ThemeResource PiTextPrimaryBrush}"
                                 Text="{x:Bind ViewModel.WorkbenchChanges.DiffPath, Mode=OneWay}"
                                 TextTrimming="CharacterEllipsis" />
@@ -424,7 +423,7 @@
                                 x:Name="WorkbenchDiffStatusText"
                                 automation:AutomationProperties.AutomationId="WorkbenchDiffStatusText"
                                 automation:AutomationProperties.LiveSetting="Polite"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.WorkbenchChanges.DiffMessage, Mode=OneWay}"
                                 TextWrapping="WrapWholeWords" />
@@ -574,7 +573,7 @@
                                     x:Name="TerminalPaneSummaryText"
                                     automation:AutomationProperties.AutomationId="TerminalPaneSummaryText"
                                     automation:AutomationProperties.LiveSetting="Polite"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                     Text="{x:Bind ViewModel.WorkbenchTerminal.PaneSummary, Mode=OneWay}"
                                     TextTrimming="CharacterEllipsis" />
@@ -582,7 +581,7 @@
                                     x:Name="TerminalStatusText"
                                     automation:AutomationProperties.AutomationId="TerminalStatusText"
                                     automation:AutomationProperties.LiveSetting="Polite"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind ViewModel.WorkbenchTerminal.Status, Mode=OneWay}"
                                     TextTrimming="CharacterEllipsis" />
@@ -791,7 +790,7 @@
                             Grid.Row="1"
                             automation:AutomationProperties.AutomationId="WorkbenchFileStatusText"
                             automation:AutomationProperties.LiveSetting="Polite"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.WorkbenchFiles.Status, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.WorkbenchFiles.StatusVisibility, Mode=OneWay}" />
@@ -859,7 +858,7 @@
                                                 ToolTipService.ToolTip="{x:Bind RelativePath}">
                                                 <StackPanel>
                                                     <TextBlock FontWeight="SemiBold" Text="{x:Bind FileName}" TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
                                             </Grid>
                                         </DataTemplate>
@@ -886,7 +885,7 @@
                                                 <StackPanel Spacing="2">
                                                     <TextBlock FontWeight="SemiBold" Text="{x:Bind FileName}" TextTrimming="CharacterEllipsis" />
                                                     <TextBlock FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="11" Text="{x:Bind LineContent}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="11" Text="{x:Bind LineContent}" TextTrimming="CharacterEllipsis" />
                                                     <TextBlock FontSize="10" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind LineNumber}" />
                                                 </StackPanel>
                                             </Grid>
@@ -949,7 +948,7 @@
                                         x:Name="WorkbenchFilePreviewPathText"
                                         VerticalAlignment="Center"
                                         automation:AutomationProperties.AutomationId="WorkbenchFilePreviewPathText"
-                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                        FontFamily="{ThemeResource PiMonospaceFontFamily}"
                                         Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.RelativePath, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis" />
                                     <Grid Grid.Row="1" RowSpacing="4">
@@ -990,7 +989,7 @@
                                     Margin="0,0,0,4"
                                     automation:AutomationProperties.AutomationId="WorkbenchFilePreviewStatusText"
                                     automation:AutomationProperties.LiveSetting="Polite"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.Status, Mode=OneWay}"
                                     TextWrapping="WrapWholeWords"
@@ -1001,16 +1000,17 @@
                                         x:Name="WorkbenchFileEditor"
                                         automation:AutomationProperties.AutomationId="WorkbenchFileEditor"
                                         automation:AutomationProperties.Name="Editable workspace file"
+                                        Foreground="{ThemeResource PiCodeForegroundBrush}"
                                         AcceptsReturn="True"
-                                        Background="{ThemeResource PiControlSurfaceBrush}"
-                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        Background="{ThemeResource PiCodeBackgroundBrush}"
+                                        FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                        FontSize="{ThemeResource PiCodeFontSize}"
                                         IsReadOnly="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.IsReadOnly, Mode=OneWay}"
                                         Padding="10"
                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
                                         Text="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                        TextWrapping="NoWrap"
+                                        TextWrapping="{x:Bind ViewModel.Layout.CodeTextWrapping, Mode=OneWay}"
                                         Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.SourceVisibility, Mode=OneWay}" />
 
                                     <ScrollViewer Visibility="{x:Bind ViewModel.WorkbenchFiles.ActiveDocument.MarkdownVisibility, Mode=OneWay}" VerticalScrollBarVisibility="Auto">
@@ -1446,7 +1446,7 @@
                                             x:Name="PreviewDiscoveryStatusText"
                                             automation:AutomationProperties.AutomationId="PreviewDiscoveryStatusText"
                                             automation:AutomationProperties.LiveSetting="Polite"
-                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                            FontSize="{ThemeResource PiFontSizeCaption}"
                                             Foreground="{ThemeResource PiTextMutedBrush}"
                                             Text="{x:Bind ViewModel.WorkbenchPreview.DiscoveryStatus, Mode=OneWay}"
                                             TextWrapping="WrapWholeWords"
@@ -1482,11 +1482,11 @@
                                                         Glyph="&#xE774;" />
                                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                                         <TextBlock
-                                                            FontFamily="{StaticResource PiMonospaceFontFamily}"
+                                                            FontFamily="{ThemeResource PiMonospaceFontFamily}"
                                                             Text="{x:Bind Url}"
                                                             TextTrimming="CharacterEllipsis" />
                                                         <TextBlock
-                                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                                            FontSize="{ThemeResource PiFontSizeCaption}"
                                                             Foreground="{ThemeResource PiTextMutedBrush}"
                                                             Text="{x:Bind Ownership}"
                                                             TextTrimming="CharacterEllipsis" />
@@ -1560,7 +1560,7 @@
                                 x:Name="AgentActivitySummaryText"
                                 automation:AutomationProperties.AutomationId="AgentActivitySummaryText"
                                 automation:AutomationProperties.LiveSetting="Polite"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.WorkbenchAgents.Summary, Mode=OneWay}"
                                 TextWrapping="WrapWholeWords" />
@@ -1577,7 +1577,7 @@
                                             ItemsSource="{x:Bind ViewModel.Agents.Modes}"
                                             SelectedItem="{x:Bind ViewModel.Agents.Mode, Mode=TwoWay}" />
                                         <TextBlock Text="{x:Bind ViewModel.Agents.WorkflowHint, Mode=OneWay}" TextWrapping="WrapWholeWords"
-                                            FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" />
+                                            FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" />
                                         <ItemsControl ItemsSource="{x:Bind ViewModel.Agents.Tasks}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="viewModels:AgentTaskEditorViewModel">
@@ -1618,7 +1618,7 @@
                                                 <TextBox Header="Instructions" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxHeight="140" MaxLength="8192"
                                                     Text="{x:Bind ViewModel.Agents.Instructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetInstructionsTextBox" />
                                                 <TextBox Header="Tools (comma separated)" Text="{x:Bind ViewModel.Agents.Tools, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetToolsTextBox" />
-                                                <TextBlock Text="Supported tools: read, grep, find, ls, bash, powershell (Windows), edit, write. Dedicated host tool restrictions also apply to child presets." TextWrapping="WrapWholeWords" FontSize="{StaticResource PiFontSizeCaption}" />
+                                                <TextBlock Text="Supported tools: read, grep, find, ls, bash, powershell (Windows), edit, write. Dedicated host tool restrictions also apply to child presets." TextWrapping="WrapWholeWords" FontSize="{ThemeResource PiFontSizeCaption}" />
                                                 <TextBox Header="Model (optional provider/model)" MaxLength="240" PlaceholderText="Inherit from parent"
                                                     Text="{x:Bind ViewModel.Agents.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.AutomationId="AgentPresetModelTextBox" />
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1668,14 +1668,14 @@
                                                         <TextBlock FontWeight="SemiBold" Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                                                         <TextBlock
                                                             VerticalAlignment="Center"
-                                                            FontSize="{StaticResource PiFontSizeCaption}"
+                                                            FontSize="{ThemeResource PiFontSizeCaption}"
                                                             Foreground="{ThemeResource PiTextMutedBrush}"
                                                             Text="{x:Bind KindLabel, Mode=OneWay}" />
                                                     </StackPanel>
                                                     <TextBlock
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiAccentBrush}"
                                                         Text="{x:Bind StateLabel, Mode=OneWay}" />
                                                     <Button
@@ -1690,23 +1690,23 @@
                                                         Visibility="{x:Bind InterruptVisibility, Mode=OneWay}" />
                                                 </Grid>
                                                 <TextBlock
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{x:Bind CurrentActivity, Mode=OneWay}"
                                                     TextWrapping="WrapWholeWords" />
                                                 <TextBlock
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                                     Text="{x:Bind Metrics, Mode=OneWay}" />
                                                 <TextBlock
-                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                                     Text="{x:Bind ModelSummary, Mode=OneWay}"
                                                     TextWrapping="WrapWholeWords"
                                                     Visibility="{x:Bind ModelVisibility, Mode=OneWay}" />
                                                 <TextBlock
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{x:Bind Task, Mode=OneWay}"
                                                     Visibility="{x:Bind TaskVisibility, Mode=OneWay}"
@@ -1715,13 +1715,13 @@
                                                     Visibility="{x:Bind DetailsVisibility, Mode=OneWay}"
                                                     automation:AutomationProperties.AutomationId="AgentDetailsButton" />
                                                 <TextBlock
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{x:Bind ResultSummary, Mode=OneWay}"
                                                     TextWrapping="WrapWholeWords"
                                                     Visibility="{x:Bind ResultVisibility, Mode=OneWay}" />
                                                 <TextBlock
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiCriticalBrush}"
                                                     Text="{x:Bind FailureSummary, Mode=OneWay}"
                                                     TextWrapping="WrapWholeWords"

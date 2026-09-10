@@ -763,11 +763,14 @@ public sealed class EmbeddedHostIntegrationTests
         }
     }
 
-    [Fact]
-    public async Task PendingInteractionsReconnectResolveIdempotentlyAndRejectStaleAnswers()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PendingInteractionsReconnectResolveIdempotentlyAndRejectStaleAnswers(bool secret)
     {
         using var temporaryDirectory = new HostTestDirectory();
-        var options = temporaryDirectory.CreateOptions("interactions");
+        var options = temporaryDirectory.CreateOptions(secret ? "secret-interactions" : "interactions");
+        var answer = secret ? "isolated-secret-never-in-journal" : "Run tests";
         var projectPath = temporaryDirectory.CreateDirectory("project");
         await using var host = await EmbeddedEnvironmentHost.StartAsync(options);
         await using var connection = HostTestConnection.Create(host);
@@ -861,7 +864,8 @@ public sealed class EmbeddedHostIntegrationTests
         }
 
         Assert.NotNull(questionRequested);
-        Assert.Equal(["Run tests", "Skip tests"], questionRequested.Options);
+        if (secret) Assert.Equal(QuestionInputKind.Secret, questionRequested.InputKind);
+        else Assert.Equal(["Run tests", "Skip tests"], questionRequested.Options);
         var answerRequest = new ExecuteThreadCommandRequest(
             ProtocolVersion.Current,
             descriptor.EnvironmentId,
@@ -870,7 +874,7 @@ public sealed class EmbeddedHostIntegrationTests
             thread.ThreadId,
             initial.ProjectionEpoch,
             turnId,
-            new ThreadAnswerQuestionCommand(questionRequested.InteractionId, "Run tests"));
+            new ThreadAnswerQuestionCommand(questionRequested.InteractionId, answer));
         var answerReceipt = await connection.InvokeAsync<CommandReceipt>(
             "ExecuteThreadCommand",
             answerRequest,
@@ -899,8 +903,28 @@ public sealed class EmbeddedHostIntegrationTests
             "approved",
             await File.ReadAllTextAsync(Path.Combine(options.SessionRoot, "approval-response.txt"), cancellation.Token));
         Assert.Equal(
-            "Run tests",
+            answer,
             await File.ReadAllTextAsync(Path.Combine(options.SessionRoot, "question-response.txt"), cancellation.Token));
+        if (secret)
+        {
+            await using var reconnected = connection.StreamAsync<ThreadEnvelope>("SubscribeThread", thread.ThreadId, null, cancellation.Token).GetAsyncEnumerator(cancellation.Token);
+            Assert.True(await reconnected.MoveNextAsync());
+            var snapshot = Assert.IsType<ThreadSnapshotEnvelope>(reconnected.Current);
+            var json = System.Text.Json.JsonSerializer.Serialize(snapshot.Projection, ProtocolJsonContext.Default.ThreadProjection);
+            Assert.DoesNotContain(answer, json);
+            Assert.Contains("Credential supplied", json);
+            foreach (var file in Directory.EnumerateFiles(options.CanonicalDataRoot, "host.db*"))
+                {
+                    try
+                    {
+                        await using var source = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        using var bytes = new MemoryStream();
+                        await source.CopyToAsync(bytes, cancellation.Token);
+                        Assert.DoesNotContain(answer, System.Text.Encoding.UTF8.GetString(bytes.ToArray()));
+                    }
+                    catch (FileNotFoundException) when (file != options.DatabasePath) { /* SQLite removed a transient WAL/SHM file after checkpointing. */ }
+                }
+        }
     }
 
     [Fact]

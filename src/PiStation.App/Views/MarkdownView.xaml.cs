@@ -32,6 +32,7 @@ public sealed partial class MarkdownView : UserControl
         InitializeComponent();
         AutomationProperties.SetName(this, "Markdown message");
         ActualThemeChanged += OnActualThemeChanged;
+        Loaded += (_, _) => Render(Text);
     }
 
     public event EventHandler<string>? WorkspaceLinkRequested;
@@ -330,6 +331,7 @@ public sealed partial class MarkdownView : UserControl
         var container = new Border
         {
             Style = Resource<Style>(CodeBlockStyleKey),
+            Background = Resource<Microsoft.UI.Xaml.Media.Brush>("PiCodeBackgroundBrush"),
         };
         AutomationProperties.SetName(container, $"{displayLanguage} code block");
         AutomationProperties.SetAutomationId(container, "MarkdownCodeBlock");
@@ -366,6 +368,9 @@ public sealed partial class MarkdownView : UserControl
         {
             IsTextSelectionEnabled = true,
             Style = Resource<Style>(CodeStyleKey),
+            FontFamily = Resource<Microsoft.UI.Xaml.Media.FontFamily>("PiMonospaceFontFamily"),
+            FontSize = Resource<double>("PiCodeFontSize"),
+            Foreground = Resource<Microsoft.UI.Xaml.Media.Brush>("PiCodeForegroundBrush"),
             TextWrapping = TextWrapping.NoWrap,
         };
         AutomationProperties.SetAutomationId(codeText, "MarkdownCodeText");

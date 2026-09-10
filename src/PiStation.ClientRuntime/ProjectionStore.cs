@@ -109,6 +109,23 @@ public sealed class ProjectionStore(ThreadId threadId)
         }
     }
 
+    public bool TryMergeHistory(ThreadHistoryPage page)
+    {
+        ThreadProjection updated;
+        lock (_gate)
+        {
+            if (!_isSynchronized || _current is null || page.ThreadId != ThreadId ||
+                page.ProjectionEpoch != _current.ProjectionEpoch || page.BeforeItemId != _current.EarlierHistory?.BeforeItemId ||
+                page.Sequence > _current.Sequence) return false;
+            var existing = _current.Timeline.Select(item => item.ItemId).ToHashSet(StringComparer.Ordinal);
+            updated = _current with { Timeline = page.Items.Where(item => existing.Add(item.ItemId)).Concat(_current.Timeline).ToArray(),
+                EarlierHistory = page.Earlier };
+            _current = updated;
+        }
+        Changed?.Invoke(this, new(updated));
+        return true;
+    }
+
     private ProjectionApplyResult ApplySnapshot(
         ThreadSnapshotEnvelope snapshot,
         out ThreadProjection? changedProjection)
@@ -121,7 +138,19 @@ public sealed class ProjectionStore(ThreadId threadId)
             return ProjectionApplyResult.Ignored;
         }
 
-        _current = snapshot.Projection;
+        var replacement = snapshot.Projection;
+        if (_current?.ProjectionEpoch == replacement.ProjectionEpoch && replacement.EarlierHistory is { } earlier)
+        {
+            // A journal overrun can send a fresh recent window in the same
+            // epoch. Keep already loaded immutable history when the windows
+            // overlap, while replacing the live portion from the host.
+            var overlap = -1;
+            for (var index = 0; index < _current.Timeline.Count; index++)
+                if (_current.Timeline[index].ItemId == earlier.BeforeItemId) { overlap = index; break; }
+            if (overlap > 0 && _current.Timeline.Take(overlap).All(item => !ThreadHistoryRules.IsMutable(item))) replacement = replacement with {
+                Timeline = _current.Timeline.Take(overlap).Concat(replacement.Timeline).ToArray(), EarlierHistory = _current.EarlierHistory };
+        }
+        _current = replacement;
         changedProjection = _current;
         return ProjectionApplyResult.Applied;
     }

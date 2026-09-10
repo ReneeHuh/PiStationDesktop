@@ -19,7 +19,7 @@
                     Style="{StaticResource PiUserMessageStyle}"
                     Visibility="{x:Bind UserVisibility}">
                     <StackPanel Spacing="8">
-                        <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind Text}" TextWrapping="Wrap" />
+                        <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind Text}" TextWrapping="Wrap" Foreground="{ThemeResource PiMessageForegroundBrush}" />
                         <ItemsControl ItemsSource="{x:Bind Attachments}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="viewModels:DraftAttachmentViewModel">
@@ -149,7 +149,7 @@
                             <TextBlock
                                 Grid.Column="2"
                                 VerticalAlignment="Center"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiTextSecondaryBrush}"
                                 Text="{x:Bind State}" />
                         </Grid>
@@ -200,13 +200,13 @@
                         <TextBlock
                             Grid.Column="2"
                             VerticalAlignment="Center"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextSecondaryBrush}"
                             Text="{x:Bind CountLabel}" />
                         <TextBlock
                             Grid.Column="3"
                             VerticalAlignment="Center"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextSecondaryBrush}"
                             Text="{x:Bind StateLabel}" />
                     </Grid>
@@ -254,14 +254,14 @@
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     VerticalAlignment="Center"
-                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     FontWeight="SemiBold"
                                                     Text="{x:Bind Name}" />
                                                 <TextBlock
                                                     Grid.Column="2"
                                                     VerticalAlignment="Center"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{x:Bind StateLabel}" />
                                             </Grid>
@@ -273,8 +273,8 @@
                                                 Text="Arguments" />
                                             <TextBlock
                                                 automation:AutomationProperties.AutomationId="ToolArgumentsText"
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                FontSize="{ThemeResource PiFontSizeCaption}"
                                                 IsTextSelectionEnabled="True"
                                                 Text="{x:Bind ArgumentsDisplay}"
                                                 TextWrapping="Wrap" />
@@ -286,8 +286,8 @@
                                             <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
                                                 <TextBlock
                                                     automation:AutomationProperties.AutomationId="ToolOutputText"
-                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     IsTextSelectionEnabled="True"
                                                     Text="{x:Bind OutputDisplay}"
                                                     TextWrapping="Wrap" />
@@ -390,6 +390,8 @@
                         SelectedItem="{x:Bind SelectedOption, Mode=TwoWay}"
                         Style="{StaticResource PiComboBoxStyle}"
                         Visibility="{x:Bind OptionsVisibility}" />
+                    <PasswordBox PasswordChanged="OnSecretQuestionChanged" IsEnabled="{x:Bind IsPending}"
+                        Visibility="{x:Bind SecretVisibility}" automation:AutomationProperties.AutomationId="QuestionSecretInput" />
                     <TextBox
                         automation:AutomationProperties.AutomationId="QuestionAnswerInput"
                         AcceptsReturn="True"
@@ -453,7 +455,7 @@
                                     Text="{x:Bind Summary}"
                                     TextTrimming="CharacterEllipsis" />
                                 <TextBlock
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{x:Bind TurnLabel}" />
                             </StackPanel>
@@ -464,13 +466,13 @@
                                 Spacing="7"
                                 Visibility="{x:Bind StatsVisibility}">
                                 <TextBlock
-                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiAccentBrush}"
                                     Text="{x:Bind AdditionsLabel}" />
                                 <TextBlock
-                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiCriticalBrush}"
                                     Text="{x:Bind DeletionsLabel}" />
                             </StackPanel>
@@ -502,8 +504,8 @@
                                                     Text="{x:Bind FileName}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
-                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                                     Text="{x:Bind RelativePath}"
                                                     TextTrimming="CharacterEllipsis" />
@@ -511,15 +513,15 @@
                                             <TextBlock
                                                 Grid.Column="1"
                                                 VerticalAlignment="Center"
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                FontSize="{ThemeResource PiFontSizeCaption}"
                                                 Foreground="{ThemeResource PiAccentBrush}"
                                                 Text="{x:Bind AdditionsLabel}" />
                                             <TextBlock
                                                 Grid.Column="2"
                                                 VerticalAlignment="Center"
-                                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                FontSize="{StaticResource PiFontSizeCaption}"
+                                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                FontSize="{ThemeResource PiFontSizeCaption}"
                                                 Foreground="{ThemeResource PiCriticalBrush}"
                                                 Text="{x:Bind DeletionsLabel}" />
                                         </Grid>
@@ -564,12 +566,12 @@
                     Orientation="Horizontal"
                     Spacing="5">
                     <TextBlock
-                        FontSize="{StaticResource PiFontSizeCaption}"
+                        FontSize="{ThemeResource PiFontSizeCaption}"
                         Foreground="{ThemeResource PiTextMutedBrush}"
                         Text="{x:Bind Label}" />
                     <TextBlock
                         automation:AutomationProperties.AutomationId="TurnMetricsText"
-                        FontSize="{StaticResource PiFontSizeCaption}"
+                        FontSize="{ThemeResource PiFontSizeCaption}"
                         Foreground="{ThemeResource PiTextMutedBrush}"
                         Text="{x:Bind Metadata}"
                         Visibility="{x:Bind MetadataVisibility}" />
@@ -607,7 +609,15 @@
             ItemsSource="{x:Bind ViewModel.Thread.Timeline}"
             ScrollViewer.VerticalScrollBarVisibility="Auto"
             ScrollViewer.VerticalScrollMode="Enabled"
-            SelectionMode="None" />
+            SelectionMode="None">
+            <ListView.Header>
+                <StackPanel Spacing="6" Padding="8" Visibility="{x:Bind ViewModel.Thread.EarlierHistoryVisibility, Mode=OneWay}">
+                    <Button Content="Load earlier messages" Click="OnLoadEarlierClicked" IsEnabled="{x:Bind ViewModel.Thread.CanLoadHistory, Mode=OneWay}"
+                        automation:AutomationProperties.AutomationId="LoadEarlierHistoryButton" />
+                    <TextBlock automation:AutomationProperties.AutomationId="ThreadHistoryStatus" Text="{x:Bind ViewModel.Thread.HistoryStatus, Mode=OneWay}" TextWrapping="Wrap" />
+                </StackPanel>
+            </ListView.Header>
+        </ListView>
 
         <StackPanel
             x:Name="NoProjectEmptyState"

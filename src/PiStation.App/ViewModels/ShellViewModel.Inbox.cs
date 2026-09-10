@@ -61,7 +61,7 @@ public sealed partial class ShellViewModel
 
     private async void OnInboxTimer(DispatcherQueueTimer sender, object args)
     {
-        if (_client is null) return;
+        if (_client is null || !BackgroundRefreshAllowed) return;
         await RefreshProjectGroupsAsync().ConfigureAwait(false);
         await QueueThreadListRefreshAsync(false, CancellationToken.None).ConfigureAwait(false);
     }

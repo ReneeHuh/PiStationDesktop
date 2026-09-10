@@ -14,15 +14,15 @@
               <Grid MinHeight="22">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <Border Background="{Binding LeftBackground}" Padding="4,1">
-                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="68"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding LeftNumbers}" FontFamily="Consolas" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}"/>
-                    <c:DiffCodeLine Grid.Column="1" Code="{Binding LeftText}" SyntaxLanguage="{Binding SyntaxLanguage}" Foreground="{ThemeResource PiTextPrimaryBrush}"/>
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" MinWidth="68"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding LeftNumbers}" FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="{ThemeResource PiCodeFontSize}" Foreground="{ThemeResource PiTextMutedBrush}"/>
+                    <c:DiffCodeLine Grid.Column="1" Code="{Binding LeftText}" SyntaxLanguage="{Binding SyntaxLanguage}" Foreground="{ThemeResource PiCodeForegroundBrush}"/>
                   </Grid>
                 </Border>
                 <Border Grid.Column="1" Width="{Binding RightWidth}" Visibility="{Binding RightVisibility}" Background="{Binding RightBackground}" Padding="4,1" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource PiDividerBrush}">
-                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding RightNumbers}" FontFamily="Consolas" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}"/>
-                    <c:DiffCodeLine Grid.Column="1" Code="{Binding RightText}" SyntaxLanguage="{Binding SyntaxLanguage}" Foreground="{ThemeResource PiTextPrimaryBrush}"/>
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" MinWidth="44"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding RightNumbers}" FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="{ThemeResource PiCodeFontSize}" Foreground="{ThemeResource PiTextMutedBrush}"/>
+                    <c:DiffCodeLine Grid.Column="1" Code="{Binding RightText}" SyntaxLanguage="{Binding SyntaxLanguage}" Foreground="{ThemeResource PiCodeForegroundBrush}"/>
                   </Grid>
                 </Border>
               </Grid>

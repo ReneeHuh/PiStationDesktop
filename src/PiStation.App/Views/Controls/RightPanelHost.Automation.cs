@@ -14,6 +14,7 @@ public sealed partial class RightPanelHost
     private sealed class BrowserController(PreviewAutomationAccess permission)
     {
         public PreviewAutomationAccess Permission { get; } = permission;
+        public string RecordingOwner { get; } = Guid.NewGuid().ToString("N");
         public BrowserAutomationSession? Session { get; set; }
         public DateTimeOffset RetryAfter { get; set; }
         public bool Busy { get; set; }
@@ -105,7 +106,8 @@ public sealed partial class RightPanelHost
             }
             // Inactive views keep their document. Only a presentation or an operation needs rendering.
             var controller = _browserControllers.GetValueOrDefault(workspace);
-            surface.Visibility = visible || controller is { Busy: true } && controller.TargetTabId == tab.TabId
+            tab.IsRecording = surface.IsRecording;
+            surface.Visibility = visible || surface.IsRecording || controller is { Busy: true } && controller.TargetTabId == tab.TabId
                 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
@@ -159,6 +161,9 @@ public sealed partial class RightPanelHost
                 if (desired.Contains(pair.Key) && pair.Key.Model.AutomationPermission == pair.Value.Permission && (pair.Value.Session?.IsActive == true || pair.Value.Session is null && DateTimeOffset.UtcNow < pair.Value.RetryAfter)) continue;
                 if (pair.Value.Session is { } previous)
                 {
+                    foreach (var tab in pair.Key.Model.Tabs)
+                        if (_previewSurfaces.TryGetValue(tab.TabId, out var recording) && recording.RecordingOwner == pair.Value.RecordingOwner)
+                            await recording.CancelVideoRecordingAsync();
                     if (ViewModel.UiTestFaultControlsVisibility == Visibility.Visible)
                     {
                         Directory.CreateDirectory(ViewModel.PreviewCaptureRoot);
@@ -213,6 +218,7 @@ public sealed partial class RightPanelHost
         var model = workspace.Model;
         WorkbenchPreviewTabViewModel? created = null;
         PreviewWebViewSurface? actionSurface = null;
+        var startedRecording = false;
         var actionStatus = "failed";
         string? actionError = null;
         try
@@ -230,6 +236,13 @@ public sealed partial class RightPanelHost
             ValidateOwner();
             var targetId = command.TabId ?? workspace.AgentTabId;
             var tab = workspace.ResolveAgentTab(command.TabId);
+            if (command.Operation == "recording_stop" && command.TabId is null &&
+                (tab is null || _previewSurfaces.GetValueOrDefault(tab.TabId)?.RecordingOwner != controller.RecordingOwner))
+            {
+                var recordings = model.Tabs.Where(candidate => _previewSurfaces.GetValueOrDefault(candidate.TabId)?.RecordingOwner == controller.RecordingOwner).ToArray();
+                if (recordings.Length == 1) tab = recordings[0];
+                else throw new InvalidOperationException("Specify the tabId of the recording to stop.");
+            }
             if (command.Operation == "open")
             {
                 if (command.Url is not null && !WorkbenchPreviewViewModel.TryNormalizeAddress(command.Url, out _, out var error)) throw new ArgumentException(error);
@@ -275,7 +288,7 @@ public sealed partial class RightPanelHost
             actionSurface = surface;
             ValidateTarget();
             surface.AutomationDiagnostics.StartAction(work.Request.Id, command.Operation);
-            if (command.Operation != "status")
+            if (command.Operation is not ("status" or "recording_stop"))
             {
                 tab.MarkBrowserStarted();
                 await surface.InitializeAsync().WaitAsync(TimeSpan.FromMilliseconds(command.TimeoutMs), work.CancellationToken);
@@ -289,6 +302,25 @@ public sealed partial class RightPanelHost
             object data;
             switch (command.Operation)
             {
+                case "recording_start":
+                    await surface.StartVideoRecordingAsync(controller.RecordingOwner, ViewModel.PreviewCaptureRoot,
+                        ViewModel.Layout.BrowserDefaults.RecordingFramesPerSecond, session.Stopping, work.CancellationToken);
+                    tab.IsRecording = true;
+                    startedRecording = true;
+                    data = new { tabId = tab.TabId, recording = true, requestedFramesPerSecond = ViewModel.Layout.BrowserDefaults.RecordingFramesPerSecond };
+                    break;
+                case "recording_stop":
+                    var video = await surface.StopVideoRecordingAsync(controller.RecordingOwner, work.CancellationToken);
+                    tab.IsRecording = false;
+                    ValidateTarget();
+                    model.SetCaptureStatus(tab.TabId, $"Recording saved locally • {video.EffectiveFramesPerSecond:F1} FPS • {video.Path}", video.Path);
+                    var artifact = await session.UploadRecordingAsync(work, video.Path);
+                    data = new { tabId = tab.TabId, recording = false,
+                        artifact = JsonSerializer.SerializeToElement(artifact, PiStation.Protocol.Serialization.ProtocolJsonContext.Default.BrowserRecordingArtifact),
+                        requestedFramesPerSecond = video.RequestedFramesPerSecond, encodedFrames = video.EncodedFrames,
+                        sourceFrames = video.SourceFrames, durationSeconds = video.DurationSeconds, effectiveFramesPerSecond = video.EffectiveFramesPerSecond };
+                    model.SetCaptureStatus(tab.TabId, $"Recording saved • {video.EffectiveFramesPerSecond:F1} FPS • {video.Path}", video.Path);
+                    break;
                 case "status": data = BrowserStatus(workspace, tab, surface); break;
                 case "open":
                     if (command.Url is not null) await NavigateAutomationAsync(command.Url, surface, tab, ValidateTarget);
@@ -324,6 +356,8 @@ public sealed partial class RightPanelHost
         }
         finally
         {
+            if (startedRecording && actionStatus != "succeeded" && actionSurface?.RecordingOwner == controller.RecordingOwner)
+                await actionSurface.CancelVideoRecordingAsync();
             actionSurface?.AutomationDiagnostics.FinishAction(work.Request.Id, actionStatus, actionError);
             actionSurface?.AutomationGate.Release();
             if (created is not null) { model.CloseTab(created); ViewModel.Browsers.Persist(workspace); }
@@ -336,6 +370,7 @@ public sealed partial class RightPanelHost
     private object BrowserStatus(BrowserWorkspace workspace, WorkbenchPreviewTabViewModel tab, PreviewWebViewSurface surface) => new
     {
         available = surface.IsInitialized, tabId = tab.TabId, tab.DocumentTitle, url = tab.CurrentUrl, tab.IsLoading,
+        recording = surface.IsRecording, recordingFinished = surface.RecordingFinished,
         zoomFactor = tab.ZoomFactor, colorScheme = tab.ColorScheme.ToString().ToLowerInvariant(), profileId = tab.ProfileId,
         viewport = tab.ViewportSetting, visible = ReferenceEquals(PreviewSurfacePresenter.Child, surface),
         permission = workspace.Model.AutomationPermission.ToString(),

@@ -113,8 +113,10 @@ default-branch auto-pull, removal, and runnable trusted `t3.json` scripts. Host-
 adapters use `gh`, `glab`, `bb`, and `az` for clone/publish and pull-request listing, creation,
 comments, labels, reviewers, checks, reviews, merge/close, generated text, and thread linking.
 Settings now routes across projects, Pi/runtime, source control, appearance, integrations,
-diagnostics, usage, and updates, including bounded logs, resource telemetry, durable usage/cost
-aggregation, quota state, and redacted JSON export.
+diagnostics, usage, and updates, including bounded logs, resource telemetry, a native usage dashboard
+with date/model/provider filters, token and cost charts, cache savings, historical rescan, public pricing
+refresh, reconciled child-agent usage, and redacted JSON export. Open **Settings → Usage** or the
+**Open Usage Dashboard** command. [Usage reporting and limits](Docs/USAGE-REPORTING-2026-09-10.md).
 
 Settings is now a first-class sidebar destination with workspace-layout summary/reset, local
 environment details, and About information. Transport, Pi-crash, uncertain-command, and runtime
@@ -288,6 +290,10 @@ on user-run terminals. See [tool configuration and verification](Docs/PI-TOOL-CO
 
 ## Shell and composer preferences
 
+Settings → Appearance also provides independent interface, composer and code fonts/sizes, contrast and surface opacity, file/diff word wrap, unified/split diff layout, Git whitespace filtering and panel animation timing. Changes apply immediately and persist on this PC; panel motion respects Windows reduced motion. Terminal keeps its independent font controls. See [appearance and editor preferences](Docs/APPEARANCE-AND-EDITOR-PREFERENCES-2026-09-10.md) for defaults, limits and verification.
+
+**Custom palettes** adds live preview, color editing, inspection of native UI areas, and a saved theme library. Save commits a preview; Cancel restores the saved palette. Import T3 themes, standalone VS Code JSON/JSONC themes, or Pi terminal colors, then export as T3 JSON. Light/dark variants and unmapped T3 colors survive export. Imports do not install extensions or change Pi's runtime theme. See [theme formats, recovery and verification](Docs/CUSTOM-PALETTES-AND-THEME-INTERCHANGE-2026-09-10.md).
+
 Settings → Appearance → **Shell and composer** saves these preferences on this PC:
 
 - **Ctrl+Q:** close the current window immediately, hold for 1.2 seconds and release Q (default), or press twice within 0.5 seconds. The title-bar close button and Alt+F4 retain normal behavior. Unsaved plan confirmation and draft/file recovery still apply.
@@ -309,7 +315,9 @@ and [the tracker](tracking.md) for the verified implementation boundary.
 
 ## Remote access
 
-Remote access uses protocol 50, including agent JavaScript evaluation and rich snapshots, independent thread browser controllers, agent open/resize/appearance operations, preview-server terminal ownership, saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md), [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md), [browser automation](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md), and [evaluation and snapshots](Docs/BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md) for usage and limits. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
+[Pi extension and session controls](Docs/PI-EXTENSIONS-AND-SESSIONS-2026-09-10.md) add in-process reload, loader attribution, tool batch controls, secret provider prompts, component/child adapters, rich HTML, explicit gist sharing, temporary local sessions and tree navigation. Live provider sign-in remains unverified by request.
+
+Remote access uses protocol 56, including workspace diff whitespace filtering, subscription limit feeds, the usage dashboard, historical/pricing refresh, paged conversation history, activity/power policy, owned-process diagnostics and trace/metric settings, owned browser recording/artifact transfer and revision-aware runtime preferences, agent JavaScript evaluation and rich snapshots, independent thread browser controllers, agent open/resize/appearance operations, preview-server terminal ownership, saved terminal history, subprocess labels, shared grouped-checkout icons, tool-selection settings/inventory, persistent recovery, live project/thread catalogs, verified address changes, full-size text saves, and scoped preview forwarding. Install and update PiStation and Pi on each Windows computer manually. See [terminal and grouped-icon behavior](Docs/TERMINAL-AND-GROUPED-ICONS-2026-09-09.md), [browser preferences](Docs/BROWSER-PREFERENCES-AND-OWNERSHIP-2026-09-09.md), [browser automation](Docs/BROWSER-AUTOMATION-LIFETIME-2026-09-09.md), and [evaluation and snapshots](Docs/BROWSER-EVALUATION-AND-SNAPSHOTS-2026-09-09.md) for usage and limits. See [recording, cookie import and Pi preferences](Docs/BROWSER-RECORDING-AND-RUNTIME-PREFERENCES-2026-09-09.md) for the new controls, limits and validation. The [master tracker](tracking.md) records current scope and acceptance; [earlier remote implementation notes](Docs/REMOTE-ACCESS-IMPLEMENTATION.md) retain historical package/update tooling and qualification evidence.
 
 PiStation can connect Windows desktops over a reachable LAN or VPN address. Open
 **Settings → Connections** on the computer that owns the projects and Pi runtime:
@@ -718,3 +726,7 @@ temporary data root. The MVP baseline passed this test with Pi `0.84.4` on Septe
 versions on `windows-2025`, runs `Invoke-PullRequestTests.ps1`, and always uploads TRX results plus
 the synthetic UI diagnostics. The workflow still needs successful repository runs before the
 runner-specific UI Automation requirement can be considered proven.
+
+Reliability and diagnostics implementation, T3 references, limits, and validation: [protocol-53 milestone](Docs/RELIABILITY-AND-DIAGNOSTICS-2026-09-10.md).
+
+**Settings → Limits** shows subscription quota windows, reset countdowns, and consumption pace from CLIProxyAPI hubs and Pi extension quota feeds. Hub keys are encrypted for the Windows user running the host. Unsupported and stale quotas remain explicit. See [subscription limits, hub setup, and the Pi publisher contract](Docs/SUBSCRIPTION-LIMITS-2026-09-10.md).

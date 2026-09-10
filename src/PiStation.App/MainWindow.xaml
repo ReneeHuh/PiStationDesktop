@@ -20,6 +20,7 @@
           automation:AutomationProperties.Name="Pi Station Desktop main window">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -71,14 +72,23 @@
                 VerticalContentAlignment="Stretch" />
         </Grid>
 
+        <InfoBar x:Name="TemporarySessionNotice" Grid.Row="1" Visibility="Collapsed" IsOpen="True" IsClosable="False" Severity="Informational" Title="Temporary session"
+            Message="Conversation and draft are discarded when this window closes. Project edits and explicit exports remain." automation:AutomationProperties.AutomationId="TemporarySessionNotice">
+            <InfoBar.ActionButton><Button Content="Close temporary session" Click="OnCloseTemporarySessionClicked" automation:AutomationProperties.AutomationId="CloseTemporarySessionButton" /></InfoBar.ActionButton>
+        </InfoBar>
         <ContentControl
-            x:Name="RootContent"
-            Grid.Row="1"
+            x:Name="RootContent" FontFamily="{ThemeResource PiSansFontFamily}" FontSize="{ThemeResource PiFontSizeBody}"
+            Grid.Row="2"
             HorizontalContentAlignment="Stretch"
             VerticalContentAlignment="Stretch" />
-        <InfoBar x:Name="QuitShortcutHint" Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center"
+        <InfoBar x:Name="QuitShortcutHint" Grid.Row="2" VerticalAlignment="Top" HorizontalAlignment="Center"
             Margin="16" MaxWidth="480" IsOpen="False" IsClosable="False" Severity="Informational"
             automation:AutomationProperties.AutomationId="QuitShortcutHint"
             automation:AutomationProperties.LiveSetting="Polite" />
+        <InfoBar x:Name="ThemePreviewNotice" Grid.Row="2" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="16" MaxWidth="560"
+                 IsOpen="False" IsClosable="False" Title="Theme preview" Message="Save the palette in Appearance to keep these colors."
+                 automation:AutomationProperties.AutomationId="ThemePreviewNotice">
+            <InfoBar.ActionButton><Button Content="Cancel preview" Click="OnCancelThemePreview" automation:AutomationProperties.AutomationId="CancelThemePreview" /></InfoBar.ActionButton>
+        </InfoBar>
     </Grid>
 </Window>

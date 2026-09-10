@@ -85,7 +85,9 @@ public sealed record PiInputRequestedEvent(
     string RequestId,
     string Title,
     string? Placeholder,
-    int? TimeoutMilliseconds) : PiExtensionUiRequestEvent(RequestId, "input", Title, TimeoutMilliseconds);
+    int? TimeoutMilliseconds, bool IsSecret = false, string? ComponentId = null) : PiExtensionUiRequestEvent(RequestId, "input", Title, TimeoutMilliseconds);
+
+public sealed record PiComponentClosedEvent(string ComponentId) : PiRpcEvent("pistation_component_closed");
 
 public sealed record PiEditorRequestedEvent(
     string RequestId,

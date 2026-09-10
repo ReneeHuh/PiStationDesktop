@@ -30,6 +30,12 @@ internal static class ThemeResourceLookup
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        if (owner.XamlRoot?.Content is FrameworkElement root)
+        {
+            var name = new AccessibilitySettings().HighContrast ? "HighContrast" : owner.ActualTheme == ElementTheme.Dark ? "Dark" : "Light";
+            if (root.Resources.ThemeDictionaries.TryGetValue(name, out var local) && local is ResourceDictionary dictionary &&
+                dictionary.TryGetValue(key, out value)) return true;
+        }
         if (TryGet(owner.ActualTheme, key, out value))
         {
             return true;

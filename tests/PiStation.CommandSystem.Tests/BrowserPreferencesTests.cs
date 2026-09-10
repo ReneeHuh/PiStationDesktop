@@ -8,6 +8,35 @@ namespace PiStation.CommandSystem.Tests;
 public sealed class BrowserPreferencesTests
 {
     [Fact]
+    public void ImportedProfileIsPublishedOnlyAfterDurableSaveAndFrameRateSurvivesReload()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "pistation-import-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "browser-settings.json");
+        var layout = new ShellLayoutViewModel();
+        var reopened = new ShellLayoutViewModel();
+        try
+        {
+            layout.UseSharedBrowserSettings(path);
+            layout.BrowserRecordingFrameRateIndex = 1;
+            File.Delete(path);
+            Directory.CreateDirectory(path); // A destination that cannot be atomically replaced.
+            var profile = new BrowserProfilePreference(Guid.NewGuid().ToString("N"), "Imported fixture");
+            var failure = Record.Exception(() => layout.CommitImportedBrowserProfile(profile));
+            Assert.True(failure is IOException or UnauthorizedAccessException);
+            Assert.DoesNotContain(layout.BrowserProfiles, item => item.Id == profile.Id);
+            Directory.Delete(path);
+            layout.CommitImportedBrowserProfile(profile);
+            var copy = Path.Combine(root, "copy.json");
+            File.Copy(path, copy);
+            reopened.UseSharedBrowserSettings(copy);
+            Assert.Contains(reopened.BrowserProfiles, item => item.Id == profile.Id);
+            Assert.Equal(60, reopened.BrowserDefaults.RecordingFramesPerSecond);
+        }
+        finally { layout.ReleaseBrowserSettings(); reopened.ReleaseBrowserSettings(); Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task SharedStoreMigratesRemoteProfileIdentitiesOnceWithoutResurrectingRemovedProfiles()
     {
         var root = Path.Combine(Path.GetTempPath(), "pistation-browser-migration-" + Guid.NewGuid().ToString("N"));

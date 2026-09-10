@@ -60,6 +60,10 @@ public sealed class PiThreadRegistry : IAsyncDisposable
         return false;
     }
 
+    internal IEnumerable<Diagnostics.OwnedProcessRoot> DiagnosticRoots => _controllers.Values
+        .Where(lazy => lazy.IsValueCreated && lazy.Value.IsCompletedSuccessfully)
+        .Select(lazy => lazy.Value.Result.DiagnosticRoot).OfType<Diagnostics.OwnedProcessRoot>();
+
     public bool TryGetController(ThreadId threadId, out PiThreadController? controller)
     {
         if (_controllers.TryGetValue(threadId, out var lazy) &&
@@ -116,6 +120,7 @@ public sealed class PiThreadRegistry : IAsyncDisposable
 
     private async Task ReapIdleRuntimesAsync()
     {
+        if (_options.TemporaryHistory) return;
         using var timer = new PeriodicTimer(_options.IdleRuntimeSweepInterval);
         try
         {

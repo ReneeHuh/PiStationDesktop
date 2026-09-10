@@ -9,10 +9,10 @@
     xmlns:viewModels="using:PiStation.App.ViewModels"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    FontFamily="{StaticResource PiSansFontFamily}"
+    FontFamily="{ThemeResource PiSansFontFamily}"
     mc:Ignorable="d">
 
-    <Grid x:Name="PageLayoutGrid" Background="{ThemeResource PiCanvasBrush}">
+    <Grid x:Name="PageLayoutGrid" Background="Transparent">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="PageResponsiveStates">
                 <VisualState x:Name="NarrowLayout">
@@ -208,7 +208,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock
                                     VerticalAlignment="Center"
-                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                     Foreground="{ThemeResource PiTextMutedBrush}"
                                     Text="{Binding KindLabel}"
                                     TextTrimming="CharacterEllipsis" />
@@ -220,7 +220,7 @@
                                         TextTrimming="CharacterEllipsis" />
                                     <TextBlock
                                         MaxLines="2"
-                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                         Foreground="{ThemeResource PiTextSecondaryBrush}"
                                         Text="{Binding Description}"
                                         TextTrimming="CharacterEllipsis"
@@ -233,8 +233,8 @@
                                     Background="{ThemeResource PiControlSurfaceBrush}"
                                     CornerRadius="4">
                                     <TextBlock
-                                        FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                        FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                         Foreground="{ThemeResource PiTextSecondaryBrush}"
                                         Text="{Binding ShortcutLabel}" />
                                 </Border>
@@ -249,7 +249,7 @@
                 <TextBlock
                     x:Name="CommandPaletteStatusText"
                     automation:AutomationProperties.AutomationId="CommandPaletteStatusText"
-                    FontSize="{StaticResource PiFontSizeCaption}"
+                    FontSize="{ThemeResource PiFontSizeCaption}"
                     Foreground="{ThemeResource PiTextMutedBrush}"
                     Text="Type &gt; to search commands only. Use Up, Down, and Enter to navigate."
                     TextWrapping="Wrap" />
@@ -264,10 +264,11 @@
             CloseButtonText="Done"
             DefaultButton="Close"
             Title="Settings">
+            <ContentDialog.Resources><x:Double x:Key="ContentDialogMaxWidth">1000</x:Double></ContentDialog.Resources>
             <NavigationView
                 x:Name="SettingsNavigation"
                 MinWidth="0"
-                MaxWidth="760"
+                MaxWidth="900"
                 MaxHeight="620"
                 CompactPaneLength="48"
                 IsBackButtonVisible="Collapsed"
@@ -286,10 +287,11 @@
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsIntegrationsNavItem" Content="Integrations" Tag="Integrations" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsDiagnosticsNavItem" Content="Diagnostics" Tag="Diagnostics" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsUsageNavItem" Content="Usage" Tag="Usage" />
+                    <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsLimitsNavItem" Content="Limits" Tag="Limits" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsUpdatesNavItem" Content="Updates" Tag="Updates" />
                 </NavigationView.MenuItems>
                 <NavigationView.Content>
-            <ScrollViewer MaxHeight="560" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer MaxHeight="560" VerticalScrollBarVisibility="Auto" automation:AutomationProperties.AutomationId="SettingsContentScroll">
                 <StackPanel
                     x:Name="SettingsShell"
                     MinWidth="0"
@@ -314,6 +316,45 @@
                             <TextBlock Text="{x:Bind ViewModel.Settings.Status, Mode=OneWay}" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <ContentControl x:Name="ThemeEditorHost" HorizontalContentAlignment="Stretch" />
+                    </Border>
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Typography and surfaces" />
+                            <TextBlock Text="Enter installed font families, separated by commas. Leave blank for the default. Changes apply to this window immediately and are saved for new windows." TextWrapping="Wrap" />
+                            <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                                <TextBox Header="Interface font" PlaceholderText="Default font" MaxLength="200" Text="{x:Bind ViewModel.Layout.InterfaceFontFamily, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceInterfaceFont" />
+                                <NumberBox Grid.Column="1" Header="Size (px)" Minimum="12" Maximum="20" SmallChange="1" Value="{x:Bind ViewModel.Layout.InterfaceFontSize, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceInterfaceSize" automation:AutomationProperties.Name="Interface font size" />
+                            </Grid>
+                            <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                                <TextBox Header="Composer font" PlaceholderText="Default font" MaxLength="200" Text="{x:Bind ViewModel.Layout.ComposerFontFamily, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceComposerFont" />
+                                <NumberBox Grid.Column="1" Header="Size (px)" Minimum="12" Maximum="20" SmallChange="1" Value="{x:Bind ViewModel.Layout.ComposerFontSize, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceComposerSize" automation:AutomationProperties.Name="Composer font size" />
+                            </Grid>
+                            <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                                <TextBox Header="Code font" PlaceholderText="Default font" MaxLength="200" Text="{x:Bind ViewModel.Layout.CodeFontFamily, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceCodeFont" />
+                                <NumberBox Grid.Column="1" Header="Size (px)" Minimum="10" Maximum="18" SmallChange="1" Value="{x:Bind ViewModel.Layout.CodeFontSize, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceCodeSize" automation:AutomationProperties.Name="Code font size" />
+                            </Grid>
+                            <TextBlock Text="{x:Bind ViewModel.Layout.AppearanceSummary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="AppearanceSummary" />
+                            <NumberBox Header="Contrast (%)" Minimum="50" Maximum="200" SmallChange="10" Value="{x:Bind ViewModel.Layout.AppearanceContrast, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceContrast" />
+                            <NumberBox Header="Surface opacity (%)" Minimum="40" Maximum="100" SmallChange="10" Value="{x:Bind ViewModel.Layout.GlassOpacity, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceOpacity" />
+                            <TextBlock Text="Lower opacity reveals the Windows backdrop. High Contrast uses the Windows palette; disabling transparency keeps surfaces opaque." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Editors and motion" />
+                            <ToggleSwitch Header="Word wrap in files and diffs" IsOn="{x:Bind ViewModel.Layout.WordWrap, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceWordWrap" />
+                            <ComboBox Header="Diff layout" SelectedIndex="{x:Bind ViewModel.Layout.DiffLayoutIndex, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceDiffLayout">
+                                <ComboBoxItem Content="Unified" /><ComboBoxItem Content="Split" />
+                            </ComboBox>
+                            <ToggleSwitch Header="Ignore whitespace in workspace and checkpoint diffs" IsOn="{x:Bind ViewModel.Layout.DiffIgnoreWhitespace, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceIgnoreWhitespace" />
+                            <NumberBox Header="Panel animation duration (ms)" Minimum="0" Maximum="400" SmallChange="25" Value="{x:Bind ViewModel.Layout.PanelAnimationDurationMs, Mode=TwoWay}" automation:AutomationProperties.AutomationId="AppearanceAnimation" />
+                            <TextBlock Text="0 turns panel motion off. Windows reduced motion also disables animations." TextWrapping="Wrap" />
+                            <Button Content="Reset appearance and editor preferences" Click="OnResetAppearanceClicked" automation:AutomationProperties.AutomationId="ResetAppearance" />
+                        </StackPanel>
+                    </Border>
+
                     <Border Tag="Appearance" Style="{StaticResource PiElevatedSurfaceStyle}">
                         <StackPanel Spacing="8">
                             <TextBlock Text="Sidebar" Style="{StaticResource PiPanelHeaderTextStyle}" />
@@ -432,8 +473,8 @@
                                             <StackPanel VerticalAlignment="Center" Spacing="1">
                                                 <TextBlock FontWeight="SemiBold" Text="{Binding CommandTitle}" />
                                                 <TextBlock
-                                                    FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                                    FontSize="{StaticResource PiFontSizeCaption}"
+                                                    FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                                    FontSize="{ThemeResource PiFontSizeCaption}"
                                                     Foreground="{ThemeResource PiTextSecondaryBrush}"
                                                     Text="{Binding Summary}" />
                                             </StackPanel>
@@ -594,8 +635,8 @@
                                 x:Name="SettingsProjectPathText"
                                 Grid.Row="2"
                                 automation:AutomationProperties.AutomationId="SettingsProjectPathText"
-                                FontFamily="{StaticResource PiMonospaceFontFamily}"
-                                FontSize="{StaticResource PiFontSizeCaption}"
+                                FontFamily="{ThemeResource PiMonospaceFontFamily}"
+                                FontSize="{ThemeResource PiFontSizeCaption}"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 Text="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}"
                                 TextTrimming="CharacterEllipsis"
@@ -613,7 +654,7 @@
                         <StackPanel Spacing="10">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Projects" />
                             <TextBlock FontWeight="SemiBold" Text="{x:Bind ViewModel.Workspace.ActiveProjectName, Mode=OneWay}" />
-                            <TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind ViewModel.Workspace.ActiveProjectPath, Mode=OneWay}" TextWrapping="Wrap" />
                             <ComboBox x:Name="ProjectDefaultWorkspaceModeSelector" Header="Default thread workspace" Style="{StaticResource PiComboBoxStyle}">
                                 <ComboBoxItem Content="Local" Tag="Local" />
                                 <ComboBoxItem Content="Git worktree" Tag="Worktree" />
@@ -668,6 +709,17 @@
                             <TextBlock Text="{x:Bind ViewModel.Settings.RuntimeSetupStatus, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBox x:Name="PiExecutablePathInput" automation:AutomationProperties.AutomationId="PiExecutablePathInput" Header="{x:Bind ViewModel.PiExecutablePathHeader}" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" PlaceholderText="Leave empty to discover Pi on PATH" Text="{x:Bind ViewModel.Settings.PiExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PiTextBoxStyle}" />
                             <CheckBox Content="Discover installed Pi extensions" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}" IsChecked="{x:Bind ViewModel.Settings.DiscoverPiExtensions, Mode=TwoWay}" automation:AutomationProperties.AutomationId="DiscoverPiExtensionsToggle" />
+                            <Button Content="Reload host runtime settings" Click="OnReloadPiRuntimeClicked" IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" />
+                            <Expander Header="Cache, telemetry and startup networking" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Host preferences for new or restarted runtimes (Pi 0.85.0+). Inherit preserves raw launch settings and Pi defaults. Offline skips startup catalog/version refresh; it does not block model requests. Long cache retention is provider-specific." TextWrapping="Wrap" />
+                                    <ComboBox Header="Prompt cache retention" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.Settings.RuntimePreferences.CacheIndex, Mode=TwoWay}" automation:AutomationProperties.AutomationId="PiCachePreference"><ComboBoxItem Content="Inherit" /><ComboBoxItem Content="Long" /><ComboBoxItem Content="Provider default" /></ComboBox>
+                                    <ComboBox Header="Install telemetry" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.Settings.RuntimePreferences.TelemetryIndex, Mode=TwoWay}" automation:AutomationProperties.AutomationId="PiTelemetryPreference"><ComboBoxItem Content="Inherit" /><ComboBoxItem Content="Enabled" /><ComboBoxItem Content="Disabled" /></ComboBox>
+                                    <ComboBox Header="Offline startup" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.Settings.RuntimePreferences.OfflineIndex, Mode=TwoWay}" automation:AutomationProperties.AutomationId="PiOfflinePreference"><ComboBoxItem Content="Inherit" /><ComboBoxItem Content="Enabled" /><ComboBoxItem Content="Disabled" /></ComboBox>
+                                    <ComboBox Header="Version checks" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.Settings.RuntimePreferences.VersionIndex, Mode=TwoWay}" automation:AutomationProperties.AutomationId="PiVersionPreference"><ComboBoxItem Content="Inherit" /><ComboBoxItem Content="Skip" /><ComboBoxItem Content="Allow" /></ComboBox>
+                                    <TextBlock Text="Use Save and connect below, then restart idle threads. Refresh Pi resources to inspect the running environment." TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Expander>
                             <Expander Header="Agent tools and Windows PowerShell" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.CanConfigurePiRuntime, Mode=OneWay}"
                                 automation:AutomationProperties.AutomationId="PiToolSettingsExpander">
                                 <StackPanel Spacing="8">
@@ -749,6 +801,14 @@
                                 <TextBlock Text="Native Pi RPC supports dialogs, text editors, status messages, notifications, and text widgets. Terminal components, custom TUI editors, overlays, headers, and footers require Pi's terminal UI. Extensions that register no commands or tools cannot be confirmed loaded by RPC. Targeted external-agent controls require a stable child handle and a compatible control command from that extension." TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             </Expander>
                             <TextBlock Text="{x:Bind ViewModel.PiResources.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" automation:AutomationProperties.AutomationId="PiResourcesStatusText" />
+                            <Expander Header="Provider transport and runtime preferences" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Transport saves to this host user's Pi settings and affects future Pi sessions, including terminal sessions. Trusted project settings take precedence. Existing runtimes require restart." TextWrapping="Wrap" />
+                                    <ComboBox Header="Saved user transport" SelectedIndex="{x:Bind ViewModel.PiResources.TransportIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}"><ComboBoxItem Content="Auto" /><ComboBoxItem Content="SSE" /><ComboBoxItem Content="WebSocket" /><ComboBoxItem Content="WebSocket cached" /></ComboBox>
+                                    <Button Content="Save transport" Click="OnSavePiTransportClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" />
+                                    <TextBlock Text="{x:Bind ViewModel.PiResources.NativeSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Expander>
                             <Button Content="Refresh resources" Click="OnRefreshPiResourcesClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RefreshPiResourcesButton" />
                             <Button Content="Restart selected thread" Click="OnRestartConfiguredPiClicked" IsEnabled="{x:Bind ViewModel.CanRestartPi, Mode=OneWay}" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="RestartResourcePiButton" />
                             <Expander Header="Project and configuration folders" HorizontalAlignment="Stretch">
@@ -760,7 +820,7 @@
                                 <Button Content="Trust project" Click="OnTrustPiProjectClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="TrustPiProjectButton" />
                                 <Button Content="Do not trust" Click="OnUntrustPiProjectClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" automation:AutomationProperties.AutomationId="UntrustPiProjectButton" />
                             </StackPanel>
-                            <TextBlock Text="Saved settings apply after restart. Confirmation reflects resources reported by Pi; extensions may load without registering a feature. Edit explicit extension paths under Pi / runtime." TextWrapping="Wrap" FontSize="12" />
+                            <TextBlock Text="Reload resources to apply saved changes. Node Pi installations report exact extension load results. Edit explicit extension paths under Pi / runtime." TextWrapping="Wrap" FontSize="12" />
                             <ScrollViewer MaxHeight="300" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}">
                                 <ItemsControl ItemsSource="{x:Bind ViewModel.PiResources.Resources}" automation:AutomationProperties.AutomationId="PiResourceList">
                                     <ItemsControl.ItemTemplate>
@@ -776,6 +836,10 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </ScrollViewer>
+                            <Button Content="Reload resources in this Pi process" Tag="reload" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanUseSdk, Mode=OneWay}" />
+                            <ComboBox Header="Tool execution within a batch" SelectedIndex="{x:Bind ViewModel.PiResources.ToolExecutionIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiResources.CanUseSdk, Mode=OneWay}"><x:String>Parallel</x:String><x:String>Sequential</x:String></ComboBox>
+                            <Button Content="Apply tool execution to this runtime" Tag="toolExecution" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanUseSdk, Mode=OneWay}" />
+                            <TextBlock Text="Per-tool sequential restrictions and permissions still apply. This setting lasts until the runtime stops." TextWrapping="Wrap" FontSize="12" />
                             <Button Content="Manage resources in Pi terminal" Tag="resources" Click="OnPiSetupTerminalClicked" HorizontalAlignment="Left" automation:AutomationProperties.AutomationId="ManagePiResourcesTerminalButton" />
                             <Button Content="Open Pi package terminal" Tag="packages" Click="OnPiSetupTerminalClicked" HorizontalAlignment="Left" />
                             <Expander Header="Providers and login" IsExpanded="True" HorizontalAlignment="Stretch">
@@ -790,7 +854,8 @@
                             </Expander>
                             <ComboBox Header="Provider account" ItemsSource="{x:Bind ViewModel.PiResources.Providers}" DisplayMemberPath="DisplayName" SelectedItem="{x:Bind ViewModel.PiResources.SelectedProvider, Mode=TwoWay}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Sign in with browser" Tag="login" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" />
+                                <Button Content="Sign in with browser" Tag="login" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanOAuth, Mode=OneWay}" />
+                                <Button Content="Sign in with API key" Tag="loginApiKey" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanApiKey, Mode=OneWay}" />
                                 <Button Content="Sign out" Tag="logout" Click="OnPiNativeAccountClicked" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}" />
                             </StackPanel>
                             <Expander Header="Packages" HorizontalAlignment="Stretch" IsEnabled="{x:Bind ViewModel.PiResources.CanEdit, Mode=OneWay}">
@@ -892,12 +957,12 @@
                                         <ComboBoxItem Content="All entries" />
                                     </ComboBox>
                                     <CheckBox Content="Active branch only" IsChecked="{x:Bind ViewModel.PiSessions.ActiveBranchOnly, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiSessionActiveBranchOnly" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Spacing="8">
                                         <Button Content="Apply search and filters" Click="OnInspectPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="SearchPiSessionTreeButton" />
                                         <Button Content="Clear filters" Click="OnClearPiSessionFiltersClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ClearPiSessionFiltersButton" />
                                     </StackPanel>
                                     <TextBlock Text="Switch branch changes the conversation in this session. Your draft, attachments, context and workspace files are kept. Selecting a user message returns to its parent and makes that prompt available for copying. Fork creates an independent thread." TextWrapping="Wrap" FontSize="12" />
-                                    <ListView ItemsSource="{x:Bind ViewModel.PiSessions.Entries}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedEntry, Mode=TwoWay}" MaxHeight="300" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionTreeList">
+                                    <ListView KeyDown="OnSessionTreeKeyDown" ItemsSource="{x:Bind ViewModel.PiSessions.Entries}" SelectedItem="{x:Bind ViewModel.PiSessions.SelectedEntry, Mode=TwoWay}" MaxHeight="300" SelectionMode="Single" automation:AutomationProperties.AutomationId="PiSessionTreeList">
                                         <ListView.ItemTemplate>
                                             <DataTemplate x:DataType="viewModels:PiSessionTreeRow">
                                                 <StackPanel Spacing="4" Margin="{x:Bind Indent}">
@@ -907,9 +972,15 @@
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
                                     </ListView>
+                                    <CheckBox Content="Show bookmark timestamps" IsChecked="{x:Bind ViewModel.PiSessions.ShowLabelTimestamps, Mode=TwoWay}" automation:AutomationProperties.AutomationId="PiSessionShowTimestamps" />
+                                    <Button Content="Fold / unfold selected entry" Click="OnFoldPiSessionEntryClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanFold, Mode=OneWay}" automation:AutomationProperties.AutomationId="FoldPiSessionEntryButton" />
+                                    <Button Content="Expand all branches" Click="OnExpandPiSessionTreeClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
+                                    <Button Content="Previous branch point" Click="OnPreviousPiBranchClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" />
+                                    <Button Content="Next branch point" Click="OnNextPiBranchClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" />
+                                    <Button Content="Copy selected entry text" Click="OnCopyPiSessionEntryClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" automation:AutomationProperties.AutomationId="CopyPiSessionEntryButton" />
                                     <Button Content="Fork after selected response" Click="OnForkPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ForkPiSessionButton" />
                                     <TextBox Header="Selected entry bookmark" PlaceholderText="Name this conversation point" MaxLength="256" Text="{x:Bind ViewModel.PiSessions.EntryLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{x:Bind ViewModel.PiSessions.CanNavigate, Mode=OneWay}" automation:AutomationProperties.AutomationId="PiSessionEntryLabel" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Spacing="8">
                                         <Button Content="Save bookmark" Click="OnSavePiSessionLabelClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanSaveLabel, Mode=OneWay}" automation:AutomationProperties.AutomationId="SavePiSessionLabelButton" />
                                         <Button Content="Remove bookmark" Click="OnRemovePiSessionLabelClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanRemoveLabel, Mode=OneWay}" automation:AutomationProperties.AutomationId="RemovePiSessionLabelButton" />
                                     </StackPanel>
@@ -926,6 +997,9 @@
                                     <Button Content="Export Pi JSONL…" Tag="jsonl" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionJsonlButton" />
                                     <Button Content="Load more tree entries" Click="OnLoadMoreSessionEntries" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreEntries, Mode=OneWay}" />
                                     <Button Content="Load more session files" Click="OnLoadMoreSessionFiles" IsEnabled="{x:Bind ViewModel.PiSessions.HasMoreCandidates, Mode=OneWay}" />
+                                    <Button Content="New temporary local session" Click="OnTemporarySessionClicked" automation:AutomationProperties.AutomationId="NewTemporarySessionButton" />
+                                    <TextBlock Text="Temporary sessions discard conversation and draft when their window closes. Project edits and explicit exports remain." TextWrapping="Wrap" FontSize="12" />
+                                    <Button Content="Share conversation as a GitHub gist…" Click="OnSharePiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="SharePiSessionButton" />
                                     <Button Content="Export readable HTML…" Tag="html" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" automation:AutomationProperties.AutomationId="ExportPiSessionHtmlButton" />
                                     <Button Content="Export session and attachments…" Tag="bundle" Click="OnExportPiSessionClicked" IsEnabled="{x:Bind ViewModel.PiSessions.CanAct, Mode=OneWay}" />
                                 </StackPanel>
@@ -1014,8 +1088,8 @@
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <StackPanel Spacing="2">
                                                 <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Number}" />
-                                                <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind State}" />
+                                                <TextBlock FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Number}" />
+                                                <TextBlock FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind State}" />
                                             </StackPanel>
                                             <Button Grid.Column="1" Content="Actions" Style="{StaticResource PiToolbarButtonStyle}">
                                                 <Button.Flyout>
@@ -1070,10 +1144,112 @@
                                 <Button Click="OnRefreshSettingsClicked" Content="Refresh" Style="{StaticResource PiSecondaryButtonStyle}" />
                                 <Button automation:AutomationProperties.AutomationId="ExportDiagnosticsButton" Click="OnExportDiagnosticsClicked" Content="Export redacted diagnostics" Style="{StaticResource PiPrimaryButtonStyle}" />
                             </StackPanel>
+                            <TextBlock automation:AutomationProperties.AutomationId="RuntimeHealthStatus" Text="{x:Bind ViewModel.RuntimeHealth.Status, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock automation:AutomationProperties.AutomationId="BackgroundPolicyStatus" Text="{x:Bind ViewModel.RuntimeHealth.Policy, Mode=OneWay}" TextWrapping="Wrap" />
+                            <Button automation:AutomationProperties.AutomationId="RefreshRuntimeHealthButton" Click="OnRefreshRuntimeHealthClicked" Content="Refresh processes and telemetry" />
+                            <Expander Header="Processes and resource history" HorizontalAlignment="Stretch" IsExpanded="True" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Select an owned Pi or terminal process to stop it. The application host is protected. Process identity and ownership are checked again before stopping." TextWrapping="Wrap" />
+                                    <ListView automation:AutomationProperties.AutomationId="DiagnosticProcessList" MaxHeight="210" ItemsSource="{x:Bind ViewModel.RuntimeHealth.Processes}" SelectedItem="{x:Bind ViewModel.RuntimeHealth.SelectedProcess, Mode=TwoWay}">
+                                        <ListView.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Heading}" TextWrapping="Wrap" /><TextBlock Text="{Binding Resources}" FontSize="12" /></StackPanel></DataTemplate></ListView.ItemTemplate>
+                                    </ListView>
+                                    <ContentControl IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}">
+                                        <Button automation:AutomationProperties.AutomationId="TerminateDiagnosticProcessButton" Click="OnTerminateDiagnosticProcessClicked" Content="Stop selected process…" IsEnabled="{x:Bind ViewModel.RuntimeHealth.CanTerminate, Mode=OneWay}" />
+                                    </ContentControl>
+                                    <TextBlock Text="{x:Bind ViewModel.RuntimeHealth.HistorySummary, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <TextBlock Text="Combined CPU" /><Viewbox Stretch="Uniform"><Canvas Width="400" Height="80"><Polyline Points="{x:Bind ViewModel.RuntimeHealth.CpuPoints, Mode=OneWay}" Stroke="{ThemeResource PiTextPrimaryBrush}" StrokeThickness="2" /></Canvas></Viewbox>
+                                    <TextBlock Text="Combined memory" /><Viewbox Stretch="Uniform"><Canvas Width="400" Height="80"><Polyline Points="{x:Bind ViewModel.RuntimeHealth.MemoryPoints, Mode=OneWay}" Stroke="{ThemeResource PiTextPrimaryBrush}" StrokeThickness="2" /></Canvas></Viewbox>
+                                </StackPanel>
+                            </Expander>
+                            <Expander automation:AutomationProperties.AutomationId="RuntimeHealthSettingsExpander" Header="Background and observability settings" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <ContentControl IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" HorizontalContentAlignment="Stretch"><StackPanel Spacing="8">
+                                    <ComboBox automation:AutomationProperties.AutomationId="BackgroundProfileSelector" Header="Background profile" ItemsSource="{x:Bind ViewModel.RuntimeHealth.Profiles}" SelectedItem="{x:Bind ViewModel.RuntimeHealth.Profile, Mode=TwoWay}" />
+                                    <Button Click="OnApplyBackgroundPresetClicked" Content="Apply profile defaults" />
+                                    <TextBlock Text="Balanced requires a focused window. Performance also refreshes visible windows. Battery saver additionally pauses on battery. These controls affect background refreshes; active conversations continue." TextWrapping="Wrap" />
+                                    <CheckBox Content="Pause when the host is locked" IsChecked="{x:Bind ViewModel.RuntimeHealth.PauseLocked, Mode=TwoWay}" />
+                                    <CheckBox Content="Pause when host battery saver is active" IsChecked="{x:Bind ViewModel.RuntimeHealth.PauseHostLowPower, Mode=TwoWay}" />
+                                    <CheckBox Content="Pause when client battery saver is active" IsChecked="{x:Bind ViewModel.RuntimeHealth.PauseClientLowPower, Mode=TwoWay}" />
+                                    <CheckBox Content="Pause when host or client is on battery" IsChecked="{x:Bind ViewModel.RuntimeHealth.PauseBattery, Mode=TwoWay}" />
+                                    <CheckBox automation:AutomationProperties.AutomationId="DiagnosticsTracingToggle" Content="Collect operation traces" IsChecked="{x:Bind ViewModel.RuntimeHealth.TracingEnabled, Mode=TwoWay}" />
+                                    <CheckBox Content="Collect operation metrics" IsChecked="{x:Bind ViewModel.RuntimeHealth.MetricsEnabled, Mode=TwoWay}" />
+                                    <NumberBox Header="Trace sample rate (0 to 1)" Minimum="0" Maximum="1" SmallChange="0.1" Value="{x:Bind ViewModel.RuntimeHealth.SampleRate, Mode=TwoWay}" />
+                                    <TextBox automation:AutomationProperties.AutomationId="DiagnosticsOtlpEndpoint" Header="Optional OTLP/HTTP trace endpoint" PlaceholderText="https://collector.example/v1/traces" Text="{x:Bind ViewModel.RuntimeHealth.OtlpEndpoint, Mode=TwoWay}" />
+                                    <TextBox automation:AutomationProperties.AutomationId="DiagnosticsOtlpMetricsEndpoint" Header="Optional OTLP/HTTP metrics endpoint" PlaceholderText="https://collector.example/v1/metrics" Text="{x:Bind ViewModel.RuntimeHealth.OtlpMetricsEndpoint, Mode=TwoWay}" />
+                                    <TextBlock Text="Leave endpoints empty for local collection only. Export sends operation names, timing, counts, outcomes and trace IDs to these addresses from the host. Prompts, tool output and credentials are excluded. Collected telemetry is also included in the redacted diagnostics export." TextWrapping="Wrap" />
+                                    <Button automation:AutomationProperties.AutomationId="SaveRuntimeHealthButton" Click="OnSaveRuntimeHealthClicked" Content="Save background and diagnostics settings" />
+                                    <Button Click="OnReloadRuntimeHealthSettingsClicked" Content="Discard unsaved settings" />
+                                    <Button automation:AutomationProperties.AutomationId="ClearRuntimeHealthButton" Click="OnClearRuntimeHealthClicked" Content="Clear collected telemetry" />
+                                </StackPanel></ContentControl>
+                            </Expander>
+                            <Expander Header="Operation metrics and recent traces" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Operation metrics" FontWeight="SemiBold" />
+                                    <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.RuntimeHealth.Metrics}" SelectionMode="None"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></ListView.ItemTemplate></ListView>
+                                    <TextBlock Text="Latest 50 traces" FontWeight="SemiBold" />
+                                    <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.RuntimeHealth.Traces}" SelectionMode="None"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></ListView.ItemTemplate></ListView>
+                                </StackPanel>
+                            </Expander>
                             <TextBlock FontWeight="SemiBold" Text="Recent logs" />
                             <ListView MaxHeight="180" ItemsSource="{x:Bind ViewModel.Settings.Logs, Mode=OneWay}" SelectionMode="None">
-                                <ListView.ItemTemplate><DataTemplate><TextBlock FontFamily="{StaticResource PiMonospaceFontFamily}" FontSize="{StaticResource PiFontSizeCaption}" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></ListView.ItemTemplate>
+                                <ListView.ItemTemplate><DataTemplate><TextBlock FontFamily="{ThemeResource PiMonospaceFontFamily}" FontSize="{ThemeResource PiFontSizeCaption}" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></ListView.ItemTemplate>
                             </ListView>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="LimitsSettingsSection"
+                        Tag="Limits"
+                        Style="{StaticResource PiElevatedSurfaceStyle}"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Subscription limits" automation:AutomationProperties.AutomationId="LimitsHeading" />
+                            <TextBlock Text="Account quota windows and reset times. The marker shows elapsed time; pace compares usage with that time." TextWrapping="Wrap" Foreground="{ThemeResource PiTextMutedBrush}" />
+                            <Button Content="Refresh quotas" Click="OnRefreshLimitsClicked" IsEnabled="{x:Bind ViewModel.Limits.IsIdle, Mode=OneWay}" automation:AutomationProperties.AutomationId="LimitsRefresh" />
+                            <TextBlock Text="{x:Bind ViewModel.Limits.Status, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="LimitsStatus" automation:AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Text="{x:Bind ViewModel.Limits.ActionStatus, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="LimitsActionStatus" automation:AutomationProperties.LiveSetting="Polite" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Limits.Sources}" automation:AutomationProperties.AutomationId="LimitsSources">
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <StackPanel Spacing="6" Margin="0,4,0,12">
+                                        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{ThemeResource PiTextMutedBrush}" />
+                                        <ItemsControl ItemsSource="{Binding Accounts}"><ItemsControl.ItemTemplate><DataTemplate>
+                                            <StackPanel Spacing="4" Margin="0,4,0,8">
+                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+                                                <ItemsControl ItemsSource="{Binding Windows}"><ItemsControl.ItemTemplate><DataTemplate>
+                                                    <StackPanel Spacing="4" Margin="0,4,0,8">
+                                                        <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                                        <Grid Width="202" HorizontalAlignment="Left" Height="12">
+                                                            <ProgressBar Value="{Binding UsedPercent}" Minimum="0" Maximum="100" Width="200" HorizontalAlignment="Left" VerticalAlignment="Center" automation:AutomationProperties.Name="{Binding Detail}" />
+                                                            <Canvas Width="202" Height="12" IsHitTestVisible="False"><Rectangle Width="2" Height="12" Canvas.Left="{Binding ElapsedWidth}" Fill="{ThemeResource PiTextPrimaryBrush}" Opacity="{Binding MarkerOpacity}" /></Canvas>
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{x:Bind ViewModel.Limits.Background, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource PiTextMutedBrush}" />
+                            <Expander Header="Manage CLIProxyAPI hubs" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" automation:AutomationProperties.AutomationId="LimitsManageExpander">
+                                <ContentControl IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" HorizontalContentAlignment="Stretch">
+                                    <ContentControl IsEnabled="{x:Bind ViewModel.Limits.IsIdle, Mode=OneWay}" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Monitor accounts on a quota-scheduler-enabled hub. Keys are encrypted for the Windows user running this host. Removing a hub stops monitoring and removes its stored key." TextWrapping="Wrap" />
+                                        <ComboBox x:Name="LimitSourceSelector" Header="Existing hubs" ItemsSource="{x:Bind ViewModel.Limits.Configurations}" DisplayMemberPath="Label" SelectionChanged="OnLimitSourceSelected" automation:AutomationProperties.AutomationId="LimitSourceSelector" />
+                                        <Button Content="New hub" Click="OnNewLimitSourceClicked" automation:AutomationProperties.AutomationId="LimitNewSource" />
+                                        <TextBox Header="Label" Text="{x:Bind ViewModel.Limits.Label, Mode=TwoWay}" MaxLength="128" automation:AutomationProperties.AutomationId="LimitSourceLabel" />
+                                        <TextBox Header="Hub origin (HTTPS, or HTTP on loopback)" Text="{x:Bind ViewModel.Limits.BaseUrl, Mode=TwoWay}" MaxLength="2048" PlaceholderText="http://127.0.0.1:8317" automation:AutomationProperties.AutomationId="LimitSourceUrl" />
+                                        <PasswordBox x:Name="LimitManagementKey" Header="Management key" MaxLength="8192" PasswordRevealMode="Hidden" Password="{x:Bind ViewModel.Limits.PasswordReset, Mode=OneWay}" automation:AutomationProperties.AutomationId="LimitManagementKey" />
+                                        <TextBlock Text="{x:Bind ViewModel.Limits.KeyHint, Mode=OneWay}" TextWrapping="Wrap" />
+                                        <ToggleSwitch Header="Monitor this hub" IsOn="{x:Bind ViewModel.Limits.Enabled, Mode=TwoWay}" automation:AutomationProperties.AutomationId="LimitSourceEnabled" />
+                                        <Button Content="Save hub" Click="OnSaveLimitSourceClicked" automation:AutomationProperties.AutomationId="LimitSaveSource" />
+                                        <Button Content="Remove selected hub" Click="OnRemoveLimitSourceClicked" IsEnabled="{x:Bind ViewModel.Limits.CanRemove, Mode=OneWay}" automation:AutomationProperties.AutomationId="LimitRemoveSource" />
+                                    </StackPanel>
+                                    </ContentControl>
+                                </ContentControl>
+                            </Expander>
                         </StackPanel>
                     </Border>
 
@@ -1083,9 +1259,67 @@
                         Style="{StaticResource PiElevatedSurfaceStyle}"
                         Visibility="Collapsed">
                         <StackPanel Spacing="8">
-                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Usage, cost, and quota" />
-                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="{x:Bind ViewModel.Settings.UsageSummary, Mode=OneWay}" TextWrapping="Wrap" />
-                            <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="Costs are estimates from usage reported by Pi. Provider quota status is shown when the runtime exposes it." TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Usage dashboard" automation:AutomationProperties.AutomationId="UsageDashboardHeading" />
+                            <TextBlock Text="{x:Bind ViewModel.Usage.Scope, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Text="{x:Bind ViewModel.Usage.Summary, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="UsageSummary" />
+                            <TextBlock Foreground="{ThemeResource PiTextMutedBrush}" Text="API-equivalent estimates in USD, not your subscription bill. Reasoning is included in output tokens. Cache savings use base input rates; missing prices are excluded from known cost." TextWrapping="Wrap" />
+                            <Expander Header="Date range, filters and refresh" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" automation:AutomationProperties.AutomationId="UsageFiltersExpander">
+                            <ContentControl IsEnabled="{x:Bind ViewModel.Usage.IsIdle, Mode=OneWay}" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="8">
+                                <ComboBox Header="Date range" ItemsSource="{x:Bind ViewModel.Usage.Presets}" SelectedItem="{x:Bind ViewModel.Usage.Preset, Mode=TwoWay}" automation:AutomationProperties.AutomationId="UsageDateRange" />
+                                <CalendarDatePicker Header="From date" Date="{x:Bind ViewModel.Usage.FromDate, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.Usage.CustomDates, Mode=OneWay}" automation:AutomationProperties.AutomationId="UsageFromDate" />
+                                <CalendarDatePicker Header="Through date (inclusive)" Date="{x:Bind ViewModel.Usage.ThroughDate, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.Usage.CustomDates, Mode=OneWay}" automation:AutomationProperties.AutomationId="UsageThroughDate" />
+                                <ComboBox Header="Provider" ItemsSource="{x:Bind ViewModel.Usage.Providers}" SelectedItem="{x:Bind ViewModel.Usage.Provider, Mode=TwoWay}" automation:AutomationProperties.AutomationId="UsageProvider" />
+                                <ComboBox Header="Model" ItemsSource="{x:Bind ViewModel.Usage.Models}" SelectedItem="{x:Bind ViewModel.Usage.Model, Mode=TwoWay}" automation:AutomationProperties.AutomationId="UsageModel" />
+                                <TextBox Header="Additional history directory on this host (optional)" Text="{x:Bind ViewModel.Usage.HistoryDirectory, Mode=TwoWay}" automation:AutomationProperties.AutomationId="UsageHistoryDirectory" />
+                                <Button Content="Apply filters / refresh" Click="OnRefreshUsageClicked" automation:AutomationProperties.AutomationId="UsageRefresh" />
+                                <Button Content="Rescan all history" Click="OnRescanUsageClicked" IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" automation:AutomationProperties.AutomationId="UsageRescan" />
+                                <Button Content="Refresh pricing" Click="OnRefreshUsagePricingClicked" IsEnabled="{x:Bind ViewModel.CanOperate, Mode=OneWay}" automation:AutomationProperties.AutomationId="UsageRefreshPricing" />
+                            </StackPanel>
+                            </ContentControl>
+                            </Expander>
+                            <ProgressRing IsActive="{x:Bind ViewModel.Usage.IsBusy, Mode=OneWay}" Width="24" Height="24" HorizontalAlignment="Left" />
+                            <TextBlock Text="{x:Bind ViewModel.Usage.Status, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="UsageStatus" automation:AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Text="{x:Bind ViewModel.Usage.Coverage, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="UsageCoverage" />
+                            <TextBlock Text="{x:Bind ViewModel.Usage.Pricing, Mode=OneWay}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="UsagePricing" />
+                            <ComboBox Header="Chart measure" ItemsSource="{x:Bind ViewModel.Usage.Metrics}" SelectedItem="{x:Bind ViewModel.Usage.Metric, Mode=TwoWay}" automation:AutomationProperties.AutomationId="UsageMetric" />
+                            <TextBlock Text="By provider" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Usage.ProviderChart}" automation:AutomationProperties.AutomationId="UsageProviderChart">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:UsageChartRow">
+                                        <StackPanel Margin="0,4" Spacing="3">
+                                            <TextBlock Text="{x:Bind Label}" TextWrapping="Wrap" />
+                                            <Rectangle Width="{x:Bind BarWidth}" Height="8" Fill="{ThemeResource SystemControlHighlightAccentBrush}" HorizontalAlignment="Left" />
+                                            <TextBlock Text="{x:Bind Value}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Over time" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled" automation:AutomationProperties.AutomationId="UsageTimelineScroll">
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.Usage.Timeline}" automation:AutomationProperties.AutomationId="UsageTimeline">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:UsageChartRow">
+                                            <StackPanel Margin="0,4" Spacing="3">
+                                                <TextBlock Text="{x:Bind Label}" TextWrapping="Wrap" />
+                                                <Rectangle Width="{x:Bind BarWidth}" Height="8" Fill="{ThemeResource SystemControlHighlightAccentBrush}" HorizontalAlignment="Left" />
+                                                <TextBlock Text="{x:Bind Value}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <TextBlock Text="Models and cache savings" Style="{StaticResource PiPanelHeaderTextStyle}" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Usage.Breakdown}" automation:AutomationProperties.AutomationId="UsageBreakdown">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:UsageBreakdownRow">
+                                        <StackPanel Margin="0,8" Spacing="4">
+                                            <TextBlock Text="{x:Bind Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Border>
 

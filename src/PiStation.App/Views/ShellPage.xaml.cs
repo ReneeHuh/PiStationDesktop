@@ -49,6 +49,8 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        InitializeThemeEditor();
+        SizeChanged += (_, _) => SizeSettingsForWindow();
         BrowserSettingsHost.Content = new BrowserSettingsPanel(ViewModel);
         _remoteConnectionsPanel = new RemoteConnectionsPanel(ViewModel.IsRemote);
         RemoteConnectionsHost.Content = _remoteConnectionsPanel;
@@ -76,6 +78,7 @@ public sealed partial class ShellPage : Page
         _keybindings.Changed += OnCommandBindingsChanged;
         _rightPanel.CommandGestureRequested += OnTerminalCommandGestureRequested;
         ViewModel.Layout.PropertyChanged += OnCommandContextPropertyChanged;
+        _appearanceIgnoreWhitespace = ViewModel.Layout.DiffIgnoreWhitespace;
         ViewModel.Workspace.PropertyChanged += OnCommandContextPropertyChanged;
         ViewModel.Thread.PropertyChanged += OnCommandContextPropertyChanged;
         ViewModel.WorkbenchTerminal.PropertyChanged += OnCommandContextPropertyChanged;
@@ -112,8 +115,11 @@ public sealed partial class ShellPage : Page
         {
             return;
         }
+        ReleaseThemeInspector();
 
         _disposed = true;
+        _rightPanel.ReleasePanelMotion();
+        _sidebar.ReleasePanelMotion();
         _rightPanel.StopBrowserAutomation();
         _conversationTimeline.ReadingHistoryChanged -= OnReadingHistoryChanged;
         _remoteConnectionsPanel?.Deactivate();
@@ -144,6 +150,8 @@ public sealed partial class ShellPage : Page
             OpenAddProjectAsync, enableWhen: "connected", defaultShortcut: "Ctrl+Shift+O",
             disabledReason: "Connect to the local environment first.");
         Register("sessions.manage", "Manage Pi Sessions", "Conversation", "Import, fork and export Pi conversations.", OpenPiSessionsAsync);
+        Register("usage.open", "Open Usage Dashboard", "Application", "Review tokens, costs, cache savings and child-agent usage.", OpenUsageDashboardAsync, searchTerms: ["billing", "tokens", "cost", "history"]);
+        Register("usage.limits", "Open Subscription Limits", "Application", "Review quota windows, reset times and pooled accounts.", OpenUsageLimitsAsync, searchTerms: ["quota", "subscription", "cliproxy", "pace"]);
         Register(
             "settings.open", "Open Settings", "Application",
             "Configure appearance, terminal, and keyboard shortcuts.", OpenSettingsAsync,
@@ -395,6 +403,7 @@ public sealed partial class ShellPage : Page
 
     private void OnCommandContextPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (ReferenceEquals(sender, ViewModel.Layout) && e.PropertyName == nameof(ShellLayoutViewModel.Appearance)) RefreshAppearanceDiff();
         if (ReferenceEquals(sender, ViewModel.WorkbenchTerminal) &&
             e.PropertyName is not (nameof(WorkbenchTerminalViewModel.PaneCount) or
                                    nameof(WorkbenchTerminalViewModel.CanSplit) or
@@ -776,6 +785,7 @@ public sealed partial class ShellPage : Page
 
         ApplySettingsSection((SettingsNavigation.SelectedItem as NavigationViewItem)?.Tag as string ?? "Projects");
 
+        SizeSettingsForWindow();
         _settingsOpen = true;
         _ = ViewModel.RefreshSettingsAsync();
         _remoteConnectionsPanel?.Activate();
@@ -829,6 +839,10 @@ public sealed partial class ShellPage : Page
 
     private void ApplySettingsSection(string section)
     {
+        ViewModel.SetDiagnosticsVisible(section == "Diagnostics");
+        ViewModel.SetLimitsVisible(section == "Limits");
+        if (section != "Limits") LimitManagementKey.Password = "";
+        if (section == "Usage") _ = ViewModel.RefreshUsageAsync();
         foreach (var element in SettingsShell.Children.OfType<FrameworkElement>())
         {
             element.Visibility = string.Equals(element.Tag as string, section, StringComparison.Ordinal)
@@ -1167,6 +1181,9 @@ public sealed partial class ShellPage : Page
     private void OnSettingsDialogClosed(ContentDialog sender, ContentDialogClosedEventArgs args)
     {
         _settingsOpen = false;
+        ViewModel.SetDiagnosticsVisible(false);
+        ViewModel.SetLimitsVisible(false);
+        LimitManagementKey.Password = "";
         if (_settingsSuspended) return;
         _remoteConnectionsPanel?.Deactivate();
         _sidebar.FocusSettingsButton();

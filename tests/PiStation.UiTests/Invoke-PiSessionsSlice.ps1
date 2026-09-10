@@ -21,6 +21,8 @@ function Invoke-CheckedNative {
 }
 function Invoke-Ui {
     param([Parameter(ValueFromRemainingArguments)][string[]] $Arguments)
+    $script:lastUiArgs = $Arguments -join ' ';
+    if ($Arguments -contains 'PromptInput' -and $Arguments[0] -in @('set-value', 'focus', 'click', 'invoke', 'type', 'send-keys', 'inspect', 'get-value', 'get-property', 'wait-for') -and $Arguments -notcontains '--gone') { Expand-TestComposer }
     Invoke-CheckedNative 'winapp' (@('ui') + $Arguments + @('--app', "$script:launchedProcessId", '--json'))
 }
 function Start-TestApp {
@@ -67,7 +69,7 @@ function Select-SessionRow {
     param([string] $List, [string] $Text)
     $tree = Invoke-Ui 'inspect' $List '--depth' '8' | ConvertFrom-Json -Depth 100
     $matches = @($tree.windows | ForEach-Object { Get-TestThreadNodes $_ } | Where-Object {
-        $_.type -eq 'ListItem' -and @(Get-TestThreadNodes $_ | Where-Object { $_.name -eq $Text }).Count -gt 0
+        $_.type -eq 'ListItem' -and @(Get-TestThreadNodes $_ | Where-Object { ($_.name -replace '^[▶▼·] ', '') -eq $Text }).Count -gt 0
     })
     if ($matches.Count -ne 1) { throw "Expected one row for $Text; found $($matches.Count)." }
     Invoke-Ui 'invoke' $matches[0].selector | Out-Null
@@ -144,7 +146,7 @@ try {
     Invoke-Ui 'wait-for' 'ProjectPathInput' '--timeout' '5000' | Out-Null
     Invoke-Ui 'set-value' 'ProjectPathInput' $projectPath | Out-Null
     Invoke-Ui 'invoke' 'AddProjectConfirmButton' | Out-Null
-    Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
+    Select-TestProject 'fixture-project'
     Invoke-Ui 'invoke' 'NewThreadButton' | Out-Null
     Wait-TestThread 'Thread 1'
     Invoke-Ui 'set-value' 'PromptInput' 'Original workspace draft.' | Out-Null
@@ -167,6 +169,12 @@ try {
     Invoke-Ui 'invoke' 'InspectPiSessionButton' | Out-Null
     Assert-SessionSummary 4
     Select-SessionRow 'PiSessionTreeList' 'assistant · First CLI answer'
+    Invoke-Ui 'invoke' 'FoldPiSessionEntryButton' | Out-Null
+    Invoke-Ui 'wait-for' 'PiSessionsStatusText' '--value' 'Showing 2 of 2 matching entries. Select an entry to edit its bookmark or switch branches.' '--timeout' '10000' | Out-Null
+    Invoke-Ui 'invoke' 'Expand all branches' | Out-Null
+    Invoke-Ui 'wait-for' 'PiSessionsStatusText' '--value' 'Showing 4 of 4 matching entries. Select an entry to edit its bookmark or switch branches.' '--timeout' '10000' | Out-Null
+    Select-SessionRow 'PiSessionTreeList' 'assistant · First CLI answer'
+    $checks.Add('Native tree folding and expanding retain the selected conversation')
     Invoke-Ui 'set-value' 'PiSessionTitleInput' 'Forked CLI' | Out-Null
     Invoke-Ui 'invoke' 'ForkPiSessionButton' | Out-Null
     Invoke-Ui 'wait-for' 'PiSessionsStatusText' '--value' 'Created Forked CLI. The original session and draft are preserved.' '--timeout' '15000' | Out-Null
@@ -185,8 +193,7 @@ try {
     Assert-Prompt 'Original workspace draft.'
     Stop-TestApp
     Start-TestApp
-    Invoke-Ui 'wait-for' 'fixture-project' '--timeout' '10000' | Out-Null
-    Invoke-Ui 'invoke' 'fixture-project' | Out-Null
+    Select-TestProject 'fixture-project'
     Wait-TestThread 'Imported CLI'
     Select-TestThread 'Imported CLI'
     Assert-Prompt 'Imported thread draft.'
@@ -204,6 +211,17 @@ try {
     $checks.Add('Original CLI session remains byte-for-byte unchanged')
     Export-SessionThroughPicker 'jsonl'
     Export-SessionThroughPicker 'html'
+    Invoke-Ui 'invoke' 'SharePiSessionButton' | Out-Null
+    Invoke-Ui 'wait-for' 'PiSessionShareDialog' '--timeout' '15000' | Out-Null
+    $shareTree = Invoke-Ui 'inspect' 'PiSessionShareDialog' '--depth' '8' | ConvertFrom-Json -Depth 100
+    $shareNodes = @($shareTree.windows | ForEach-Object { Get-TestThreadNodes $_ })
+    $publish = @($shareNodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Create gist' })[0]
+    $cancel = @($shareNodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Cancel' })[0]
+    if (-not $publish -or $publish.isEnabled -ne $false -or -not $cancel) { throw 'Gist sharing did not require review before publication.' }
+    Invoke-Ui 'invoke' $cancel.selector | Out-Null
+    Invoke-Ui 'wait-for' 'PiSessionShareDialog' '--gone' '--timeout' '5000' | Out-Null
+    Invoke-Ui 'wait-for' 'SettingsDialog' '--timeout' '5000' | Out-Null
+    $checks.Add('Gist review opens from Settings, requires review before publication and cancels without sharing')
     Invoke-Ui 'inspect' '--depth' '14' | Set-Content -LiteralPath (Join-Path $runRoot 'ui-tree.json') -Encoding utf8NoBOM
     if ($Capture) {
         Invoke-Ui 'screenshot' 'AppMainWindow' '--capture-screen' '--output' (Join-Path $runRoot 'pi-sessions.png') | Out-Null
@@ -212,6 +230,7 @@ try {
     $passed = $true
 }
 catch {
+    Write-Output "Last UI request: $script:lastUiArgs"
     if ($null -ne $launchedProcessId) {
         try { Invoke-Ui 'inspect' '--depth' '14' | Set-Content -LiteralPath (Join-Path $runRoot 'failure-ui-tree.json') -Encoding utf8NoBOM } catch {}
     }

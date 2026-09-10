@@ -48,6 +48,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _runtimeSetupStatus = "Checking Pi…";
 
     public string PiExecutablePath { get => _piExecutablePath; set => SetProperty(ref _piExecutablePath, value); }
+    public PiRuntimePreferencesViewModel RuntimePreferences { get; } = new();
     public PiToolSelectionViewModel ToolSelection { get; } = new();
     public string RuntimeSetupStatus { get => _runtimeSetupStatus; internal set => SetProperty(ref _runtimeSetupStatus, value); }
     private bool _discoverPiExtensions;

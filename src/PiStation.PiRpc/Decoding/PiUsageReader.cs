@@ -20,7 +20,7 @@ public static class PiUsageReader
         long? reasoning = null;
         if (usage.TryGetProperty("reasoning", out var reasoningProperty))
         {
-            if (!reasoningProperty.TryGetInt64(out var reasoningValue) || reasoningValue < 0)
+            if (reasoningProperty.ValueKind != JsonValueKind.Number || !reasoningProperty.TryGetInt64(out var reasoningValue) || reasoningValue < 0)
             {
                 return null;
             }
@@ -52,6 +52,7 @@ public static class PiUsageReader
     {
         result = 0;
         return element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number &&
             property.TryGetInt64(out result) &&
             result >= 0;
     }

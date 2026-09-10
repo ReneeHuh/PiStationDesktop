@@ -13,6 +13,41 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
     private readonly EnvironmentService _environment = environment ?? throw new ArgumentNullException(nameof(environment));
 
     public EnvironmentDescriptor GetEnvironmentDescriptor() => _environment.GetDescriptor();
+    public RuntimeHealthSnapshot GetRuntimeHealth() => _environment.Health.Snapshot();
+    public UsageLimitsDashboard GetUsageLimits() => _environment.UsageLimits.Snapshot(
+        !(Context.Items.TryGetValue(Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) && readOnly is true));
+    public Task<UsageLimitsDashboard> RefreshUsageLimits() => _environment.UsageLimits.RefreshAsync(Context.ConnectionAborted);
+    public UsageLimitsDashboard SaveUsageLimitSource(SaveUsageLimitSourceRequest request)
+    {
+        try { return _environment.UsageLimits.Save(request); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException) { throw new HubException(error.Message); }
+    }
+    public UsageLimitsDashboard RemoveUsageLimitSource(RemoveUsageLimitSourceRequest request)
+    {
+        try { return _environment.UsageLimits.Remove(request); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException) { throw new HubException(error.Message); }
+    }
+    public async Task<UsageDashboard> GetUsageDashboard(UsageQuery query)
+    {
+        var readOnly = Context.Items.TryGetValue(Security.RemoteAuthorizationFilter.ReadOnlyItem, out var value) && value is true;
+        if (readOnly && !string.IsNullOrWhiteSpace(query.HistoryDirectory)) throw new HubException("Choosing additional host history requires operate access.");
+        var report = await _environment.Usage.QueryAsync(query, token: Context.ConnectionAborted).ConfigureAwait(false);
+        return readOnly ? report with { Scan = report.Scan with { Roots = [], Warnings = report.Scan.Warnings.Count == 0 ? [] : ["Some history is incomplete or unavailable. An operator can inspect scan details on this host."] } } : report;
+    }
+    public Task<UsageDashboard> RefreshUsageDashboard(RefreshUsageRequest request) =>
+        _environment.Usage.QueryAsync(request.Query, request.Rescan, request.RefreshPricing, Context.ConnectionAborted);
+    public RuntimeHealthSettings SaveRuntimeHealthSettings(RuntimeHealthSettings settings)
+    {
+        try { return _environment.Health.Save(settings); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException) { throw new HubException(error.Message); }
+    }
+    public bool ClearRuntimeHealth() { _environment.Health.Clear(); return true; }
+    public BackgroundPolicySnapshot ReportClientActivity(ClientActivityReport report)
+    {
+        _environment.Health.Activity.Report(Context.ConnectionId, report);
+        return _environment.Health.Background;
+    }
+    public DiagnosticActionResult TerminateDiagnosticProcess(TerminateDiagnosticProcessRequest request) => _environment.Health.Terminate(request);
     private string BrowserPrincipal => PiStation.Host.Preview.PreviewLeaseRegistry.Principal(Context.GetHttpContext()!);
     public async Task<BrowserAutomationLease> OpenBrowserAutomation(OpenBrowserAutomationRequest request)
     {
@@ -26,6 +61,8 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         _environment.BrowserAutomation.CompleteAsync(id, requestId, result, BrowserPrincipal, Context.ConnectionId, Context.ConnectionAborted);
     public Task CloseBrowserAutomation(string id) =>
         _environment.BrowserAutomation.CloseAsync(id, BrowserPrincipal, Context.ConnectionId);
+    public Task<BrowserRecordingArtifact?> UploadBrowserRecording(string id, BrowserRecordingChunk chunk) =>
+        _environment.BrowserAutomation.UploadRecordingAsync(id, chunk, BrowserPrincipal, Context.ConnectionId, Context.ConnectionAborted);
     public async Task<SourceControlWritingSettings> GetSourceControlWritingSettings()
     {
         try { return await _environment.GetSourceControlWritingSettingsAsync(Context.ConnectionAborted).ConfigureAwait(false); }
@@ -710,7 +747,15 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         var stream = _environment.Updates.IsDraining || Context.Items.TryGetValue(PiStation.Host.Security.RemoteAuthorizationFilter.ReadOnlyItem, out var readOnly) && readOnly is true
             ? _environment.SubscribeThreadPassiveAsync(threadId, cursor, linked.Token)
             : _environment.SubscribeThreadAsync(threadId, cursor, linked.Token);
-        await foreach (var item in stream.ConfigureAwait(false)) yield return item;
+        await foreach (var item in stream.ConfigureAwait(false))
+            yield return item is ThreadSnapshotEnvelope snapshot
+                ? new ThreadSnapshotEnvelope(PiStation.Host.Threads.ThreadHistoryWindow.Recent(snapshot.Projection)) : item;
+    }
+
+    public async Task<ThreadHistoryPage> ReadThreadHistory(ReadThreadHistoryRequest request)
+    {
+        try { return await _environment.ReadThreadHistoryAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (InvalidOperationException error) { throw new HubException(error.Message); }
     }
 
     public async IAsyncEnumerable<TerminalEnvelope> SubscribeTerminal(

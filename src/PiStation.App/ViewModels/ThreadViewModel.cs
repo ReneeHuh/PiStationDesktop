@@ -18,6 +18,12 @@ public sealed class ThreadViewModel : ObservableObject
     private string _piCrashMessage = string.Empty;
     private ThreadProjection? _projection;
     private string _turnStatus = "No active thread";
+    private bool _isLoadingHistory;
+    private string _historyStatus = string.Empty;
+    public bool IsLoadingHistory { get => _isLoadingHistory; internal set { if (SetProperty(ref _isLoadingHistory, value)) OnPropertyChanged(nameof(CanLoadHistory)); } }
+    public string HistoryStatus { get => _historyStatus; internal set => SetProperty(ref _historyStatus, value); }
+    public bool CanLoadHistory => !IsLoadingHistory && Projection?.EarlierHistory is not null;
+    public Visibility EarlierHistoryVisibility => Projection?.EarlierHistory is not null ? Visibility.Visible : Visibility.Collapsed;
 
     public ObservableCollection<TimelineItemViewModel> Timeline { get; } = [];
 
@@ -77,6 +83,8 @@ public sealed class ThreadViewModel : ObservableObject
     {
         _hasSelectedThread = hasSelectedThread;
         Projection = projection;
+        OnPropertyChanged(nameof(CanLoadHistory));
+        OnPropertyChanged(nameof(EarlierHistoryVisibility));
         Queue.Apply(projection?.Queue, projection?.RuntimeState);
         Reconcile(Timeline, CreatePresentationTimeline(
             projection?.Timeline ?? [],
@@ -811,7 +819,9 @@ public sealed record QuestionTimelineItemViewModel(
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public Visibility TextVisibility => InputKind == QuestionInputKind.Select
+    public Visibility SecretVisibility => InputKind == QuestionInputKind.Secret ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility TextVisibility => InputKind is QuestionInputKind.Select or QuestionInputKind.Secret
         ? Visibility.Collapsed
         : Visibility.Visible;
 

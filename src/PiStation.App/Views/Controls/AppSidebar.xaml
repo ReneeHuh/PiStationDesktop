@@ -180,7 +180,7 @@
                         </ComboBox>
                         <TextBlock
                             Grid.Column="1"
-                            FontSize="{StaticResource PiFontSizeCaption}"
+                            FontSize="{ThemeResource PiFontSizeCaption}"
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="LOCAL" />
                     </Grid>
@@ -207,7 +207,7 @@
                                                 <TextBlock Text="{x:Bind Emoji, Mode=OneWay}" FontSize="20" />
                                             </StackPanel>
                                             <Button Content="{x:Bind DisplayName, Mode=OneWay}" Click="OnGroupedProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Select project" />
-                                            <TextBlock FontSize="{StaticResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Summary, Mode=OneWay}" />
+                                            <TextBlock FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Summary, Mode=OneWay}" />
                                         </StackPanel>
                                     </Expander.Header>
                                     <StackPanel>
@@ -332,42 +332,42 @@
                                                 <TextBlock
                                                     x:Name="ThreadTitleText"
                                                     automation:AutomationProperties.Name="{x:Bind Title}"
-                                                    Foreground="{ThemeResource PiTextPrimaryBrush}"
+                                                    Foreground="{ThemeResource PiSidebarForegroundBrush}"
                                                     Text="{x:Bind Title}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="{x:Bind IsSettled, Converter={StaticResource ThreadStateTextConverter}}" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="·" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="{x:Bind UpdatedUtc, Converter={StaticResource RelativeTimeConverter}}" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="·" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
                                                         Text="{x:Bind WorkspaceMode}" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiWaitingBrush}"
                                                         Text="{x:Bind HasUnsentDraft, Converter={StaticResource ThreadDraftTextConverter}}" />
                                                     <TextBlock Text="{x:Bind UnreadLabel}" Foreground="{ThemeResource PiAccentBrush}" automation:AutomationProperties.AutomationId="ThreadUnreadIndicator" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiAccentBrush}"
                                                         Text="Snoozed"
                                                         Visibility="{x:Bind SnoozedUntilUtc, Converter={StaticResource ObjectPresenceToVisibilityConverter}}" />
                                                     <TextBlock
-                                                        FontSize="{StaticResource PiFontSizeCaption}"
+                                                        FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiAccentBrush}"
                                                         Text="{x:Bind PullRequest.Number}"
                                                         Visibility="{x:Bind PullRequest, Converter={StaticResource ObjectPresenceToVisibilityConverter}}" />

@@ -27,6 +27,6 @@ public static class PiLaunchEditor
         // Keep their original representation when the corresponding text has not changed.
         return new(original is not null && arguments == FormatArguments(original) ? original.Arguments :
             arguments.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries),
-            preserveEnvironment ? original!.EnvironmentVariables : variables, commandTimeout, shutdownTimeout, original?.Tools);
+            preserveEnvironment ? original!.EnvironmentVariables : variables, commandTimeout, shutdownTimeout, original?.Tools, original?.Preferences);
     }
 }

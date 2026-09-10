@@ -90,11 +90,19 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         _diagnostics = diagnostics;
         _threads = threads;
         _terminals = terminals;
+        Health = new(options.CanonicalDataRoot, () => _threads.DiagnosticRoots.Concat(_terminals.DiagnosticRoots));
+        Usage = new(options, database);
+        UsageLimits = new(options.CanonicalDataRoot, () => { var policy = Health.Background; return (policy.RunBackgroundRefresh, policy.Reason); });
+        _diagnostics.Health = Health;
+        _terminals.BackgroundRefreshAllowed = () => Health.Background.RunBackgroundRefresh;
         BrowserAutomation = new(options.BrowserAutomationRoot);
         Updates = new(options.CanonicalDataRoot, () => _threads.HasActiveWork || _terminals.HasActiveWork);
     }
 
     public EnvironmentId EnvironmentId => _environment.EnvironmentId;
+    internal RuntimeHealthService Health { get; }
+    internal Usage.UsageService Usage { get; }
+    internal Usage.UsageLimitsService UsageLimits { get; }
 
     public PreviewLeaseRegistry PreviewLeases { get; } = new();
     public BrowserAutomationBridge BrowserAutomation { get; }
@@ -1418,9 +1426,13 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         _preview.Dispose();
         PreviewLeases.Dispose();
         await BrowserAutomation.DisposeAsync().ConfigureAwait(false);
+        await UsageLimits.DisposeAsync().ConfigureAwait(false);
+        await Health.DisposeAsync().ConfigureAwait(false);
+        Usage.Dispose();
         await _terminals.DisposeAsync().ConfigureAwait(false);
         await _threads.DisposeAsync().ConfigureAwait(false);
         _sourceControl.Dispose();
+        await _database.DisposeAsync().ConfigureAwait(false);
     }
 
     private void ValidateRequest(ExecuteThreadCommandRequest request)

@@ -7,13 +7,15 @@ public sealed record BrowsePiSessionsRequest(string? Directory = null, int Offse
 public sealed record PiSessionBrowserResult(string Directory, IReadOnlyList<PiSessionCandidate> Sessions, bool IsTruncated, int SkippedFiles, int? NextOffset = null);
 public enum PiSessionTreeFilter { Default, NoTools, UserOnly, LabeledOnly, All }
 public sealed record PiSessionPageRequest(ThreadId ThreadId, int Offset = 0, int Limit = 1000, string? ExpectedRevision = null,
-    PiSessionTreeFilter Filter = PiSessionTreeFilter.All, string? SearchQuery = null, bool ActiveBranchOnly = false);
+    PiSessionTreeFilter Filter = PiSessionTreeFilter.All, string? SearchQuery = null, bool ActiveBranchOnly = false,
+    IReadOnlyList<string>? CollapsedEntryIds = null, string? AnchorEntryId = null, int BranchDirection = 0, bool IncludeEntryText = false);
 public sealed record PiSessionTreeEntry(string Id, string? ParentId, int Depth, string Kind, string Preview, bool IsActiveBranch, bool CanFork,
-    string? Label = null, string? LabelTimestamp = null);
+    string? Label = null, string? LabelTimestamp = null, string? VisibleParentId = null, bool HasChildren = false, bool IsBranchPoint = false);
 public sealed record PiSessionSnapshot(ThreadId ThreadId, string Path, string Revision, string? LeafId,
     IReadOnlyList<PiSessionTreeEntry> Entries, int TotalEntries, int ActiveMessageCount, PiModelSelection? Model,
     string? ThinkingLevel, long? TotalTokens, decimal? Cost, bool IsTruncated, int? NextOffset = null,
-    int? MatchingEntries = null, PiSessionTreeFilter Filter = PiSessionTreeFilter.All, string? SearchQuery = null, bool ActiveBranchOnly = false);
+    int? MatchingEntries = null, PiSessionTreeFilter Filter = PiSessionTreeFilter.All, string? SearchQuery = null, bool ActiveBranchOnly = false,
+    IReadOnlyList<string>? CollapsedEntryIds = null, string? SelectedEntryId = null, string? SelectedEntryText = null);
 public sealed record CopyPiSessionRequest(Guid OperationId, ProjectId ProjectId, string? SourcePath = null,
     ThreadId? SourceThreadId = null, string? EntryId = null, string? ExpectedRevision = null, string? Title = null);
 public enum PiSessionExportFormat { Jsonl, Html, Bundle }

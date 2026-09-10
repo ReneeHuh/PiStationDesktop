@@ -12,6 +12,7 @@ public sealed partial class BrowserSettingsPanel : UserControl
     private bool _busy;
     private string? _pendingProfile;
     private bool _remove;
+    private CancellationTokenSource? _importCancellation;
     public ShellViewModel ViewModel { get; }
 
     public BrowserSettingsPanel(ShellViewModel viewModel)
@@ -19,7 +20,7 @@ public sealed partial class BrowserSettingsPanel : UserControl
         ViewModel = viewModel;
         InitializeComponent();
         Loaded += (_, _) => { ViewModel.Layout.PropertyChanged += OnSettingsChanged; RefreshProfiles(); };
-        Unloaded += (_, _) => ViewModel.Layout.PropertyChanged -= OnSettingsChanged;
+        Unloaded += (_, _) => { ViewModel.Layout.PropertyChanged -= OnSettingsChanged; _importCancellation?.Cancel(); };
     }
 
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs args)

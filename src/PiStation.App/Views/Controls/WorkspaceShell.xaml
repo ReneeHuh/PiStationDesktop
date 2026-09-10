@@ -9,7 +9,7 @@
         x:Name="ShellGrid"
         automation:AutomationProperties.AutomationId="WorkspaceNavigation"
         automation:AutomationProperties.Name="Workspace navigation"
-        Background="{ThemeResource PiCanvasBrush}"
+        Background="Transparent"
         SizeChanged="OnShellSizeChanged">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />

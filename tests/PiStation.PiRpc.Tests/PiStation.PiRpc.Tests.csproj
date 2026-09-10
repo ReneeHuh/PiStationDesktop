@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Update="Fixtures\batch-provider.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PiStation.App\PiExtensions\pistation-sdk.ts" Link="Fixtures\pistation-sdk.ts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PiStation.App\PiExtensions\*.mjs" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\offline-provider.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\plan-provider.ts" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\tools-provider.ts" CopyToOutputDirectory="PreserveNewest" />
