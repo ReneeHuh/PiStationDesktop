@@ -1423,7 +1423,7 @@ public sealed partial class PiThreadController : IAsyncDisposable
                     _componentInteraction = (requested.ComponentId, InteractionId.Parse(requested.RequestId));
                 Journal.Commit(new QuestionRequestedEvent(
                     InteractionId.Parse(requested.RequestId),
-                    requested.IsSecret ? QuestionInputKind.Secret : QuestionInputKind.Input,
+                    requested.IsSecret ? QuestionInputKind.Secret : requested.ComponentId is not null ? QuestionInputKind.Component : QuestionInputKind.Input,
                     requested.Title,
                     requested.Placeholder,
                     [],

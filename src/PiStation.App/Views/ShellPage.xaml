@@ -1049,6 +1049,7 @@
                             </Expander>
                             <Expander Header="Clone hosted repository">
                                 <StackPanel Padding="0,8,0,0" Spacing="6">
+                                    <Button HorizontalAlignment="Left" Click="OnBrowseHostedRepositoriesClicked" Content="Browse accounts and repositories" automation:AutomationProperties.AutomationId="BrowseHostedRepositoriesButton" />
                                     <TextBox x:Name="CloneRemoteInput" Header="Remote URL" PlaceholderText="https://github.com/owner/repository.git" Style="{StaticResource PiTextBoxStyle}" />
                                     <TextBox x:Name="CloneDestinationInput" Header="Destination" PlaceholderText="C:\Projects\repository" Style="{StaticResource PiTextBoxStyle}" />
                                     <Button HorizontalAlignment="Left" Click="OnCloneRepositoryClicked" Content="Clone and add project" Style="{StaticResource PiPrimaryButtonStyle}" />

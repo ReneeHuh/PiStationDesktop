@@ -31,6 +31,8 @@ public sealed class PiExtensionRuntimeTests
         var sawComponentClose = false;
         while (await stream.MoveNextAsync())
         {
+            if (stream.Current is ThreadEventEnvelope { Event: QuestionRequestedEvent { InteractionId.Value: "component-question" } component })
+                Assert.Equal(QuestionInputKind.Component, component.InputKind);
             if (stream.Current is ThreadEventEnvelope { Event: PiExtensionUiChangedEvent { Update.Method: "set_editor_text" } }) sawUi = true;
             if (stream.Current is ThreadEventEnvelope { Event: InteractionResolvedEvent { State: InteractionState.Canceled } resolved })
             {

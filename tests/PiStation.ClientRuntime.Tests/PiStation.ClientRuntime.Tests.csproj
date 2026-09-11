@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\ProviderReviewCommands.cs" Link="Fixtures\ProviderReviewCommands.cs" />
+    <Compile Include="..\Shared\HostingDiscoveryFixture.cs" Link="Fixtures\HostingDiscoveryFixture.cs" />
     <Compile Include="..\Shared\BitbucketHttpFixture.cs" Link="Fixtures\BitbucketHttpFixture.cs" />
   </ItemGroup>
 

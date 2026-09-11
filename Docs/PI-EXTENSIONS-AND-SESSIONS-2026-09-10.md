@@ -1,6 +1,6 @@
 # Pi extensions and sessions
 
-This working tree uses protocol 52. Client and host builds must match.
+The initial session batch used protocol 52. The current working tree uses protocol 60; client and host builds must match. [Current extension/authentication changes and validation](EXTENSION-AUTH-AND-STRESS-2026-09-10.md).
 
 ## Session behavior
 
@@ -24,9 +24,9 @@ Provider inventory includes unconfigured providers and advertises browser/API-ke
 
 ## Extension component compatibility
 
-Component factories execute inside Pi and receive a 100-column render width. Output is limited to 120 lines and 12,000 characters, with ANSI formatting removed. Widget factories and custom header/footer components render in PiStation's extension widget surface. Working messages appear as status text. `custom()` renders through native input interactions: enter text or named keys such as Enter, Escape, Up, Down, Tab and Ctrl+C. Completion, cancellation and disposal are supported. Asynchronous completion retires the correlated native question immediately. Tests exercise a real Pi factory, its input callback and asynchronous completion.
+Component factories execute inside Pi and initially receive a 100-column render width; native controls can select 80, 100 or 120 columns. Output is limited to 120 lines and 12,000 characters, with ANSI formatting removed. Widget factories and custom header/footer components render in PiStation's extension widget surface. Working messages appear as status text. `custom()` renders through native input interactions: enter text or named keys such as Enter, Escape, Up, Down, Tab and Ctrl+C. Completion, cancellation and disposal are supported. Asynchronous completion retires the correlated native question immediately. Tests exercise a real Pi factory, its input callback and asynchronous completion.
 
-This is a text compatibility surface, not complete terminal rendering parity. Mouse-oriented components, arbitrary TUI layout APIs, exact overlay placement, terminal editor replacements and terminal autocomplete are not supported. Editor replacement and autocomplete attempts produce explicit notices. Pi's TUI keybinding manager is used when the coding-agent SDK does not export its application manager. EXT-15 remains Partial for these limits.
+The native component surface now preserves unwrapped text spacing and translates pointer presses/wheel input into cell events. `/pistation-extension-editor initial text` invokes a registered editor factory (or Pi CustomEditor), with stacked extension autocomplete; completion becomes an explicit composer proposal. ANSI styling/cursor movement, exact overlays, mouse motion/drag/release and arbitrary TUI methods remain unsupported, and the native composer itself is not replaced. Pi's TUI keybinding manager is used when the coding-agent SDK does not export its application manager. EXT-15 remains Partial; see the current compatibility note for limits and verification.
 
 ## External child controls
 

@@ -825,5 +825,9 @@ public sealed record QuestionTimelineItemViewModel(
         ? Visibility.Collapsed
         : Visibility.Visible;
 
+    public Visibility ComponentVisibility => InputKind == QuestionInputKind.Component ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility OrdinaryTitleVisibility => InputKind == QuestionInputKind.Component ? Visibility.Collapsed : Visibility.Visible;
+    public string ComponentText => Title.StartsWith("Extension component\n", StringComparison.Ordinal) ? Title[20..] : Title;
+
     public string Resolution => string.IsNullOrEmpty(SubmittedAnswer) ? State : $"{State}: {SubmittedAnswer}";
 }

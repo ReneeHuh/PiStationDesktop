@@ -380,7 +380,20 @@
                 BorderBrush="{ThemeResource PiAccentBrush}"
                 Style="{StaticResource PiBannerStyle}">
                 <StackPanel Spacing="8">
-                    <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" />
+                    <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" Visibility="{x:Bind OrdinaryTitleVisibility}" />
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" MaxHeight="400" Visibility="{x:Bind ComponentVisibility}">
+                        <ContentControl IsTabStop="True" IsEnabled="{x:Bind IsPending}" HorizontalAlignment="Left"
+                            automation:AutomationProperties.Name="Extension component. Click a cell or enter named keys below."
+                            PointerPressed="OnComponentPointerPressed" PointerWheelChanged="OnComponentPointerWheelChanged">
+                            <TextBlock Text="{x:Bind ComponentText}" FontFamily="Consolas" FontSize="14" LineHeight="20"
+                                LineStackingStrategy="BlockLineHeight" TextWrapping="NoWrap" />
+                        </ContentControl>
+                    </ScrollViewer>
+                    <StackPanel Orientation="Horizontal" Spacing="8" Visibility="{x:Bind ComponentVisibility}">
+                        <Button Content="80 columns" Tag="80" Click="OnComponentResizeClicked" IsEnabled="{x:Bind IsPending}" />
+                        <Button Content="100 columns" Tag="100" Click="OnComponentResizeClicked" IsEnabled="{x:Bind IsPending}" />
+                        <Button Content="120 columns" Tag="120" Click="OnComponentResizeClicked" IsEnabled="{x:Bind IsPending}" />
+                    </StackPanel>
                     <TextBlock Text="{x:Bind Prompt}" TextWrapping="Wrap" />
                     <ComboBox
                         automation:AutomationProperties.AutomationId="QuestionOptionSelector"

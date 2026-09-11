@@ -309,6 +309,11 @@ public sealed partial class EnvironmentClient : IEnvironmentClient
     public Task<SourceControlOperationResult> SetPullRequestThreadResolvedAsync(SetPullRequestThreadResolvedRequest request, CancellationToken cancellationToken = default) =>
         InvokeHostingAsync("SetPullRequestThreadResolved", request.OperationId, id => request with { OperationId = id }, cancellationToken);
 
+    public Task<ListHostingAccountsResult> ListHostingAccountsAsync(ListHostingAccountsRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<ListHostingAccountsResult>("ListHostingAccounts", request, cancellationToken);
+    public Task<BrowseHostedRepositoriesResult> BrowseHostedRepositoriesAsync(BrowseHostedRepositoriesRequest request, CancellationToken cancellationToken = default) =>
+        InvokeAsync<BrowseHostedRepositoriesResult>("BrowseHostedRepositories", request, cancellationToken);
+
     public Task<ListPullRequestsResult> ListPullRequestsAsync(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default) =>

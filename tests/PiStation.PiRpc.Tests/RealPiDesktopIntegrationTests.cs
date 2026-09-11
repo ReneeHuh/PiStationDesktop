@@ -6,8 +6,57 @@ using PiStation.PiRpc.Sessions;
 
 namespace PiStation.PiRpc.Tests;
 
-public sealed class RealPiDesktopIntegrationTests
+public sealed class RealPiDesktopIntegrationTests(Xunit.Abstractions.ITestOutputHelper output)
 {
+    [RealPiOfflineFact]
+    [Trait("Category", "RealPiOffline")]
+    public async Task ExtensionEditorAndAutocompleteRunInInstalledPiAndReturnOnlyAProposal()
+    {
+        using var directory = new TemporaryDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var extension = directory.GetPath("editor.ts");
+        await File.WriteAllTextAsync(extension, """
+            import { CustomEditor } from '@earendil-works/pi-coding-agent';
+            export default function(pi) {
+              pi.on('session_start', (_event, ctx) => {
+                ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
+                ctx.ui.addAutocompleteProvider(current => ({ ...current,
+                  getSuggestions: async () => ({ prefix: 'he', items: [{ value: 'hello-from-extension', label: 'hello-from-extension' }] }),
+                  applyCompletion: () => ({ lines: ['hello-from-extension'], cursorLine: 0, cursorCol: 20 })
+                }));
+              });
+            }
+            """);
+        var options = await Options(directory, timeout.Token);
+        options = options with { AdditionalArguments = [..options.AdditionalArguments, "--extension", extension] };
+        await using var pi = await PiProcessLauncher.StartAsync(options, timeout.Token);
+        var command = pi.Connection.PromptAsync("/pistation-extension-editor he", timeout.Token);
+        var tabSent = false; string? proposal = null;
+        await using var events = pi.Connection.ReadEventsAsync(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        while (true)
+        {
+            var next = events.MoveNextAsync().AsTask();
+            if (await Task.WhenAny(next, command) == command) await command;
+            if (!await next) break;
+            var item = events.Current;
+            output.WriteLine(item is PiStation.PiRpc.Wire.Events.PiInputRequestedEvent frame ? frame.Title : item.ToString());
+            if (item is PiStation.PiRpc.Wire.Events.PiInputRequestedEvent input)
+            {
+                Assert.NotNull(input.ComponentId);
+                if (!tabSent) { await pi.Connection.RespondToExtensionTextAsync(input.RequestId, "Tab", timeout.Token); tabSent = true; }
+                else if (input.Title.Contains("hello-from-extension", StringComparison.Ordinal))
+                    await pi.Connection.RespondToExtensionTextAsync(input.RequestId, "Enter", timeout.Token);
+            }
+            if (item is PiStation.PiRpc.Wire.Events.PiExtensionUiUpdateEvent update && update.Method == "set_editor_text")
+            {
+                proposal = update.Text; break;
+            }
+        }
+        await command;
+        Assert.Equal("hello-from-extension", proposal);
+        Assert.False(File.Exists(options.EnvironmentVariables["PISTATION_TEST_TRACE"]!));
+    }
+
     [RealPiOfflineFact]
     [Trait("Category", "RealPiOffline")]
     public async Task ArbitraryComponentFactoryReceivesNativeInputAndDisposesAfterCompletion()
@@ -93,7 +142,10 @@ public sealed class RealPiDesktopIntegrationTests
         await using var pi = await PiProcessLauncher.StartAsync(options, timeout.Token);
         var snapshot = await pi.Connection.ManageAsync(new() { ["action"] = "inspect" }, timeout.Token);
         Assert.True(snapshot.GetProperty("providers").EnumerateArray().Single(provider => provider.GetProperty("providerId").GetString() == "openai").GetProperty("supportsApiKey").GetBoolean());
-        var login = pi.Connection.ManageAsync(new() { ["action"] = "login", ["resourceId"] = "openai", ["authType"] = "api_key" }, timeout.Token);
+        foreach (var providerId in new[] { "openai", "anthropic", "google", "mistral", "groq" })
+        {
+        Assert.True(snapshot.GetProperty("providers").EnumerateArray().Single(provider => provider.GetProperty("providerId").GetString() == providerId).GetProperty("supportsApiKey").GetBoolean(), providerId);
+        var login = pi.Connection.ManageAsync(new() { ["action"] = "login", ["resourceId"] = providerId, ["authType"] = "api_key" }, timeout.Token);
         await foreach (var item in pi.Connection.ReadEventsAsync(timeout.Token))
         {
             if (item is not PiStation.PiRpc.Wire.Events.PiInputRequestedEvent input) continue;
@@ -105,8 +157,9 @@ public sealed class RealPiDesktopIntegrationTests
         Assert.DoesNotContain("isolated-dummy-key", result.GetRawText());
         var auth = Path.Combine(options.EnvironmentVariables["PI_CODING_AGENT_DIR"]!, "auth.json");
         Assert.Contains("isolated-dummy-key-no-provider-request", await File.ReadAllTextAsync(auth, timeout.Token));
-        await pi.Connection.ManageAsync(new() { ["action"] = "logout", ["resourceId"] = "openai" }, timeout.Token);
+        await pi.Connection.ManageAsync(new() { ["action"] = "logout", ["resourceId"] = providerId }, timeout.Token);
         Assert.DoesNotContain("isolated-dummy-key", await File.ReadAllTextAsync(auth, timeout.Token));
+        }
     }
 
     [RealPiOfflineFact]
@@ -123,7 +176,7 @@ public sealed class RealPiDesktopIntegrationTests
         options = options with { AdditionalArguments = [..options.AdditionalArguments, "--extension", hook, "--extension", broken] };
         await using var pi = await PiProcessLauncher.StartAsync(options, timeout.Token);
         var read = await pi.Connection.ManageAsync(new() { ["action"] = "inspect" }, timeout.Token);
-        Assert.True(read.GetProperty("authoritativeResources").GetBoolean());
+        Assert.True(read.GetProperty("authoritativeResources").GetBoolean(), read.GetRawText() + "\n" + pi.StandardError);
         var resources = read.GetProperty("resources").EnumerateArray().ToArray();
         Assert.True(resources.Single(r => r.GetProperty("path").GetString() == hook).GetProperty("confirmedLoaded").GetBoolean());
         Assert.True(resources.Single(r => r.GetProperty("path").GetString() == broken).GetProperty("confirmedLoaded").GetBoolean());
@@ -207,7 +260,7 @@ public sealed class RealPiDesktopIntegrationTests
 
     private static async Task<PiProcessLaunchOptions> Options(TemporaryDirectory directory, CancellationToken token) => new()
     {
-        Installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = Environment.GetEnvironmentVariable("PISTATION_PI_PATH") }, token),
+        Installation = await new PiLocator().LocateAsync(new PiLocatorOptions { ExplicitPiPath = Environment.GetEnvironmentVariable("PISTATION_PI_PATH"), MinimumPiVersion = new(0, 85, 0) }, token),
         SdkAdapterPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "pistation-sdk.ts"),
         ProjectDirectory = directory.CreateDirectory("project"), SessionDirectory = directory.CreateDirectory("sessions"), SessionId = Guid.NewGuid().ToString("N"),
         AdditionalArguments = ["--extension", Path.Combine(AppContext.BaseDirectory, "Fixtures", "pistation-resources.ts"),

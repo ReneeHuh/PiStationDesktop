@@ -75,6 +75,8 @@ public sealed class RemoteAuthorizationFilter : IHubFilter
             [nameof(EnvironmentHub.ListPromptStashes)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.DetectSourceControl)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.GetPullRequestReview)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.ListHostingAccounts)] = RemoteAccessLevel.ReadOnly,
+            [nameof(EnvironmentHub.BrowseHostedRepositories)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.ListPullRequests)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.GetDiagnostics)] = RemoteAccessLevel.ReadOnly,
             [nameof(EnvironmentHub.GetRuntimeHealth)] = RemoteAccessLevel.ReadOnly,

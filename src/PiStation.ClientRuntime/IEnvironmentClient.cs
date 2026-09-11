@@ -114,6 +114,9 @@ public interface IEnvironmentClient : IAsyncDisposable
 
     Task<SourceControlOperationResult> SetPullRequestThreadResolvedAsync(SetPullRequestThreadResolvedRequest request, CancellationToken cancellationToken = default);
 
+    Task<ListHostingAccountsResult> ListHostingAccountsAsync(ListHostingAccountsRequest request, CancellationToken cancellationToken = default);
+    Task<BrowseHostedRepositoriesResult> BrowseHostedRepositoriesAsync(BrowseHostedRepositoriesRequest request, CancellationToken cancellationToken = default);
+
     Task<ListPullRequestsResult> ListPullRequestsAsync(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default);

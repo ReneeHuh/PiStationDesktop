@@ -242,6 +242,17 @@ public sealed class EnvironmentHub(EnvironmentService environment) : Hub
         catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
     }
 
+    public async Task<ListHostingAccountsResult> ListHostingAccounts(ListHostingAccountsRequest request)
+    {
+        try { return await _environment.ListHostingAccountsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+    public async Task<BrowseHostedRepositoriesResult> BrowseHostedRepositories(BrowseHostedRepositoriesRequest request)
+    {
+        try { return await _environment.BrowseHostedRepositoriesAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }
+        catch (HostOperationException exception) { throw new HubException($"{exception.Code}: {exception.Message}"); }
+    }
+
     public async Task<ListPullRequestsResult> ListPullRequests(ListPullRequestsRequest request)
     {
         try { return await _environment.ListPullRequestsAsync(request, Context.ConnectionAborted).ConfigureAwait(false); }

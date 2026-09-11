@@ -73,6 +73,7 @@ public enum QuestionInputKind
     Input,
     Editor,
     Secret,
+    Component,
 }
 
 public enum QueuedMessageKind

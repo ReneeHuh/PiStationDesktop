@@ -396,6 +396,11 @@ public sealed partial class EnvironmentService : IAsyncDisposable
         DetectSourceControlRequest request,
         CancellationToken cancellationToken = default) => _sourceControl.DetectAsync(request, cancellationToken);
 
+    public Task<ListHostingAccountsResult> ListHostingAccountsAsync(ListHostingAccountsRequest request, CancellationToken cancellationToken = default) =>
+        _sourceControl.ListHostingAccountsAsync(request, cancellationToken);
+    public Task<BrowseHostedRepositoriesResult> BrowseHostedRepositoriesAsync(BrowseHostedRepositoriesRequest request, CancellationToken cancellationToken = default) =>
+        _sourceControl.BrowseHostedRepositoriesAsync(request, cancellationToken);
+
     public Task<ListPullRequestsResult> ListPullRequestsAsync(
         ListPullRequestsRequest request,
         CancellationToken cancellationToken = default) => _sourceControl.ListPullRequestsAsync(request, cancellationToken);

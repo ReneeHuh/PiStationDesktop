@@ -11,6 +11,17 @@ namespace PiStation.Host.Tests;
 public sealed class CheckpointIntegrationTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
+    public async Task ConcurrentIsolatedCheckpointRewindsPreserveEveryWorkspace()
+    {
+        // Deliberate contention inside one test, retaining the original assertions and deadlines.
+        await Task.WhenAll(Enumerable.Range(0, 3).Select(async index =>
+        {
+            var elapsed = Stopwatch.StartNew();
+            await SettledTurnCapturesCheckpointAndConfirmedCommandRewindsWorkspaceAndConversation();
+            output.WriteLine($"Concurrent checkpoint flow {index}: {elapsed.Elapsed}");
+        }));
+    }
+    [Fact]
     public async Task SettledTurnCapturesCheckpointAndConfirmedCommandRewindsWorkspaceAndConversation()
     {
         using var temporaryDirectory = new HostTestDirectory();

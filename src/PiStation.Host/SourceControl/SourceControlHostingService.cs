@@ -117,8 +117,17 @@ public sealed partial class SourceControlHostingService(
         EnsureSucceeded(result, "The repository could not be cloned.");
         var project = await _projects.AddAsync(
             new AddProjectRequest(destination, request.DisplayName), cancellationToken).ConfigureAwait(false);
-        var repository = await DescribeRemoteAsync(destination, request.RemoteUrl.Trim(), cancellationToken).ConfigureAwait(false);
-        return new SourceControlOperationResult(true, "Repository cloned and added as a project.", repository, Project: project);
+        try
+        {
+            var repository = await DescribeRemoteAsync(destination, request.RemoteUrl.Trim(), cancellationToken).ConfigureAwait(false);
+            return new SourceControlOperationResult(true, "Repository cloned and added as a project.", repository, Project: project);
+        }
+        catch (Exception)
+        {
+            // The clone and registration already succeeded. Optional hosting discovery must not turn
+            // that confirmed mutation into a failure that invites cloning the same destination again.
+            return new SourceControlOperationResult(true, "Repository cloned and added as a project. Hosting details could not be loaded; refresh source control to retry.", Project: project);
+        }
     }
 
     public async Task<SourceControlOperationResult> CreatePullRequestAsync(

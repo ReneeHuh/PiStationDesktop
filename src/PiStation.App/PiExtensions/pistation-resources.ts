@@ -1,3 +1,4 @@
+import { loginDesktopProvider } from "./pistation-auth.mjs";
 // Desktop management uses Pi's public SDK and reports metadata, never credential values.
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -259,29 +260,11 @@ export default function (pi: any) {
           }
           if (request.action === "logout") await runtime.logout(providerId);
           else {
-            const abort = new AbortController();
-            const timer = setTimeout(() => abort.abort(), 8 * 60 * 1000);
-            try {
-              const authType = request.authType ?? "oauth";
-              if (!["oauth", "api_key"].includes(authType)) throw new Error("Choose browser or API-key sign-in.");
-              await runtime.login(providerId, authType, {
-                signal: abort.signal,
-                prompt: async (prompt: any) => {
-                  const answer = prompt.type === "select" ? await ctx.ui.select(prompt.message, prompt.options.map((option: any) => option.label), { signal: abort.signal, timeout: 8 * 60 * 1000 })
-                    : await ctx.ui.input(prompt.message, "[pistation:secret]", { signal: abort.signal, timeout: 8 * 60 * 1000 });
-                  if (answer === undefined) { abort.abort(); throw new Error("Sign-in cancelled."); }
-                  return prompt.type === "select" ? prompt.options.find((option: any) => option.label === answer)?.id ?? answer : answer;
-                },
-                notify: (event: any) => {
-                  const url = event.type === "auth_url" ? event.url : event.verificationUri;
-                  ctx.ui.setStatus("Pi sign-in", limit(event.userCode ? `Code: ${event.userCode} · ${url}` : event.instructions ?? event.message ?? url));
-                  if (url && process.platform === "win32" && new URL(url).protocol === "https:") {
-                    const browser = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { windowsHide: true, stdio: "ignore" });
-                    browser.on("error", () => ctx.ui.notify("Open this sign-in URL: " + url, "info")); browser.unref();
-                  }
-                },
-              });
-            } finally { clearTimeout(timer); }
+            await loginDesktopProvider(runtime, providerId, request.authType ?? "oauth", ctx.ui, (url: string) => {
+              if (process.platform !== "win32") return;
+              const browser = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { windowsHide: true, stdio: "ignore" });
+              browser.on("error", () => ctx.ui.notify("Open this sign-in URL: " + url, "info")); browser.unref();
+            });
           }
           await ctx.modelRegistry.refresh({ allowNetwork: false });
           message = request.action === "login" ? "Signed in. Provider credentials refreshed." : "Signed out of stored Pi credentials. Environment or ambient credentials may remain configured.";
