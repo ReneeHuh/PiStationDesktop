@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param([ValidateSet(30, 60)][int] $FrameRate = 30)
+param(
+    [ValidateSet(30, 60)][int] $FrameRate = 30,
+    [ValidateRange(3, 60)][int] $RecordingDurationSeconds = 3,
+    [ValidateRange(0, 1)][double] $MinimumFreshFrameRatio = 0
+)
 
 # Run after Invoke-CodeTests.ps1 has built Debug. Owns a fresh data root and only its captured app PID/job.
 $ErrorActionPreference = 'Stop'
@@ -169,11 +173,11 @@ try {
     foreach ($expression in @('(() => { throw new Error("fixture exception") })()', 'NaN', '42n', '(() => { const a = {}; a.self = a; return a; })()', '"x".repeat(65000)')) {
         Invoke-Browser @{ action = 'evaluate'; expression = $expression } -ExpectFailure | Out-Null
     }
-    Invoke-Browser @{ action = 'evaluate'; expression = "globalThis.recordingAnimation = setInterval(() => document.body.style.backgroundColor = 'hsl(' + (Date.now() % 360) + ',60%,60%)', 16); true" } | Out-Null
+    Invoke-Browser @{ action = 'evaluate'; expression = "globalThis.recordingPaints = 0; globalThis.recordingPaintStarted = performance.now(); globalThis.recordingPaint = () => { document.body.style.backgroundColor = 'hsl(' + (++globalThis.recordingPaints % 360) + ',60%,60%)'; globalThis.recordingAnimation = requestAnimationFrame(globalThis.recordingPaint); }; globalThis.recordingAnimation = requestAnimationFrame(globalThis.recordingPaint); true" } | Out-Null
     $startedRecording = Invoke-Browser @{ action = 'recording_start' }
     if ($startedRecording.data.requestedFramesPerSecond -ne $FrameRate) { throw 'Saved recording frame rate was not applied.' }
     Invoke-Browser @{ action = 'recording_start' } -ExpectFailure | Out-Null
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds $RecordingDurationSeconds
     $recording = Invoke-Browser @{ action = 'recording_stop' }
     $artifact = $recording.data.artifact
     if (-not $artifact -or -not (Test-Path -LiteralPath $artifact.path)) { throw 'Recording did not deliver a host-readable artifact.' }
@@ -181,8 +185,16 @@ try {
     if ($video.Length -lt 1024 -or [Text.Encoding]::ASCII.GetString($video, 4, 4) -ne 'ftyp') { throw 'Recording is not a nonempty MP4.' }
     if ((Get-FileHash -LiteralPath $artifact.path -Algorithm SHA256).Hash -ne $artifact.sha256) { throw 'Recording hash mismatch.' }
     if ($recording.data.durationSeconds -lt 2 -or $recording.data.sourceFrames -lt 10) { throw 'Recording did not capture moving background content.' }
+    $paint = Invoke-Browser @{ action = 'evaluate'; expression = '({paints:globalThis.recordingPaints,seconds:(performance.now()-globalThis.recordingPaintStarted)/1000,visibility:document.visibilityState})' }
+    @{ requestedFps = $FrameRate; minimumRatio = $MinimumFreshFrameRatio; recording = $recording.data; page = $paint.data.value } |
+        ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $runRoot 'recording-measurement.json')
+    if ($recording.data.freshFrames -gt $recording.data.sourceFrames -or
+        $recording.data.freshFrames + $recording.data.repeatedFrames -ne $recording.data.encodedFrames) { throw 'Recording frame accounting is inconsistent.' }
+    if ($MinimumFreshFrameRatio -gt 0 -and $recording.data.effectiveFramesPerSecond -lt $FrameRate * $MinimumFreshFrameRatio) {
+        throw "Fresh capture rate $($recording.data.effectiveFramesPerSecond) FPS missed the requested qualification threshold."
+    }
     Invoke-Browser @{ action = 'recording_stop' } -ExpectFailure | Out-Null
-    Invoke-Browser @{ action = 'evaluate'; expression = 'clearInterval(globalThis.recordingAnimation); true' } | Out-Null
+    Invoke-Browser @{ action = 'evaluate'; expression = 'cancelAnimationFrame(globalThis.recordingAnimation); delete globalThis.recordingPaint; true' } | Out-Null
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     Invoke-Browser @{ action = 'evaluate'; expression = '(() => { while(true) {} })()'; timeoutMs = 500 } -ExpectFailure | Out-Null
     if ($elapsed.ElapsedMilliseconds -gt 6000) { throw 'Infinite evaluation exceeded its bounded termination window.' }

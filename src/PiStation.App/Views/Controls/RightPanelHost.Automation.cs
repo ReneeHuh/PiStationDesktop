@@ -318,7 +318,9 @@ public sealed partial class RightPanelHost
                     data = new { tabId = tab.TabId, recording = false,
                         artifact = JsonSerializer.SerializeToElement(artifact, PiStation.Protocol.Serialization.ProtocolJsonContext.Default.BrowserRecordingArtifact),
                         requestedFramesPerSecond = video.RequestedFramesPerSecond, encodedFrames = video.EncodedFrames,
-                        sourceFrames = video.SourceFrames, durationSeconds = video.DurationSeconds, effectiveFramesPerSecond = video.EffectiveFramesPerSecond };
+                        sourceFrames = video.SourceFrames, freshFrames = video.FreshFrames, repeatedFrames = video.RepeatedFrames,
+                        droppedSourceFrames = video.DroppedSourceFrames, decodeMilliseconds = video.DecodeMilliseconds,
+                        durationSeconds = video.DurationSeconds, effectiveFramesPerSecond = video.EffectiveFramesPerSecond };
                     model.SetCaptureStatus(tab.TabId, $"Recording saved • {video.EffectiveFramesPerSecond:F1} FPS • {video.Path}", video.Path);
                     break;
                 case "status": data = BrowserStatus(workspace, tab, surface); break;

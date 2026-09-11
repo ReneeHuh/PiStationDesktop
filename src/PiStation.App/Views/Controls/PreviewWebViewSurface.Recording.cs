@@ -55,13 +55,14 @@ public sealed partial class PreviewWebViewSurface
         {
             using var message = JsonDocument.Parse(args.ParameterObjectAsJson);
             var sessionId = message.RootElement.GetProperty("sessionId").GetInt32();
+            var acknowledgement = sender.CallDevToolsProtocolMethodAsync("Page.screencastFrameAck", JsonSerializer.Serialize(new { sessionId }));
             try
             {
                 var encoded = message.RootElement.GetProperty("data").GetString()!;
                 if (encoded.Length > 6 * 1024 * 1024) throw new InvalidDataException("The browser recording frame is too large.");
-                capture.PushFrame(Convert.FromBase64String(encoded));
+                capture.PushFrame(encoded);
             }
-            finally { await sender.CallDevToolsProtocolMethodAsync("Page.screencastFrameAck", JsonSerializer.Serialize(new { sessionId })); }
+            finally { await acknowledgement; }
         }
         catch (Exception error) { capture.Fail(error); }
     }
