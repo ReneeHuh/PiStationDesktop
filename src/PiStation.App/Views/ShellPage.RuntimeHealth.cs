@@ -8,10 +8,10 @@ public sealed partial class ShellPage
     private void SizeSettingsForWindow()
     {
         if (XamlRoot is null) return;
-        var width = Math.Clamp(XamlRoot.Size.Width - 96, 240, 900);
-        SettingsNavigation.Width = width;
-        SettingsNavigation.MaxHeight = Math.Clamp(XamlRoot.Size.Height - 160, 180, 620);
-        SettingsNavigation.PaneDisplayMode = width < 640 ? NavigationViewPaneDisplayMode.LeftMinimal : NavigationViewPaneDisplayMode.Left;
+        var width = XamlRoot.Size.Width;
+        SettingsNavigation.Width = double.NaN;
+        SettingsNavigation.MaxHeight = double.PositiveInfinity;
+        SettingsNavigation.PaneDisplayMode = width < 760 ? NavigationViewPaneDisplayMode.LeftMinimal : NavigationViewPaneDisplayMode.Left;
     }
     private async void OnRefreshRuntimeHealthClicked(object sender, RoutedEventArgs e) => await ViewModel.RefreshRuntimeHealthAsync();
     private async void OnSaveRuntimeHealthClicked(object sender, RoutedEventArgs e) => await ViewModel.SaveRuntimeHealthAsync();

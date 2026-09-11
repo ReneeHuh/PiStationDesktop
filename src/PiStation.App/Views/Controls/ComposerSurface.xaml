@@ -312,7 +312,7 @@
                 automation:AutomationProperties.AutomationId="PromptInput"
                 automation:AutomationProperties.Name="Prompt for Pi"
                 AcceptsReturn="True"
-                PlaceholderText="Ask Pi anything…"
+                PlaceholderText="Ask for changes, send follow-ups, or attach files"
                 PreviewKeyDown="OnPromptInputPreviewKeyDown"
                 PreviewKeyUp="OnPromptInputPreviewKeyUp"
                 ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -335,22 +335,17 @@
                 TextWrapping="Wrap" />
 
             <Border Grid.Row="5" Style="{StaticResource PiComposerToolbarStyle}">
-                <Grid ColumnSpacing="6" RowSpacing="4">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <ScrollViewer
-                        Grid.Row="0"
-                        HorizontalScrollBarVisibility="Auto"
-                        HorizontalScrollMode="Enabled"
-                        VerticalScrollBarVisibility="Hidden"
-                        VerticalScrollMode="Disabled">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-
+                <Grid RowSpacing="2">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid ColumnSpacing="4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Button Click="OnOpenModelPicker" HorizontalAlignment="Left" MaxWidth="240" Style="{StaticResource PiToolbarButtonStyle}"
+                            IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}" automation:AutomationProperties.AutomationId="ComposerModelButton" automation:AutomationProperties.Name="Choose model">
+                            <StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="{x:Bind ViewModel.PiConfiguration.SelectedModel.DisplayName, Mode=OneWay, FallbackValue='Choose model', TargetNullValue='Choose model'}" MaxWidth="190" TextTrimming="CharacterEllipsis" /><FontIcon FontSize="10" Glyph="&#xE70D;" /></StackPanel>
+                        </Button>
                     <Button
                         x:Name="AttachFilesButton"
-                        Grid.Row="0"
+                        Grid.Column="1"
                         HorizontalAlignment="Left"
                         automation:AutomationProperties.AutomationId="AttachFilesButton"
                         automation:AutomationProperties.Name="Attach files to draft"
@@ -361,6 +356,12 @@
                         <FontIcon FontSize="14" Glyph="&#xE723;" />
                     </Button>
 
+
+                        <Button x:Name="ComposerMoreButton" Grid.Column="2" Content="…" Style="{StaticResource PiToolbarIconButtonStyle}" ToolTipService.ToolTip="Composer options"
+                            automation:AutomationProperties.AutomationId="ComposerMoreButton" automation:AutomationProperties.Name="Composer options">
+                            <Button.Flyout><Flyout x:Name="ComposerOptionsFlyout" Placement="Top" Opening="OnComposerPopupOpened" Closed="OnComposerPopupClosed">
+                                <ScrollViewer MaxHeight="440" HorizontalScrollBarVisibility="Disabled"><StackPanel Width="280" Spacing="8">
+                                    <TextBlock Text="Compose" Style="{StaticResource PiSectionLabelTextStyle}" />
                     <Button
                         Grid.Row="0"
                         Grid.Column="1"
@@ -420,8 +421,8 @@
                         Grid.Column="3"
                         automation:AutomationProperties.AutomationId="PiConfigurationPanel"
                         automation:AutomationProperties.Name="Pi configuration"
-                        Orientation="Horizontal"
-                        Spacing="6"
+                        Orientation="Vertical"
+                        Spacing="8"
                         Visibility="{x:Bind ViewModel.Workspace.PiConfigurationVisibility, Mode=OneWay}">
                         <ComboBox
                             x:Name="PiModelSelector"
@@ -430,8 +431,9 @@
                             automation:AutomationProperties.AutomationId="PiModelSelector"
                             automation:AutomationProperties.Name="Pi model"
                             DisplayMemberPath="DisplayName"
+                            PlaceholderText="Choose model"
                             IsEnabled="{x:Bind ViewModel.CanConfigurePi, Mode=OneWay}"
-                            ItemsSource="{x:Bind ViewModel.PiConfiguration.VisibleModels}"
+                            ItemsSource="{x:Bind ViewModel.PiConfiguration.VisibleModels, Mode=OneWay}"
                             SelectedItem="{x:Bind ViewModel.PiConfiguration.SelectedModel, Mode=OneWay}"
                             SelectionChanged="OnPiModelSelectionChanged"
                             Style="{StaticResource PiComposerComboBoxStyle}"
@@ -492,16 +494,39 @@
                         automation:AutomationProperties.AutomationId="NewBackgroundTaskButton"
                         ToolTipService.ToolTip="Start an independent task using this thread's Pi and workspace defaults; keep a fresh draft here (Ctrl+Shift+Enter)"
                         Style="{StaticResource PiToolbarButtonStyle}" />
-                        </StackPanel>
-                    </ScrollViewer>
 
-                    <Grid Grid.Row="1" ColumnSpacing="6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                    <Grid
+                                </StackPanel></ScrollViewer>
+                            </Flyout></Button.Flyout>
+                        </Button>
+                    <Button
+                        x:Name="StopTurnButton"
+                        Grid.Column="3"
+                        automation:AutomationProperties.AutomationId="StopTurnButton"
+                        automation:AutomationProperties.Name="Stop current turn"
+                        Click="OnStopTurnClicked"
+                        IsEnabled="{x:Bind ViewModel.CanStop, Mode=OneWay}"
+                        Style="{StaticResource PiToolbarButtonStyle}"
+                        ToolTipService.ToolTip="Stop current turn">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <FontIcon FontSize="11" Glyph="&#xE71A;" />
+                            <TextBlock VerticalAlignment="Center" Text="Stop" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="SendPromptButton"
+                        Grid.Column="4"
+                        automation:AutomationProperties.AutomationId="SendPromptButton"
+                        automation:AutomationProperties.Name="{x:Bind ViewModel.PrimarySendLabel, Mode=OneWay}"
+                        Click="OnSendPromptClicked"
+                        IsEnabled="{x:Bind ViewModel.CanSend, Mode=OneWay}"
+                        Style="{StaticResource PiCircularPrimaryButtonStyle}"
+                        ToolTipService.ToolTip="Send now; Ctrl+Shift+Enter submits in background">
+                        <FontIcon FontSize="14" Glyph="&#xE724;" />
+                    </Button>
+
+                    </Grid>
+                    <Grid Grid.Row="1" x:Name="ComposerFooterStatus">
+                        <Grid
                         x:Name="ComposerStatusRegion"
                         Grid.Column="0"
                         Margin="4,0"
@@ -530,33 +555,7 @@
                             Foreground="{ThemeResource PiTextMutedBrush}"
                             Text="{x:Bind ViewModel.Composer.Status, Mode=OneWay}" />
                     </Grid>
-
-                    <Button
-                        x:Name="StopTurnButton"
-                        Grid.Column="1"
-                        automation:AutomationProperties.AutomationId="StopTurnButton"
-                        automation:AutomationProperties.Name="Stop current turn"
-                        Click="OnStopTurnClicked"
-                        IsEnabled="{x:Bind ViewModel.CanStop, Mode=OneWay}"
-                        Style="{StaticResource PiToolbarButtonStyle}"
-                        ToolTipService.ToolTip="Stop current turn">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <FontIcon FontSize="11" Glyph="&#xE71A;" />
-                            <TextBlock VerticalAlignment="Center" Text="Stop" />
-                        </StackPanel>
-                    </Button>
-                    <Button
-                        x:Name="SendPromptButton"
-                        Grid.Column="2"
-                        automation:AutomationProperties.AutomationId="SendPromptButton"
-                        automation:AutomationProperties.Name="{x:Bind ViewModel.PrimarySendLabel, Mode=OneWay}"
-                        Click="OnSendPromptClicked"
-                        IsEnabled="{x:Bind ViewModel.CanSend, Mode=OneWay}"
-                        Style="{StaticResource PiCircularPrimaryButtonStyle}"
-                        ToolTipService.ToolTip="Send now; Ctrl+Shift+Enter submits in background">
-                        <FontIcon FontSize="14" Glyph="&#xE724;" />
-                    </Button>
-                    </Grid>
+</Grid>
                 </Grid>
             </Border>
 

@@ -1,6 +1,8 @@
 @{
     SchemaVersion = 1
-    BaselineDate = '2026-09-02'
+    BaselineDate = '2026-09-02' # Retained screenshot baseline; new source target is below.
+    SourceTargetCommit = '0a590fa01af66ec135d2ebf2d5542b08a37dc275'
+    SourceTargetDate = '2026-09-11'
 
     Reference = @{
         Name = 'T3 Code'
@@ -13,15 +15,15 @@
     ReviewSizes = @(
         @{
             Name = 'Default'; Width = 1200; Height = 800
-            SidebarWidth = 260; ReadingColumnMaxWidth = 720; WorkbenchPanelWidth = 420
+            SidebarWidth = 256; ReadingColumnMaxWidth = 768; WorkbenchPanelWidth = 420
         }
         @{
             Name = 'Large'; Width = 1440; Height = 900
-            SidebarWidth = 260; ReadingColumnMaxWidth = 720; WorkbenchPanelWidth = 420
+            SidebarWidth = 256; ReadingColumnMaxWidth = 768; WorkbenchPanelWidth = 420
         }
         @{
             Name = 'FullHD'; Width = 1920; Height = 1080
-            SidebarWidth = 260; ReadingColumnMaxWidth = 720; WorkbenchPanelWidth = 420
+            SidebarWidth = 256; ReadingColumnMaxWidth = 768; WorkbenchPanelWidth = 420
         }
     )
 

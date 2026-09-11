@@ -101,7 +101,7 @@ public sealed partial class ComposerSurface
         SetResting(ComposerPresentation.ShouldCollapse(hadFocus, _scrollCollapsed,
             ViewModel.Layout.ComposerCollapseOnBlur, ViewModel.Layout.ComposerCollapseOnScroll,
             ViewModel.Composer.HasRecoveryConflict, _openComposerPopups.Count != 0));
-        if (_resting && hadFocus) RestingComposerButton.Focus(FocusState.Programmatic);
+        // Compacting during history scrolling preserves the editing focus.
         RestingComposerPreview.Text = ComposerPresentation.Summary(ViewModel.PromptText,
             ViewModel.Composer.Attachments.Count, ViewModel.ComposerPower.ContextChips.Count);
     }
@@ -109,9 +109,13 @@ public sealed partial class ComposerSurface
     private void SetResting(bool resting)
     {
         _resting = resting;
-        ExpandedComposer.Visibility = resting ? Visibility.Collapsed : Visibility.Visible;
-        RestingComposerSurface.Visibility = resting ? Visibility.Visible : Visibility.Collapsed;
-        ComposerRoot.MinHeight = resting ? 48 : (double)Application.Current.Resources["PiComposerMinHeight"];
+        // Keep the real editor in both presentations; focusing it expands it.
+        ExpandedComposer.Visibility = Visibility.Visible;
+        RestingComposerSurface.Visibility = Visibility.Collapsed;
+        ComposerRoot.MinHeight = resting ? 76 : (double)Application.Current.Resources["PiComposerMinHeight"];
+        PromptInput.MinHeight = resting ? 32 : 48;
+        if (resting) PromptInput.Height = 32;
+        ComposerFooterStatus.Visibility = resting ? Visibility.Collapsed : Visibility.Visible;
         if (!resting) UpdatePromptHeight();
     }
 

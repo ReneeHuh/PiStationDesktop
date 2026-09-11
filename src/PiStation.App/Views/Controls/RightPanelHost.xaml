@@ -9,6 +9,12 @@
     xmlns:viewModels="using:PiStation.App.ViewModels"
     xmlns:views="using:PiStation.App.Views">
 
+    <UserControl.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource PiToolbarButtonStyle}" />
+        <Style TargetType="ComboBox" BasedOn="{StaticResource PiComposerComboBoxStyle}" />
+        <Style TargetType="TextBox" BasedOn="{StaticResource PiTextBoxStyle}" />
+    </UserControl.Resources>
+
     <Border
         x:Name="Root"
         automation:AutomationProperties.AutomationId="RightPanelHost"
@@ -42,29 +48,22 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Grid MinHeight="40" Padding="12,0,8,0" ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock
-                        VerticalAlignment="Center"
-                        Style="{StaticResource PiPanelHeaderTextStyle}"
-                        Text="Workbench" />
-                    <Button
-                        x:Name="CloseRightPanelButton"
-                        Grid.Column="1"
-                        automation:AutomationProperties.AutomationId="CloseRightPanelButton"
-                        automation:AutomationProperties.Name="Close workbench"
-                        Click="OnCloseClicked"
-                        Style="{StaticResource PiToolbarIconButtonStyle}"
-                        ToolTipService.ToolTip="Close workbench">
-                        <FontIcon FontSize="11" Glyph="&#xE711;" />
+                <StackPanel Grid.Row="0" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="2" Margin="4,4">
+                    <Button Content="+" Style="{StaticResource PiToolbarIconButtonStyle}" automation:AutomationProperties.AutomationId="AddWorkbenchTabButton" automation:AutomationProperties.Name="Open workbench view">
+                        <Button.Flyout><MenuFlyout>
+                            <MenuFlyoutItem Text="Changes" Tag="Changes" Click="OnPanelTabClicked" />
+                            <MenuFlyoutItem Text="Files" Tag="Files" Click="OnPanelTabClicked" />
+                            <MenuFlyoutItem Text="Terminal" Tag="Terminal" Click="OnPanelTabClicked" />
+                            <MenuFlyoutItem Text="Browser" Tag="Preview" Click="OnPanelTabClicked" />
+                            <MenuFlyoutItem Text="Agents" Tag="Agents" Click="OnPanelTabClicked" />
+                        </MenuFlyout></Button.Flyout>
                     </Button>
-                </Grid>
+                    <Button x:Name="CloseRightPanelButton" Content="×" Style="{StaticResource PiToolbarIconButtonStyle}" Click="OnCloseClicked"
+                        automation:AutomationProperties.AutomationId="CloseRightPanelButton" automation:AutomationProperties.Name="Close workbench" />
+                </StackPanel>
 
                 <ScrollViewer
-                    Grid.Row="1"
+                    Grid.Row="0" Margin="6,4,68,4"
                     HorizontalScrollBarVisibility="Hidden"
                     HorizontalScrollMode="Enabled"
                     VerticalScrollMode="Disabled"
@@ -103,7 +102,7 @@
                             automation:AutomationProperties.AutomationId="PreviewPanelTab"
                             automation:AutomationProperties.Name="Show preview workbench"
                             Click="OnPanelTabClicked"
-                            Content="Preview"
+                            Content="Browser"
                             Style="{StaticResource PiWorkbenchTabStyle}"
                             Tag="Preview" />
                         <ToggleButton

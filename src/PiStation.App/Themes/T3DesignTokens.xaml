@@ -205,15 +205,15 @@
     <x:Double x:Key="PiControlHeightCompact">28</x:Double>
     <x:Double x:Key="PiControlHeight">32</x:Double>
     <x:Double x:Key="PiTwoLineRowHeight">44</x:Double>
-    <GridLength x:Key="PiSidebarWidth">260</GridLength>
-    <x:Double x:Key="PiSidebarWidthValue">260</x:Double>
+    <GridLength x:Key="PiSidebarWidth">256</GridLength>
+    <x:Double x:Key="PiSidebarWidthValue">256</x:Double>
     <x:Double x:Key="PiSidebarCollapsedWidth">52</x:Double>
     <x:Double x:Key="PiSidebarMinWidth">220</x:Double>
     <x:Double x:Key="PiSidebarMaxWidth">320</x:Double>
     <x:Double x:Key="PiTitleBarHeight">40</x:Double>
     <x:Double x:Key="PiThreadHeaderHeight">40</x:Double>
     <x:Double x:Key="PiWorkspaceTopBarHeight">52</x:Double>
-    <x:Double x:Key="PiReadingColumnWidth">720</x:Double>
+    <x:Double x:Key="PiReadingColumnWidth">768</x:Double>
     <x:Double x:Key="PiUserMessageMaxWidth">576</x:Double>
     <GridLength x:Key="PiWorkbenchPanelWidth">420</GridLength>
     <x:Double x:Key="PiWorkbenchPanelMinWidth">360</x:Double>
@@ -243,7 +243,7 @@
     <CornerRadius x:Key="PiRadiusSmall">4</CornerRadius>
     <CornerRadius x:Key="PiRadiusControl">6</CornerRadius>
     <CornerRadius x:Key="PiRadiusSurface">8</CornerRadius>
-    <CornerRadius x:Key="PiRadiusComposer">18</CornerRadius>
+    <CornerRadius x:Key="PiRadiusComposer">22</CornerRadius>
     <CornerRadius x:Key="PiRadiusPill">999</CornerRadius>
 
     <Style x:Key="PiPageTitleTextStyle" TargetType="TextBlock">

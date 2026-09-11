@@ -2525,9 +2525,15 @@ public sealed partial class RightPanelHost : UserControl
         PreviewOpenDevToolsButton.IsEnabled = allowed;
     }
 
+    private readonly HashSet<WorkbenchPanelKind> _openPanelTabs = [];
+
     private void SynchronizeTabs()
     {
         var selected = ViewModel.Layout.SelectedPanel;
+        _openPanelTabs.Add(selected);
+        foreach (var tab in new[] { ChangesPanelTab, FilesPanelTab, TerminalPanelTab, PreviewPanelTab, AgentsPanelTab })
+            if (Enum.TryParse<WorkbenchPanelKind>(tab.Tag as string, out var kind))
+                tab.Visibility = _openPanelTabs.Contains(kind) ? Visibility.Visible : Visibility.Collapsed;
         ChangesPanelTab.IsChecked = selected == WorkbenchPanelKind.Changes;
         FilesPanelTab.IsChecked = selected == WorkbenchPanelKind.Files;
         TerminalPanelTab.IsChecked = selected == WorkbenchPanelKind.Terminal;
@@ -2567,7 +2573,7 @@ public sealed partial class RightPanelHost : UserControl
     }
 
     private void ApplyPanelWidth() => Root.Width = _availableWidth is { } availableWidth
-        ? Math.Min(ViewModel.Layout.RightPanelWidth, availableWidth)
+        ? availableWidth
         : ViewModel.Layout.RightPanelWidth;
 
     private sealed class TerminalPaneVisual(TerminalWebViewSurface surface)

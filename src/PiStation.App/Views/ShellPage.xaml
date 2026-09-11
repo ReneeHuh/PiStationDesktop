@@ -257,25 +257,24 @@
             </Grid>
         </ContentDialog>
 
-        <ContentDialog
+        <controls:SettingsPageSurface
             x:Name="SettingsDialog"
             automation:AutomationProperties.AutomationId="SettingsDialog"
             Closed="OnSettingsDialogClosed"
-            CloseButtonText="Done"
-            DefaultButton="Close"
             Title="Settings">
-            <ContentDialog.Resources><x:Double x:Key="ContentDialogMaxWidth">1000</x:Double></ContentDialog.Resources>
             <NavigationView
                 x:Name="SettingsNavigation"
                 MinWidth="0"
-                MaxWidth="900"
-                MaxHeight="620"
                 CompactPaneLength="48"
                 IsBackButtonVisible="Collapsed"
                 IsSettingsVisible="False"
-                OpenPaneLength="210"
+                OpenPaneLength="256"
                 PaneDisplayMode="Left"
                 SelectionChanged="OnSettingsNavigationSelectionChanged">
+                <NavigationView.PaneHeader>
+                    <AutoSuggestBox x:Name="SettingsSearch" PlaceholderText="Search settings" Margin="8,4" QueryIcon="Find"
+                        TextChanged="OnSettingsSearchChanged" automation:AutomationProperties.Name="Search settings" />
+                </NavigationView.PaneHeader>
                 <NavigationView.MenuItems>
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsGeneralNavItem" Content="General" Tag="General" />
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsProjectsNavItem" Content="Projects" Tag="Projects" />
@@ -291,10 +290,10 @@
                     <NavigationViewItem automation:AutomationProperties.AutomationId="SettingsUpdatesNavItem" Content="Updates" Tag="Updates" />
                 </NavigationView.MenuItems>
                 <NavigationView.Content>
-            <ScrollViewer MaxHeight="560" VerticalScrollBarVisibility="Auto" automation:AutomationProperties.AutomationId="SettingsContentScroll">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" automation:AutomationProperties.AutomationId="SettingsContentScroll">
                 <StackPanel
                     x:Name="SettingsShell"
-                    MinWidth="0"
+                    MinWidth="0" MaxWidth="920" Margin="24,16,24,32" HorizontalAlignment="Stretch"
                     automation:AutomationProperties.AutomationId="SettingsShell"
                     automation:AutomationProperties.Name="Pi Station settings"
                     Spacing="12">
@@ -1383,7 +1382,7 @@
             </ScrollViewer>
                 </NavigationView.Content>
             </NavigationView>
-        </ContentDialog>
+        </controls:SettingsPageSurface>
 
         <ContentDialog
             x:Name="AddProjectDialog"

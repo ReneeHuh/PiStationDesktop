@@ -185,62 +185,45 @@
                             Text="LOCAL" />
                     </Grid>
 
-                    <ListView
-                        x:Name="ProjectSelector"
-                        Grid.Row="1"
-                        MaxHeight="300"
-                        IsTabStop="False"
-                        automation:AutomationProperties.AutomationId="ProjectSelector"
-                        automation:AutomationProperties.Name="Projects"
-                        ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
-                        ItemsSource="{x:Bind ViewModel.ProjectGroups}"
-
-                        SelectionChanged="OnProjectSelectionChanged">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="viewModels:ProjectGroupViewModel">
-                                <Expander IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Stretch" Padding="0" BorderThickness="0" Background="Transparent">
-                                    <Expander.Header>
-                                        <StackPanel Spacing="2" ToolTipService.ToolTip="{x:Bind CanonicalPath}">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <Image automation:AutomationProperties.AutomationId="SidebarProjectIcon" Width="22" Height="22" Source="{x:Bind ImageIcon, Mode=OneWay, Converter={StaticResource ProjectIconSourceConverter}}" />
-                                                <TextBlock Text="{x:Bind Emoji, Mode=OneWay}" FontSize="20" />
-                                            </StackPanel>
-                                            <Button Content="{x:Bind DisplayName, Mode=OneWay}" Click="OnGroupedProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" ToolTipService.ToolTip="Select project" />
-                                            <TextBlock FontSize="{ThemeResource PiFontSizeCaption}" Foreground="{ThemeResource PiTextMutedBrush}" Text="{x:Bind Summary, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Expander.Header>
-                                    <StackPanel>
-                                    <ItemsControl ItemsSource="{x:Bind Members}">
-                                        <ItemsControl.ItemTemplate><DataTemplate x:DataType="models:ProjectDescriptor">
-                                            <Button Content="{x:Bind CanonicalPath}" Click="OnCheckoutProjectClicked" MaxWidth="260" ToolTipService.ToolTip="{x:Bind CanonicalPath}" />
-                                        </DataTemplate></ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Content="↑" Click="OnMoveProjectUp" /><Button Content="↓" Click="OnMoveProjectDown" />
-                                        <Button Content="Show all tasks" Click="OnShowAllProjectTasks" IsEnabled="{x:Bind CanShowMore, Mode=OneWay}" />
-                                    </StackPanel>
-                                    <ListView ItemsSource="{x:Bind Threads}" SelectionMode="None" IsItemClickEnabled="True"
-                                        ItemClick="OnGroupedThreadClicked" MaxHeight="260" ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}">
+                    <Button x:Name="ProjectFilterButton" Grid.Row="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Style="{StaticResource PiToolbarButtonStyle}" automation:AutomationProperties.Name="Filter threads by project">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="14" />
+                            <TextBlock x:Name="ProjectFilterLabel" Text="All projects" MaxWidth="170" TextTrimming="CharacterEllipsis" />
+                            <FontIcon Glyph="&#xE70D;" FontSize="10" />
+                        </StackPanel>
+                        <Button.Flyout>
+                            <Flyout x:Name="ProjectFilterFlyout" Placement="Bottom">
+                                <StackPanel Width="280" Spacing="6">
+                                    <Button Content="All projects" Click="OnAllProjectsClicked" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Style="{StaticResource PiToolbarButtonStyle}" />
+                                    <ListView x:Name="ProjectSelector" MaxHeight="360" IsTabStop="False"
+                                        automation:AutomationProperties.AutomationId="ProjectSelector" automation:AutomationProperties.Name="Projects"
+                                        ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}" ItemsSource="{x:Bind ViewModel.ProjectGroups}"
+                                        SelectionChanged="OnProjectSelectionChanged">
                                         <ListView.ItemTemplate>
-                                            <DataTemplate x:DataType="models:ThreadDescriptor">
-                                                <StackPanel Spacing="2" Padding="4,3">
-                                                    <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <TextBlock Text="Pinned" Visibility="{x:Bind IsPinned}" FontSize="11" Foreground="{ThemeResource PiAccentBrush}" />
-                                                        <TextBlock Text="{x:Bind ActivityStatus}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" />
-                                                        <TextBlock Text="{x:Bind UnreadLabel}" Foreground="{ThemeResource PiAccentBrush}" />
-                                                        <TextBlock Text="{x:Bind BranchName}" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" TextTrimming="CharacterEllipsis" />
-                                                    </StackPanel>
-                                                </StackPanel>
+                                            <DataTemplate x:DataType="viewModels:ProjectGroupViewModel">
+                                                <Grid ColumnSpacing="8" Padding="4">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <Image Width="18" Height="18" Source="{x:Bind ImageIcon, Mode=OneWay, Converter={StaticResource ProjectIconSourceConverter}}" automation:AutomationProperties.AutomationId="SidebarProjectIcon" />
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayName, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                    <Button Grid.Column="2" Content="…" Style="{StaticResource PiToolbarIconButtonStyle}" automation:AutomationProperties.Name="Project actions">
+                                                        <Button.Flyout><Flyout><StackPanel Spacing="4" MaxWidth="300">
+                                                            <TextBlock Text="Checkouts" Style="{StaticResource PiSectionLabelTextStyle}" />
+                                                            <ItemsControl ItemsSource="{x:Bind Members}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="models:ProjectDescriptor">
+                                                                <Button Content="{x:Bind DisplayName}" ToolTipService.ToolTip="{x:Bind CanonicalPath}" Click="OnCheckoutProjectClicked" Style="{StaticResource PiToolbarButtonStyle}" />
+                                                            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                                            <Button Content="Move project up" Click="OnMoveProjectUp" Style="{StaticResource PiToolbarButtonStyle}" />
+                                                            <Button Content="Move project down" Click="OnMoveProjectDown" Style="{StaticResource PiToolbarButtonStyle}" />
+                                                        </StackPanel></Flyout></Button.Flyout>
+                                                    </Button>
+                                                </Grid>
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
                                     </ListView>
-                                    </StackPanel>
-                                </Expander>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
 
                     <Grid Grid.Row="2" Margin="8,9,0,4" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
@@ -291,10 +274,10 @@
                     <Border
                         Grid.Row="3"
                         MinHeight="0"
-                        Margin="11,0,0,0"
-                        Padding="8,0,0,0"
+                        Margin="0"
+                        Padding="0"
                         BorderBrush="{ThemeResource PiDividerBrush}"
-                        BorderThickness="1,0,0,0">
+                        BorderThickness="0">
                         <Grid MinHeight="0">
                             <ListView
                                 x:Name="ThreadTabList"
@@ -304,7 +287,6 @@
                                 automation:AutomationProperties.AutomationId="ThreadTabList"
                                 automation:AutomationProperties.Name="Threads"
                                 ItemContainerStyle="{StaticResource PiSidebarListViewItemStyle}"
-                                ItemsSource="{x:Bind ViewModel.Workspace.Threads}"
                                 SelectedItem="{x:Bind ViewModel.Workspace.SelectedThread, Mode=OneWay}"
                                 SelectionChanged="OnThreadSelectionChanged"
                                 SelectionMode="Extended">
@@ -328,7 +310,8 @@
                                                     Height="6"
                                                     Fill="{ThemeResource PiOfflineBrush}" />
                                             </Grid>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3" Padding="0,6">
+                                                <TextBlock Loaded="OnThreadProjectLabelLoaded" DataContextChanged="OnThreadProjectLabelChanged" FontSize="11" Foreground="{ThemeResource PiTextMutedBrush}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
                                                     x:Name="ThreadTitleText"
                                                     automation:AutomationProperties.Name="{x:Bind Title}"
@@ -339,7 +322,7 @@
                                                     <TextBlock
                                                         FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
-                                                        Text="{x:Bind IsSettled, Converter={StaticResource ThreadStateTextConverter}}" />
+                                                        Text="{x:Bind ActivityStatus}" />
                                                     <TextBlock
                                                         FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
@@ -355,7 +338,7 @@
                                                     <TextBlock
                                                         FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiTextMutedBrush}"
-                                                        Text="{x:Bind WorkspaceMode}" />
+                                                        Text="{x:Bind BranchName}" />
                                                     <TextBlock
                                                         FontSize="{ThemeResource PiFontSizeCaption}"
                                                         Foreground="{ThemeResource PiWaitingBrush}"
@@ -487,10 +470,9 @@
                                 automation:AutomationProperties.LiveSetting="Polite"
                                 Foreground="{ThemeResource PiTextMutedBrush}"
                                 IsHitTestVisible="False"
-                                Text="{x:Bind ViewModel.Workspace.ThreadListStatus, Mode=OneWay}"
                                 TextAlignment="Center"
                                 TextWrapping="Wrap"
-                                Visibility="{x:Bind ViewModel.Workspace.ThreadListStatusVisibility, Mode=OneWay}" />
+                                Visibility="Collapsed" />
                         </Grid>
                     </Border>
 

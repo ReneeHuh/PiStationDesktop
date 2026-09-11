@@ -118,6 +118,7 @@ public sealed partial class ShellPage : Page
         ReleaseThemeInspector();
 
         _disposed = true;
+        SettingsDialog.Hide();
         _rightPanel.ReleasePanelMotion();
         _sidebar.ReleasePanelMotion();
         _rightPanel.StopBrowserAutomation();
@@ -787,14 +788,15 @@ public sealed partial class ShellPage : Page
 
         SizeSettingsForWindow();
         _settingsOpen = true;
+        ShellLayout.Visibility = Visibility.Collapsed;
         _ = ViewModel.RefreshSettingsAsync();
         _remoteConnectionsPanel?.Activate();
         try
         {
-            _settingsShowTask = SettingsDialog.ShowAsync().AsTask();
+            _settingsShowTask = SettingsDialog.ShowAsync();
             await _settingsShowTask;
         }
-        catch { _settingsOpen = false; throw; }
+        catch { _settingsOpen = false; ShellLayout.Visibility = Visibility.Visible; throw; }
     }
 
     internal async Task<ContentDialogResult> ShowConnectionDialogAsync(ContentDialog dialog, CancellationToken cancellationToken)
@@ -1181,9 +1183,10 @@ public sealed partial class ShellPage : Page
         SynchronizeTerminalAppearanceSelection();
     }
 
-    private void OnSettingsDialogClosed(ContentDialog sender, ContentDialogClosedEventArgs args)
+    private void OnSettingsDialogClosed(object? sender, EventArgs args)
     {
         _settingsOpen = false;
+        ShellLayout.Visibility = Visibility.Visible;
         ViewModel.SetDiagnosticsVisible(false);
         ViewModel.SetLimitsVisible(false);
         LimitManagementKey.Password = "";

@@ -53,10 +53,10 @@ Assert-Contract (($actualSizes -join ',') -eq ($expectedSizes -join ',')) `
 Assert-Contract (($contract.ReviewSizes.Name | Select-Object -Unique).Count -eq $contract.ReviewSizes.Count) `
     'Visual review size names must be unique.'
 foreach ($size in $contract.ReviewSizes) {
-    Assert-Contract ($size.SidebarWidth -eq 260) `
-        "Review size '$($size.Name)' must record the 260px sidebar geometry."
-    Assert-Contract ($size.ReadingColumnMaxWidth -eq 720) `
-        "Review size '$($size.Name)' must record the 720px reading-column geometry."
+    Assert-Contract ($size.SidebarWidth -eq 256) `
+        "Review size '$($size.Name)' must record the 256px sidebar geometry."
+    Assert-Contract ($size.ReadingColumnMaxWidth -eq 768) `
+        "Review size '$($size.Name)' must record the 768px reading-column geometry."
     Assert-Contract ($size.WorkbenchPanelWidth -eq 420) `
         "Review size '$($size.Name)' must record the 420px workbench-panel geometry."
 }

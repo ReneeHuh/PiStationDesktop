@@ -31,6 +31,7 @@ public sealed partial class AppSidebar
         while (element is not null && element is not FrameworkElement { DataContext: ThreadDescriptor })
             element = VisualTreeHelper.GetParent(element);
         if (element is not FrameworkElement { DataContext: ThreadDescriptor { IsPinned: true } target } || target.ProjectId != moving.ProjectId) return;
+        await ViewModel.SelectGroupedThreadAsync(moving);
         var pinned = ViewModel.Workspace.Threads.Where(thread => thread.IsPinned).ToList();
         var sourceIndex = pinned.FindIndex(thread => thread.ThreadId == moving.ThreadId);
         var targetIndex = pinned.FindIndex(thread => thread.ThreadId == target.ThreadId);

@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using System.ComponentModel;
+using PiStation.App.ViewModels;
 
 namespace PiStation.App.Views.Controls;
 
@@ -67,9 +69,18 @@ public sealed partial class WorkspaceShell : UserControl
     {
         if (sender is WorkspaceShell shell)
         {
+            if (args.OldValue is RightPanelHost previous)
+                previous.ViewModel.Layout.PropertyChanged -= shell.OnWorkbenchLayoutChanged;
             shell.RightPanelPresenter.Content = args.NewValue;
+            if (args.NewValue is RightPanelHost current)
+                current.ViewModel.Layout.PropertyChanged += shell.OnWorkbenchLayoutChanged;
             shell.UpdateRightPanelConstraint();
         }
+    }
+
+    private void OnWorkbenchLayoutChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(ShellLayoutViewModel.IsRightPanelOpen)) UpdateRightPanelConstraint();
     }
 
     private void OnShellSizeChanged(object sender, SizeChangedEventArgs e) =>
@@ -108,6 +119,8 @@ public sealed partial class WorkspaceShell : UserControl
         if (panel is RightPanelHost rightPanel)
         {
             rightPanel.SetAvailableWidth(availableWidth);
+            MainContentPresenter.Visibility = availableWidth.HasValue && rightPanel.ViewModel.Layout.IsRightPanelOpen
+                ? Visibility.Collapsed : Visibility.Visible;
         }
         else
         {

@@ -25,6 +25,7 @@ public sealed partial class AppSidebar : UserControl
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _isCollapsed = ViewModel.Layout.IsSidebarCollapsed;
         InitializeComponent();
+        InitializeNavigation();
         _panelMotion = new PanelMotion(Root, ViewModel.Layout, true);
         VisualStateManager.GoToState(this, _isCollapsed ? nameof(Collapsed) : nameof(Expanded), false);
         ViewModel.Layout.PropertyChanged += OnLayoutPropertyChanged;
@@ -39,7 +40,7 @@ public sealed partial class AppSidebar : UserControl
     public ShellViewModel ViewModel { get; }
 
     public bool IsCollapsed => _isCollapsed;
-    internal void ReleasePanelMotion() => _panelMotion.Release();
+    internal void ReleasePanelMotion() { ReleaseNavigation(); _panelMotion.Release(); }
 
     public void ToggleCollapsed() => ViewModel.Layout.IsSidebarCollapsed = !_isCollapsed;
 
@@ -51,7 +52,7 @@ public sealed partial class AppSidebar : UserControl
 
     public void SynchronizeSelection()
     {
-        ProjectSelector.SelectedItem = ViewModel.ProjectGroups.FirstOrDefault(group => group.Project.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId);
+        QueueNavigationRefresh();
         ThreadTabList.SelectedItem = ViewModel.Workspace.SelectedThread;
     }
 
@@ -63,9 +64,12 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel.IsRefreshingCatalog ||
-            (ProjectSelector.SelectedItem as ProjectGroupViewModel)?.Project.ProjectId == ViewModel.Workspace.SelectedProject?.ProjectId) return;
-        await ViewModel.SelectProjectAsync((ProjectSelector.SelectedItem as ProjectGroupViewModel)?.Project);
+        if (_refreshingNavigation || ViewModel.IsRefreshingCatalog || ProjectSelector.SelectedItem is not ProjectGroupViewModel group) return;
+        _allProjects = false;
+        _projectFilterId = group.Project.ProjectId;
+        ProjectFilterFlyout.Hide();
+        await ViewModel.SelectProjectAsync(group.Project);
+        QueueNavigationRefresh();
     }
 
     private async void OnGroupedProjectClicked(object sender, RoutedEventArgs e)
@@ -86,11 +90,11 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnThreadSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel.IsRefreshingCatalog) return;
+        if (_refreshingNavigation || ViewModel.IsRefreshingCatalog) return;
         if (ThreadTabList.SelectedItems.Count == 1 && ThreadTabList.SelectedItem is ThreadDescriptor thread)
         {
             if (thread.ThreadId == ViewModel.Workspace.SelectedThread?.ThreadId) return;
-            await ViewModel.SelectThreadAsync(thread);
+            await ViewModel.SelectGroupedThreadAsync(thread);
         }
         else if (ThreadTabList.SelectedItems.Count == 0 && ViewModel.Workspace.SelectedThread is null)
         {
@@ -269,7 +273,13 @@ public sealed partial class AppSidebar : UserControl
 
     private async void OnCheckoutProjectClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: ProjectDescriptor project }) await ViewModel.SelectProjectAsync(project);
+        if (sender is FrameworkElement { DataContext: ProjectDescriptor project })
+        {
+            _allProjects = false; _projectFilterId = project.ProjectId;
+            ProjectFilterFlyout.Hide();
+            await ViewModel.SelectProjectAsync(project);
+            QueueNavigationRefresh();
+        }
     }
     private void OnShowAllProjectTasks(object sender, RoutedEventArgs e)
     {
@@ -603,7 +613,7 @@ public sealed partial class AppSidebar : UserControl
     private T? FindThreadRowElement<T>(ThreadDescriptor thread, string name)
         where T : FrameworkElement
     {
-        var visibleThread = ViewModel.Workspace.Threads.FirstOrDefault(item => item.ThreadId == thread.ThreadId);
+        var visibleThread = NavigationThreads.FirstOrDefault(item => item.ThreadId == thread.ThreadId);
         if (visibleThread is null ||
             ThreadTabList.ContainerFromItem(visibleThread) is not ListViewItem container ||
             container.ContentTemplateRoot is not FrameworkElement templateRoot)

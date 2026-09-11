@@ -21,14 +21,18 @@ public sealed partial class ComposerSurface : UserControl
     public async Task OpenExternalEditorAsync()
     {
         if (_externalEditorOpen || !ViewModel.CanEditPromptExternally) return;
+        ComposerOptionsFlyout.Hide();
         _externalEditorOpen = true;
         try { using var dialog = new ExternalPromptEditorDialog(ViewModel) { XamlRoot = XamlRoot }; await dialog.ShowAsync(); }
         finally { _externalEditorOpen = false; }
     }
     private async void OnExternalEditorClicked(object sender, RoutedEventArgs args) => await OpenExternalEditorAsync();
 
-    private async void OnPiShellClicked(object sender, RoutedEventArgs e) =>
+    private async void OnPiShellClicked(object sender, RoutedEventArgs e)
+    {
+        ComposerOptionsFlyout.Hide();
         await new PiShellDialog(ViewModel) { XamlRoot = XamlRoot }.ShowAsync();
+    }
 
     private void OnNewBackgroundTaskClicked(object sender, RoutedEventArgs e) => ViewModel.SendPromptInBackground();
     private FileMentionToken? _activeFileMentionToken;

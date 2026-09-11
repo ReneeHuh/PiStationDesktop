@@ -9,6 +9,7 @@ public sealed partial class ComposerSurface
 {
     private async void OnOpenModelPicker(object sender, RoutedEventArgs e)
     {
+        ComposerOptionsFlyout.Hide();
         var search = new TextBox { PlaceholderText = "Search model or provider" };
         var showHidden = new CheckBox { Content = "Show hidden models" };
         var favoritesOnly = new CheckBox { Content = "Favorites only" };
