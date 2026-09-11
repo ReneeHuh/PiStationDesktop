@@ -58,6 +58,8 @@ query($owner:String!, $name:String!, $number:Int!) {
         var workspace = await _resolver.ResolveAsync(request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken).ConfigureAwait(false);
         var number = ValidateNumber(request.Number);
+        if (repository.Provider == SourceControlProvider.Bitbucket)
+            return await ReadBitbucketReviewAsync(repository, number, request.Page, cancellationToken).ConfigureAwait(false);
         if (repository.Provider is SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps)
             return await ReadProviderReviewAsync(repository, number, workspace.WorkspaceRoot, request.Page, cancellationToken).ConfigureAwait(false);
         EnsureGitHub(repository);

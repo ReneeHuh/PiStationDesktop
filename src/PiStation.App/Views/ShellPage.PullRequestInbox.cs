@@ -26,7 +26,7 @@ public sealed partial class ShellPage
             .Concat(ShellViewModel.ConnectedPullRequestSources().Select(connection => new KeyValuePair<string, string>(connection.Source.Id, connection.Source.Name))).ToArray();
         environment.SelectedIndex = 0;
         filters.Children.Add(environment);
-        var provider = new ComboBox { Header = "Provider", ItemsSource = new[] { "All", "GitHub", "GitLab", "AzureDevOps" }, SelectedIndex = 0 };
+        var provider = new ComboBox { Header = "Provider", ItemsSource = new[] { "All", "GitHub", "GitLab", "AzureDevOps", "Bitbucket" }, SelectedIndex = 0 };
         var state = new ComboBox { Header = "State", ItemsSource = new[] { "All", "Open", "Closed", "Merged", "Draft" }, SelectedIndex = 1 };
         filters.Children.Add(provider); filters.Children.Add(state);
         var repository = Text("Repository URL contains", "PullRequestInboxRepository");
@@ -38,7 +38,7 @@ public sealed partial class ShellPage
         var involvement = Choice<PullRequestInvolvement>("Involvement (GitHub)");
         var reviewFilter = Choice<PullRequestReviewFilter>("Review decision (GitHub)");
         var checks = Choice<PullRequestChecksFilter>("Checks (GitHub)");
-        filters.Children.Add(new TextBlock { Text = "GitHub filters run on the provider. GitLab/Azure text, author and draft filters inspect loaded pages; load more to search further. Labels are supported for GitHub/GitLab. Account involvement, @me, review and check filters require GitHub. Unsupported filters show a notice for each affected repository.", TextWrapping = TextWrapping.Wrap });
+        filters.Children.Add(new TextBlock { Text = "GitHub filters run on the provider. Other providers' text and author filters inspect loaded pages; load more to search further. Labels are supported for GitHub/GitLab; Bitbucket draft transitions are unavailable. Account involvement, @me, review and check filters require GitHub. Unsupported filters show a notice for each affected repository.", TextWrapping = TextWrapping.Wrap });
         content.Children.Add(new Expander { Header = "Inbox filters", Content = filters, HorizontalAlignment = HorizontalAlignment.Stretch });
         var list = new ListView { MaxHeight = 280, SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = nameof(PullRequestInboxRow.DisplayText) };
         list.DisplayMemberPath = "";

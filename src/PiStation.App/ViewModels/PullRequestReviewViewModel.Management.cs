@@ -49,7 +49,7 @@ public sealed partial class PullRequestReviewViewModel
     public bool CanManage => CanEditDraft && !IsStaleHead && !_managementSubmitting && _canOperate() && CanReadReview;
     public bool CanEditDetails => CanManage && Snapshot?.CanEditDetails == true;
     public bool CanSaveDetails => CanEditDetails && HasDetailsEdits && !DetailsConflict && !string.IsNullOrWhiteSpace(EditedTitle);
-    public bool CanChangeDraft => CanEditDetails && Snapshot?.PullRequest.State is PullRequestState.Open or PullRequestState.Draft;
+    public bool CanChangeDraft => CanEditDetails && Snapshot?.Repository.Provider != SourceControlProvider.Bitbucket && Snapshot?.PullRequest.State is PullRequestState.Open or PullRequestState.Draft;
     public bool CanRemoveMetadata => CanManage && Snapshot?.CanManageMetadata == true;
     public bool CanEditComment => CanManage && SelectedComment?.CanEdit == true;
     public bool CanSaveComment => CanEditComment && HasCommentEdits && !CommentConflict && !string.IsNullOrWhiteSpace(EditedCommentBody);

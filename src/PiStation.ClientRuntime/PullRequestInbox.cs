@@ -103,10 +103,12 @@ public static class PullRequestInbox
 
     public static string? FilterLimitation(SourceControlProvider provider, PullRequestListFilters filters)
     {
-        if (provider is not (SourceControlProvider.GitHub or SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps)) return "Pull request browsing is unavailable for this provider.";
+        if (provider is not (SourceControlProvider.GitHub or SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps or SourceControlProvider.Bitbucket)) return "Pull request browsing is unavailable for this provider.";
         if (provider == SourceControlProvider.GitHub) return null;
         if (provider == SourceControlProvider.AzureDevOps && (filters.LabelGroups?.Count > 0 || filters.ExcludedLabels?.Count > 0))
             return "PR label filtering is unavailable for Azure. Clear label filters to include this repository.";
+        if (provider == SourceControlProvider.Bitbucket && (filters.Draft != PullRequestDraftFilter.Any || filters.LabelGroups?.Count > 0 || filters.ExcludedLabels?.Count > 0))
+            return "PR labels and draft transitions are unavailable for Bitbucket. Clear those filters to include this repository.";
         if (filters.Involvement != PullRequestInvolvement.All || filters.Author?.Trim() == "@me" ||
             filters.Review != PullRequestReviewFilter.Any || filters.Checks != PullRequestChecksFilter.Any)
             return "Account involvement, @me, review-decision and check filters require GitHub. Clear those filters to include this repository.";

@@ -172,7 +172,7 @@ public sealed class RepositoryPublishingTests
             "name" => request with { RepositoryName = "--help" },
             "host" => request with { Host = "user:secret@gitlab.example" },
             "organization" => request with { Provider = SourceControlProvider.AzureDevOps, Owner = "project", OrganizationUrl = "https://dev.azure.com/one/two" },
-            _ => request with { Provider = SourceControlProvider.Bitbucket },
+            _ => request with { Provider = SourceControlProvider.Unknown },
         };
         var result = await fixture.Service.PublishAsync(request);
         Assert.Equal(CommandReceiptState.Rejected, result.State);

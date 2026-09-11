@@ -136,12 +136,12 @@ public sealed class SourceControlHostingServiceTests
         Assert.Contains("--closed", closed.Arguments);
         Assert.DoesNotContain("--state", closed.Arguments);
         Assert.Contains("--all", SourceControlHostingService.BuildListCommand(SourceControlProvider.GitLab, null).Arguments);
-        Assert.False(HostingCapabilities.CanList(SourceControlProvider.Bitbucket));
+        Assert.True(HostingCapabilities.CanList(SourceControlProvider.Bitbucket));
         Assert.False(HostingCapabilities.CanMutate(SourceControlProvider.AzureDevOps, PullRequestMutationKind.Comment));
         Assert.False(HostingCapabilities.CanMutate(SourceControlProvider.GitLab, PullRequestMutationKind.RequestChanges));
         Assert.True(HostingCapabilities.CanPublish(SourceControlProvider.AzureDevOps));
         Assert.True(HostingCapabilities.CanPublish(SourceControlProvider.GitLab));
-        Assert.False(HostingCapabilities.CanPublish(SourceControlProvider.Bitbucket));
+        Assert.True(HostingCapabilities.CanPublish(SourceControlProvider.Bitbucket));
         var nested = SourceControlHostingService.ParseRemote("https://gitlab.com/group/subgroup/repo.git");
         Assert.Equal("group/subgroup", nested.Owner);
     }

@@ -15,7 +15,7 @@ public sealed partial class SourceControlHostingService(
     ProjectService projects,
     Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? reviewCommandExecutor = null,
     ISourceControlTextGenerator? textGenerator = null,
-    SourceControlWritingSettingsStore? writingSettings = null) : IDisposable
+    SourceControlWritingSettingsStore? writingSettings = null, BitbucketCloudClient? bitbucket = null) : IDisposable
 {
     private const int MaximumStandardErrorCharacters = 64 * 1024;
     private const int MaximumStandardOutputCharacters = 2 * 1024 * 1024;
@@ -23,6 +23,7 @@ public sealed partial class SourceControlHostingService(
     private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
     private readonly ThreadWorkspaceResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
     private readonly ProjectService _projects = projects ?? throw new ArgumentNullException(nameof(projects));
+    private readonly BitbucketCloudClient _bitbucket = bitbucket ?? new();
     private readonly Func<string, IReadOnlyList<string>, string, string?, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? _reviewCommandExecutor = reviewCommandExecutor;
 
     public async Task<SourceControlRepository> DetectAsync(
@@ -49,6 +50,8 @@ public sealed partial class SourceControlHostingService(
             request.Target.ProjectId, request.Target.ThreadId, cancellationToken).ConfigureAwait(false);
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken)
             .ConfigureAwait(false);
+        if (repository.Provider == SourceControlProvider.Bitbucket)
+            return await ListBitbucketAsync(repository, request, cancellationToken).ConfigureAwait(false);
         string? viewer = null;
         if (repository.Provider == SourceControlProvider.GitHub && request.Filters is { } filters &&
             (filters.Involvement != PullRequestInvolvement.All || filters.Author?.Trim() == "@me"))
@@ -127,6 +130,8 @@ public sealed partial class SourceControlHostingService(
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken)
             .ConfigureAwait(false);
         if (!repository.CanWrite || !HostingCapabilities.CanCreate(repository.Provider)) throw UnsupportedProvider(repository.Provider);
+        if (repository.Provider == SourceControlProvider.Bitbucket)
+            return await CreateBitbucketPrAsync(repository, workspace.WorkspaceRoot, request, cancellationToken).ConfigureAwait(false);
         var (fileName, arguments) = BuildCreateCommand(repository.Provider, request);
         var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
             .ConfigureAwait(false);
@@ -144,6 +149,12 @@ public sealed partial class SourceControlHostingService(
         var repository = await DetectAsync(new DetectSourceControlRequest(request.Target), cancellationToken)
             .ConfigureAwait(false);
         if (!repository.CanWrite || !HostingCapabilities.CanMutate(repository.Provider, request.Mutation)) throw UnsupportedMutation(request.Mutation);
+        if (repository.Provider == SourceControlProvider.Bitbucket)
+        {
+            var detail = await BbDetailAsync(repository, ValidateNumber(request.Number), cancellationToken).ConfigureAwait(false);
+            return await WriteBitbucketAsync(new(request.Target, PullRequestReviewDefaults.RepositoryKey(repository), request.Number, BbRevision(detail, "source")),
+                request.OperationId, request, cancellationToken).ConfigureAwait(false);
+        }
         var (fileName, arguments) = BuildMutationCommand(repository.Provider, request);
         var result = await RunHostingCommandAsync(fileName, arguments, workspace.WorkspaceRoot, cancellationToken)
             .ConfigureAwait(false);
@@ -170,6 +181,8 @@ public sealed partial class SourceControlHostingService(
                 result.ExitCode == 0 ? "Installed · authentication not checked" : "Unavailable",
                 result.ExitCode == 0 ? result.StandardOutput.Split('\n')[0].Trim() : $"Install and authenticate the '{tool}' CLI."));
         }
+        diagnostics.Add(new RuntimeDiagnostic("Bitbucket Cloud", BitbucketCloudClient.HasEnvironmentCredentials ? "REST credentials configured · authentication not checked" : "Anonymous reads only",
+            "Configure PISTATION_BITBUCKET_EMAIL and PISTATION_BITBUCKET_API_TOKEN, or PISTATION_BITBUCKET_ACCESS_TOKEN, on the host. Git clone/push uses Git credentials."));
         return diagnostics;
     }
 
@@ -369,6 +382,8 @@ public sealed partial class SourceControlHostingService(
         var defaultBranch = defaultBranchResult.ExitCode == 0
             ? defaultBranchResult.StandardOutput.Trim().Replace("origin/", string.Empty, StringComparison.Ordinal)
             : "main";
+        if (parsed.Provider == SourceControlProvider.Bitbucket)
+            return await DetectBitbucketAsync(new(parsed.Provider, parsed.Host, parsed.Owner, parsed.Name, parsed.WebUrl.TrimEnd('/'), remote, defaultBranch, false), cancellationToken).ConfigureAwait(false);
         var tool = ToolFor(parsed.Provider);
         var azureLocation = parsed.Provider == SourceControlProvider.AzureDevOps
             ? AzureReviewLocation(new(parsed.Provider, parsed.Host, parsed.Owner, parsed.Name, parsed.WebUrl, remote, defaultBranch, false))
@@ -457,7 +472,7 @@ public sealed partial class SourceControlHostingService(
     {
         SourceControlProvider.GitHub => "gh",
         SourceControlProvider.GitLab => "glab",
-        SourceControlProvider.Bitbucket => "bb",
+        SourceControlProvider.Bitbucket => throw UnsupportedProvider(provider),
         SourceControlProvider.AzureDevOps => "az",
         _ => "git",
     };

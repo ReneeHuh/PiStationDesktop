@@ -10,11 +10,11 @@ public sealed partial class ShellPage
         if (PublishHostInput is null || PublishOrganizationInput is null || PublishOwnerInput is null || PublishPrivateCheckBox is null) return;
         var provider = (PublishProviderSelector.SelectedItem as ComboBoxItem)?.Tag as string;
         var azure = provider == "AzureDevOps";
-        PublishHostInput.Visibility = azure ? Visibility.Collapsed : Visibility.Visible;
+        PublishHostInput.Visibility = azure || provider == "Bitbucket" ? Visibility.Collapsed : Visibility.Visible;
         PublishOrganizationInput.Visibility = azure ? Visibility.Visible : Visibility.Collapsed;
         PublishVisibilityNotice.Visibility = azure ? Visibility.Visible : Visibility.Collapsed;
-        PublishOwnerInput.Header = azure ? "Azure project" : provider == "GitLab" ? "Namespace (group/subgroup or username)" : "Owner / organization";
-        PublishHostInput.Text = provider == "GitLab" ? "gitlab.com" : "github.com";
+        PublishOwnerInput.Header = azure ? "Azure project" : provider == "Bitbucket" ? "Bitbucket workspace" : provider == "GitLab" ? "Namespace (group/subgroup or username)" : "Owner / organization";
+        PublishHostInput.Text = provider == "GitLab" ? "gitlab.com" : provider == "Bitbucket" ? "bitbucket.org" : "github.com";
         UpdatePublicationVisibility();
     }
 

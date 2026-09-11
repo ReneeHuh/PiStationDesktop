@@ -59,6 +59,7 @@ public sealed partial class ShellPage
         AutomationProperties.SetAutomationId(expander, "PullRequestManagementPanel");
         BindReviewProviderVisibility(expander, review, () =>
         {
+            draft.Visibility = review.PullRequest?.Provider == SourceControlProvider.Bitbucket ? Visibility.Collapsed : Visibility.Visible;
             labels.Visibility = removeLabel.Visibility = review.ReviewCapabilities.RemoveLabels ? Visibility.Visible : Visibility.Collapsed;
             reviewers.Visibility = removeReviewer.Visibility = review.ReviewCapabilities.RemoveReviewers ? Visibility.Visible : Visibility.Collapsed;
             foreach (var child in commentControls) child.Visibility = review.PullRequest?.Provider == SourceControlProvider.AzureDevOps ? Visibility.Collapsed : Visibility.Visible;

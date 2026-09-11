@@ -21,6 +21,8 @@ public sealed partial class SourceControlHostingService
         try
         {
             request = NormalizePublicationRequest(request);
+            if (request.Provider == SourceControlProvider.Bitbucket && !_bitbucket.IsConfigured)
+                throw new PublicationFailure("Configure Bitbucket host credentials before publishing.");
             var workspace = (await _resolver.ResolveAsync(request.ProjectId, cancellationToken: cancellationToken).ConfigureAwait(false)).WorkspaceRoot;
             var branch = (await PublishGitAsync(["symbolic-ref", "--quiet", "--short", "HEAD"], workspace, cancellationToken).ConfigureAwait(false)).Trim();
             if (string.IsNullOrEmpty(branch)) throw new PublicationFailure("Select a local branch before publishing.");
@@ -40,10 +42,16 @@ public sealed partial class SourceControlHostingService
                     throw new PublicationFailure("GitLab did not identify the requested namespace.");
             }
 
-            var (tool, args) = BuildPublicationCommand(request, namespaceId);
             writeStarted = !request.ResumeExisting;
-            var output = await PublishCommandAsync(tool, args, workspace,
-                request.ResumeExisting ? "Repository lookup" : "Repository creation", cancellationToken).ConfigureAwait(false);
+            string output;
+            if (request.Provider == SourceControlProvider.Bitbucket)
+                output = await PublishBitbucketRepositoryAsync(request, cancellationToken).ConfigureAwait(false);
+            else
+            {
+                var (tool, args) = BuildPublicationCommand(request, namespaceId);
+                output = await PublishCommandAsync(tool, args, workspace,
+                    request.ResumeExisting ? "Repository lookup" : "Repository creation", cancellationToken).ConfigureAwait(false);
+            }
             // gh repo create prints a URL rather than JSON. Follow it with an explicit, read-only lookup.
             if (request.Provider == SourceControlProvider.GitHub && !request.ResumeExisting)
             {
@@ -73,7 +81,7 @@ public sealed partial class SourceControlHostingService
             return new(true, $"Published '{branch}' at {head[..12]} to {repository.WebUrl} using remote '{remote}'. Upstream is configured.", repository, Publication: progress);
         }
         catch (Exception exception) when (exception is ArgumentException or PublicationFailure or HostOperationException or
-            JsonException or IOException or InvalidOperationException or OperationCanceledException)
+            JsonException or IOException or InvalidOperationException or OperationCanceledException or HttpRequestException)
         {
             var reason = exception is PublicationFailure or ArgumentException ? exception.Message : "The publication step could not be confirmed. Check the host tool, authentication, and connection.";
             var recovery = progress is null
@@ -107,9 +115,10 @@ public sealed partial class SourceControlHostingService
             return request with { Owner = owner, RepositoryName = name, Host = null, OrganizationUrl = organizationUrl };
         }
         if (!Segment(name) || owner.Length > 1024 || !owner.Split('/').All(Segment) ||
-            request.Provider == SourceControlProvider.GitHub && owner.Contains('/'))
+            request.Provider is SourceControlProvider.GitHub or SourceControlProvider.Bitbucket && owner.Contains('/'))
             throw new PublicationFailure("Enter a valid owner or namespace and repository name. GitLab supports nested namespaces.");
-        var host = string.IsNullOrWhiteSpace(request.Host) ? request.Provider == SourceControlProvider.GitHub ? "github.com" : "gitlab.com" : request.Host.Trim();
+        var host = string.IsNullOrWhiteSpace(request.Host) ? request.Provider switch { SourceControlProvider.GitHub => "github.com", SourceControlProvider.Bitbucket => "bitbucket.org", _ => "gitlab.com" } : request.Host.Trim();
+        if (request.Provider == SourceControlProvider.Bitbucket && host != "bitbucket.org") throw new PublicationFailure("Only Bitbucket Cloud at bitbucket.org is supported.");
         if (host.Length > 255 || !Uri.TryCreate("https://" + host, UriKind.Absolute, out var hostUri) || hostUri.AbsolutePath != "/" ||
             hostUri.UserInfo.Length != 0 || hostUri.Query.Length != 0 || hostUri.Fragment.Length != 0 || host.Any(char.IsWhiteSpace))
             throw new PublicationFailure("Enter only the hosting server name, without a URL path or credentials.");
@@ -139,7 +148,7 @@ public sealed partial class SourceControlHostingService
     {
         using var document = JsonDocument.Parse(output);
         var item = document.RootElement;
-        var rawUrl = Text(item, request.Provider switch { SourceControlProvider.GitHub => "clone_url", SourceControlProvider.GitLab => "http_url_to_repo", _ => "remoteUrl" });
+        var rawUrl = Text(item, request.Provider switch { SourceControlProvider.GitHub or SourceControlProvider.Bitbucket => "clone_url", SourceControlProvider.GitLab => "http_url_to_repo", _ => "remoteUrl" });
         if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
             uri.UserInfo.Contains(':') || request.Provider != SourceControlProvider.AzureDevOps && uri.UserInfo.Length != 0)
             throw new PublicationFailure("The provider did not return a valid HTTPS repository URL.");

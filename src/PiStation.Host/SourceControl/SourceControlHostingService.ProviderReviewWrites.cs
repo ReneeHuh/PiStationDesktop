@@ -13,6 +13,8 @@ public sealed partial class SourceControlHostingService
     private async Task<SourceControlOperationResult> WriteProviderReviewAsync(PullRequestReviewTarget target, CommandId? operation,
         object request, CancellationToken token)
     {
+        if ((await DetectAsync(new(target.Workspace), token).ConfigureAwait(false)).Provider == SourceControlProvider.Bitbucket)
+            return await WriteBitbucketAsync(target, operation, request, token).ConfigureAwait(false);
         var dispatched = false;
         var completed = 0;
         string? last = null;

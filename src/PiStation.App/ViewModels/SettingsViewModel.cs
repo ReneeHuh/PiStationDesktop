@@ -160,6 +160,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     public int? NextPullRequestOffset { get; private set; }
+    public SourceControlProvider HostingProvider { get; private set; }
+    public bool CanCreateDraftPullRequest => HostingProvider != SourceControlProvider.Bitbucket;
     public PullRequestState? PullRequestStateFilter { get; private set; }
     public PullRequestListFilters? PullRequestFilters { get; private set; }
     public long PullRequestQueryVersion { get; private set; }
@@ -174,6 +176,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     internal void ApplyPullRequests(ListPullRequestsResult result, bool append = false)
     {
+        HostingProvider = result.Repository.Provider;
+        OnPropertyChanged(nameof(CanCreateDraftPullRequest));
         CanCreatePullRequest = false;
         if (!append) PullRequests.Clear();
         NextPullRequestOffset = result.NextOffset;

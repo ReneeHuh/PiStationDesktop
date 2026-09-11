@@ -12,6 +12,7 @@ public sealed partial class SourceControlHostingService
 
     public void Dispose()
     {
+        _bitbucket.Dispose();
         _writingSettings?.Dispose();
         _publicationGate.Dispose();
     }

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\ProviderReviewCommands.cs" Link="Fixtures\ProviderReviewCommands.cs" />
+    <Compile Include="..\Shared\BitbucketHttpFixture.cs" Link="Fixtures\BitbucketHttpFixture.cs" />
   </ItemGroup>
 
   <ItemGroup>

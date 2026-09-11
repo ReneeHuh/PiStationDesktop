@@ -16,7 +16,7 @@ public sealed partial class SourceControlHostingService
     private static string GitLabRequest(SourceControlRepository repo, int number) => GitLabProject(repo) + "/merge_requests/" + number.ToString(CultureInfo.InvariantCulture);
 
     private async Task<bool> IsAdditionalReviewProviderAsync(WorkspaceTarget workspace, CancellationToken token) =>
-        (await DetectAsync(new(workspace), token).ConfigureAwait(false)).Provider is SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps;
+        (await DetectAsync(new(workspace), token).ConfigureAwait(false)).Provider is SourceControlProvider.GitLab or SourceControlProvider.AzureDevOps or SourceControlProvider.Bitbucket;
 
     private async Task<JsonElement> ProviderJsonAsync(string tool, IReadOnlyList<string> args, string workspace, string? input, CancellationToken token)
     {

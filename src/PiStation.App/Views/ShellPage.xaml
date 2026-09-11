@@ -1060,6 +1060,7 @@
                                         <ComboBoxItem Content="GitHub" Tag="GitHub" />
                                         <ComboBoxItem Content="GitLab" Tag="GitLab" />
                                         <ComboBoxItem Content="Azure DevOps" Tag="AzureDevOps" />
+                                        <ComboBoxItem Content="Bitbucket Cloud" Tag="Bitbucket" />
                                     </ComboBox>
                                     <UserControl IsEnabled="{x:Bind ViewModel.Settings.CanPublishRepository, Mode=OneWay}"><StackPanel Spacing="6">
                                         <TextBox x:Name="PublishHostInput" Header="Hosting server" Text="github.com" MaxLength="255" Style="{StaticResource PiTextBoxStyle}" automation:AutomationProperties.AutomationId="PublishHostInput" />
@@ -1128,7 +1129,7 @@
                         <StackPanel Spacing="8">
                             <TextBlock Style="{StaticResource PiPanelHeaderTextStyle}" Text="Integrations" />
                             <ContentControl x:Name="BrowserSettingsHost" HorizontalContentAlignment="Stretch" />
-                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="Hosting adapters use installed and authenticated provider CLIs: gh (GitHub), glab (GitLab), and az (Azure). Bitbucket hosting actions are not available yet. Availability and authentication failures appear in diagnostics without exporting secrets." TextWrapping="Wrap" />
+                            <TextBlock Foreground="{ThemeResource PiTextSecondaryBrush}" Text="GitHub, GitLab and Azure use authenticated gh, glab and az tools. Bitbucket Cloud uses its REST API: configure PISTATION_BITBUCKET_EMAIL and PISTATION_BITBUCKET_API_TOKEN, or PISTATION_BITBUCKET_ACCESS_TOKEN, on the host. Git clone/push uses the host's Git credentials. Availability and authentication failures appear without exporting secrets." TextWrapping="Wrap" />
                             <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Diagnostics, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:RuntimeDiagnostic">

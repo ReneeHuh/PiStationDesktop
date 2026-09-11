@@ -32,7 +32,8 @@ public sealed partial class ShellPage
             AutomationProperties.SetAutomationId(pullRequests, "PullRequestReviewList");
             var title = new TextBox { Header = "Title", PlaceholderText = "Describe the change" };
             var body = new TextBox { Header = "Description", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 90, MaxHeight = 180 };
-            var draft = new CheckBox { Content = "Create as draft", IsChecked = true };
+            var draft = new CheckBox { Content = "Create as draft", IsChecked = ViewModel.Settings.CanCreateDraftPullRequest };
+            draft.SetBinding(IsEnabledProperty, new Binding { Source = ViewModel.Settings, Path = new PropertyPath(nameof(ViewModel.Settings.CanCreateDraftPullRequest)), Mode = BindingMode.OneWay });
             var status = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
             status.SetBinding(TextBlock.TextProperty, new Binding { Source = ViewModel.Settings, Path = new PropertyPath("Status"), Mode = BindingMode.OneWay });
             var refresh = new Button { Content = "Refresh" };
@@ -107,7 +108,7 @@ public sealed partial class ShellPage
                 args.Cancel = true;
                 if (string.IsNullOrWhiteSpace(title.Text)) { ViewModel.Settings.Status = "Enter a pull-request title."; return; }
                 var deferral = args.GetDeferral();
-                try { await ViewModel.CreatePullRequestAsync(title.Text, body.Text, draft.IsChecked == true); }
+                try { await ViewModel.CreatePullRequestAsync(title.Text, body.Text, draft.IsChecked == true && ViewModel.Settings.CanCreateDraftPullRequest); }
                 catch (Exception exception) { ViewModel.ReportRuntimeError(exception); }
                 finally { deferral.Complete(); }
             };

@@ -4,7 +4,7 @@
 
 PiStation is a Windows desktop tool for Pi only. Model providers and subagent workflows run through Pi; additional coding-agent runtimes are outside the product scope.
 
-The [GitHub PR review milestone](Docs/PI-PR-REVIEW-2026-09-06.md) adds hosted patches, persistent inline drafts, review submission, discussion replies and resolve/reopen with stale-head guards and durable operation recovery. [GitLab and Azure reviews](Docs/PROVIDER-PR-REVIEWS-2026-09-10.md) extend the workspace with GitLab diffs/discussions/approvals, Azure metadata and read-only conversation, provider-specific edits and automatic merge, and durable progress for interrupted reviews. The [cross-repository PR inbox](Docs/PULL-REQUEST-INBOX-2026-09-10.md) combines connected environments with independent paging/errors, provider-aware filtering and reviews bound to their originating connection. Native visual and authenticated-provider acceptance remain pending.
+The [GitHub PR review milestone](Docs/PI-PR-REVIEW-2026-09-06.md) adds hosted patches, persistent inline drafts, review submission, discussion replies and resolve/reopen with stale-head guards and durable operation recovery. [GitLab and Azure reviews](Docs/PROVIDER-PR-REVIEWS-2026-09-10.md) extend the workspace with GitLab diffs/discussions/approvals, Azure metadata and read-only conversation, provider-specific edits and automatic merge, and durable progress for interrupted reviews. The [cross-repository PR inbox](Docs/PULL-REQUEST-INBOX-2026-09-10.md) combines connected environments with independent paging/errors, provider-aware filtering and reviews bound to their originating connection. [Bitbucket Cloud hosting](Docs/BITBUCKET-HOSTING-2026-09-10.md) adds REST publication, PR creation, detailed reviews and supported management actions. Native visual and authenticated-provider acceptance remain pending.
 
 [Sent attachments and citations](Docs/SENT-CONTENT-2026-09-07.md) retain files and source metadata after draft clearing and restart, with image preview, Windows open/save/copy actions and clickable citation sources. Native UI acceptance remains pending.
 
@@ -111,10 +111,12 @@ explicit pinned ordering, unsent-draft and PR indicators, and generated titles t
 names. Project metadata includes confined icons, model/reasoning/runtime/workspace defaults, clean
 default-branch auto-pull, removal, and runnable trusted `t3.json` scripts. Host-owned source-control
 adapters use `gh`, `glab`, and `az` for supported publishing and pull-request workflows;
-available review/actions vary by provider, and Bitbucket remains unimplemented.
+Bitbucket Cloud uses host-side REST credentials. Available review/actions vary by provider.
 
-**Settings → Source control → Publish selected project** publishes to GitHub, GitLab, or Azure DevOps.
+**Settings → Source control → Publish selected project** publishes to GitHub, GitLab, Azure DevOps, or Bitbucket Cloud.
 GitLab supports nested namespaces and a chosen server; Azure requires an organization and project.
+Bitbucket requires a workspace and host-side API credentials; Git push uses existing Git credentials.
+[Bitbucket setup and capability boundaries](Docs/BITBUCKET-HOSTING-2026-09-10.md).
 Publication preserves unrelated remotes, handles repositories without commits, and reports where
 the current branch was pushed. Choose **Resume existing repository** after an interrupted publish
 or after adding the first commit; resume never creates another repository.

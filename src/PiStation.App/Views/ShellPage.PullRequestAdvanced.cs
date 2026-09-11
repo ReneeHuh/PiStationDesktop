@@ -28,8 +28,9 @@ public sealed partial class ShellPage
             if (!Confirmed(confirmMerge)) return;
             await Write(PullRequestManagementAction.Merge);
         }));
-        panel.Children.Add(Action("Enable automatic merge", "PullRequestEnableAutoMerge", nameof(review.CanEnableAutoMerge), () => Write(PullRequestManagementAction.EnableAutoMerge)));
-        panel.Children.Add(Action("Disable automatic merge", "PullRequestDisableAutoMerge", nameof(review.CanDisableAutoMerge), () => Write(PullRequestManagementAction.DisableAutoMerge)));
+        var autoEnable = Action("Enable automatic merge", "PullRequestEnableAutoMerge", nameof(review.CanEnableAutoMerge), () => Write(PullRequestManagementAction.EnableAutoMerge));
+        var autoDisable = Action("Disable automatic merge", "PullRequestDisableAutoMerge", nameof(review.CanDisableAutoMerge), () => Write(PullRequestManagementAction.DisableAutoMerge));
+        panel.Children.Add(autoEnable); panel.Children.Add(autoDisable);
         var updateStart = panel.Children.Count;
         var updateMethod = new ComboBox { Header = "Update branch method" };
         updateMethod.SetBinding(ItemsControl.ItemsSourceProperty, Bind(nameof(review.UpdateMethods)));
@@ -78,10 +79,11 @@ public sealed partial class ShellPage
         AutomationProperties.SetAutomationId(expander, "PullRequestAdvancedPanel");
         BindReviewProviderVisibility(expander, review, () =>
         {
+            autoEnable.Visibility = autoDisable.Visibility = review.PullRequest?.Provider == SourceControlProvider.Bitbucket ? Visibility.Collapsed : Visibility.Visible;
             foreach (var child in updateControls) child.Visibility = review.UpdateMethods.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var child in githubControls) child.Visibility = review.PullRequest?.Provider == SourceControlProvider.GitHub ? Visibility.Visible : Visibility.Collapsed;
             foreach (var child in reactionControls) child.Visibility = review.PullRequest?.Provider is SourceControlProvider.GitHub or SourceControlProvider.GitLab ? Visibility.Visible : Visibility.Collapsed;
-            expander.Header = review.PullRequest?.Provider == SourceControlProvider.AzureDevOps ? "Merge options" : "Merge, updates and reactions";
+            expander.Header = review.PullRequest?.Provider is SourceControlProvider.AzureDevOps or SourceControlProvider.Bitbucket ? "Merge options" : "Merge, updates and reactions";
         });
         return expander;
 
